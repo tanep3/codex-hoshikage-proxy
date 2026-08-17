@@ -64,11 +64,12 @@ impl AppState {
         cwd_policy: CwdPolicy,
         default_cwd: std::path::PathBuf,
         api_key: Option<String>,
+        approval_timeout: Duration,
         journal: Arc<EventJournal>,
         responses: Arc<ResponseStore>,
     ) -> Self {
         let provider_limits = models.provider_limits();
-        let approvals = ApprovalManager::new(Arc::clone(&runtime));
+        let approvals = ApprovalManager::new(Arc::clone(&runtime), approval_timeout);
         approvals.start();
         Self {
             runtime,
@@ -634,6 +635,7 @@ async fn run_chat_stream(
                 "choices": [{"index": 0, "delta": {"content": delta}, "finish_reason": null}]
             });
             if sender.send(sse_data(&chunk)).await.is_err() {
+                tracing::info!(?turn_id, "client disconnected; interrupting chat turn");
                 if let Some(turn_id) = turn_id.as_deref() {
                     let _ = state
                         .runtime
@@ -961,6 +963,7 @@ async fn run_stream(
                 .await
                 .is_err()
             {
+                tracing::info!(?turn_id, "client disconnected; interrupting response turn");
                 if let Some(turn_id) = turn_id.as_deref() {
                     let _ = state
                         .runtime

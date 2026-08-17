@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time::Duration};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalCapability {
@@ -47,15 +47,17 @@ pub struct ApprovalManager {
     next_id: Mutex<u64>,
     turn_capabilities: Mutex<HashMap<String, ApprovalCapability>>,
     records: Mutex<HashMap<String, ApprovalRecord>>,
+    timeout: Duration,
 }
 
 impl ApprovalManager {
-    pub fn new(runtime: Arc<CodexRuntime>) -> Arc<Self> {
+    pub fn new(runtime: Arc<CodexRuntime>, timeout: Duration) -> Arc<Self> {
         Arc::new(Self {
             runtime,
             next_id: Mutex::new(1),
             turn_capabilities: Mutex::new(HashMap::new()),
             records: Mutex::new(HashMap::new()),
+            timeout,
         })
     }
 
@@ -137,6 +139,7 @@ impl ApprovalManager {
             "threadId": view.details.get("threadId"),
             "state": view.state,
         }));
+        tracing::info!(approval_id, decision = ?decision, state = view.state, "approval resolved");
         Ok(view)
     }
 
@@ -204,7 +207,7 @@ impl ApprovalManager {
             let manager = Arc::clone(self);
             let timeout_id = approval_id.clone();
             tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                tokio::time::sleep(manager.timeout).await;
                 let _ = manager.expire(&timeout_id).await;
             });
             self.runtime.publish(json!({
@@ -258,6 +261,7 @@ impl ApprovalManager {
             "threadId": view.details.get("threadId"),
             "state": view.state,
         }));
+        tracing::warn!(approval_id, state = view.state, "approval expired");
         Ok(())
     }
 }

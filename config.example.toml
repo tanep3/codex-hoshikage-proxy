@@ -20,6 +20,10 @@ allowed_cwds = [
     "${HOME}/projects",
 ]
 
+[approval]
+# Approval timeout in seconds. Use a short value only for testing.
+timeout_seconds = 300
+
 [defaults]
 model = "hoshikage/unsloth-gemma4-12b-qat-thinking-off"
 

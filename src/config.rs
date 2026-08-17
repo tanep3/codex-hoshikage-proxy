@@ -26,6 +26,7 @@ pub struct RawConfig {
     pub server: RawServerConfig,
     pub codex: RawCodexConfig,
     pub security: RawSecurityConfig,
+    pub approval: RawApprovalConfig,
     pub defaults: RawDefaultsConfig,
     pub providers: HashMap<String, RawProviderConfig>,
     pub models: HashMap<String, RawModelConfig>,
@@ -37,9 +38,24 @@ impl Default for RawConfig {
             server: RawServerConfig::default(),
             codex: RawCodexConfig::default(),
             security: RawSecurityConfig::default(),
+            approval: RawApprovalConfig::default(),
             defaults: RawDefaultsConfig::default(),
             providers: RawModelRegistryConfig::default().providers,
             models: RawModelRegistryConfig::default().models,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct RawApprovalConfig {
+    pub timeout_seconds: u64,
+}
+
+impl Default for RawApprovalConfig {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: 300,
         }
     }
 }
@@ -223,6 +239,7 @@ pub struct ValidatedConfig {
     pub models: RawModelRegistryConfig,
     pub codex_home: PathBuf,
     pub api_key: Option<String>,
+    pub approval_timeout_seconds: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -337,6 +354,7 @@ impl ValidatedConfig {
             models: registry,
             codex_home: proxy_home().join("codex-home"),
             api_key,
+            approval_timeout_seconds: raw.approval.timeout_seconds,
         })
     }
 
