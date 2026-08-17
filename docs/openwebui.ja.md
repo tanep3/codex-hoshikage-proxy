@@ -38,10 +38,14 @@ api_key = "tane-codex-proxy-local-key"
    PROXY_BASE_URL = http://192.168.0.220:4040
    PROXY_API_KEY = tane-codex-proxy-local-key
    REQUEST_TIMEOUT_SECONDS = 120
+   HEALTHCHECK_TIMEOUT_SECONDS = 2
    ```
 
    アドレスとキーは自分の値へ置き換えます。
 5. 保存し、PipeのManifoldモデルを有効化します。
+
+通常のリクエスト前に、PipeはProxyの`/readyz`を確認します。Proxy停止中、またはCodexの準備ができていない場合は、
+長いリクエストタイムアウトまで待たずに処理を終了し、状態を表示します。別モデルへ勝手に送ることはしません。
 
 Pipeは `/v1/models` を取得し、モデルを `Codex / provider / provider/model` のように表示します。
 設定変更後はPipeのモデル一覧を更新してください。

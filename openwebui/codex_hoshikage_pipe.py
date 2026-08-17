@@ -33,6 +33,7 @@ class Pipe:
             description="Optional Proxy API key",
         )
         REQUEST_TIMEOUT_SECONDS: float = Field(default=120.0, ge=1.0)
+        HEALTHCHECK_TIMEOUT_SECONDS: float = Field(default=2.0, ge=0.1)
         CONVERSATION_ID: str = Field(
             default="openwebui_id_001",
             description=(
@@ -58,6 +59,9 @@ class Pipe:
     def _base_url(self) -> str:
         return self.valves.PROXY_BASE_URL.rstrip("/")
 
+    def _healthcheck_timeout(self) -> float:
+        return self.valves.HEALTHCHECK_TIMEOUT_SECONDS
+
     def pipes(self) -> list[dict[str, str]]:
         """Return the current Proxy model catalog for OpenWebUI selection."""
         import httpx
@@ -66,7 +70,7 @@ class Pipe:
             response = httpx.get(
                 f"{self._base_url()}/v1/models",
                 headers=self._headers(),
-                timeout=self.valves.REQUEST_TIMEOUT_SECONDS,
+                timeout=self._healthcheck_timeout(),
             )
             response.raise_for_status()
             models = response.json().get("data", [])
@@ -106,6 +110,7 @@ class Pipe:
         if __task__ is not None:
             return
 
+        timeout = httpx.Timeout(self.valves.REQUEST_TIMEOUT_SECONDS)
         payload = dict(body)
         requested_model = payload.get("model")
         proxy_model = requested_model
@@ -145,8 +150,35 @@ class Pipe:
             payload.pop("previous_response_id", None)
         payload["stream"] = True
 
-        timeout = httpx.Timeout(self.valves.REQUEST_TIMEOUT_SECONDS)
         async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                ready = await client.get(
+                    f"{self._base_url()}/readyz",
+                    headers=self._headers(),
+                    timeout=self._healthcheck_timeout(),
+                )
+                ready.raise_for_status()
+            except Exception as error:
+                message = (
+                    "Codex Hoshikage Proxy is unavailable or not ready. "
+                    "Start the proxy and try again."
+                )
+                if __event_emitter__ is not None:
+                    try:
+                        await __event_emitter__(
+                            {
+                                "type": "status",
+                                "data": {
+                                    "status": "error",
+                                    "description": message,
+                                    "done": True,
+                                },
+                            }
+                        )
+                    except Exception:
+                        pass
+                yield message
+                return
             async with client.stream(
                 "POST",
                 f"{self._base_url()}/v1/responses",

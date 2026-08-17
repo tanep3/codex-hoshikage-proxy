@@ -38,10 +38,15 @@ valves as `PROXY_API_KEY`. If you use `api_key_env`, export the value in the pro
    PROXY_BASE_URL = http://192.168.0.220:4040
    PROXY_API_KEY = tane-codex-proxy-local-key
    REQUEST_TIMEOUT_SECONDS = 120
+   HEALTHCHECK_TIMEOUT_SECONDS = 2
    ```
 
    Replace the address and key with your values.
 5. Save the Pipe and enable its manifold models.
+
+Before every normal request, the Pipe checks the Proxy's `/readyz` endpoint. If the Proxy is stopped
+or Codex is not ready, the Pipe stops quickly and reports that state instead of waiting for the full
+request timeout. It does not silently send the request to another model.
 
 The Pipe requests `/v1/models` and presents model IDs as `Codex / provider / provider/model`.
 Refresh the Pipe's model list after changing provider configuration.

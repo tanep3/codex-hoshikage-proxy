@@ -12,7 +12,8 @@ for interactive Approval.
 2. Set `PROXY_BASE_URL` to the Proxy URL without `/v1`, for example
    `http://192.168.0.220:4040`.
 3. Set `PROXY_API_KEY` when the Proxy requires API key authentication.
-4. Enable the generated manifold models.
+4. Leave `HEALTHCHECK_TIMEOUT_SECONDS` at its default of `2` seconds unless your network is unusually slow.
+5. Enable the generated manifold models.
 
 The current Pipe uses the Proxy Responses API and keeps a context-continuation mapping in memory.
 Its default logical conversation ID is `openwebui_id_001`, so threads for the same OpenWebUI user share
