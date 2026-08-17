@@ -84,12 +84,14 @@ impl Default for RawCodexConfig {
 #[serde(default)]
 pub struct RawSecurityConfig {
     pub allowed_cwds: Vec<String>,
+    pub api_key_env: Option<String>,
 }
 
 impl Default for RawSecurityConfig {
     fn default() -> Self {
         Self {
             allowed_cwds: Vec::new(),
+            api_key_env: None,
         }
     }
 }
@@ -206,6 +208,7 @@ pub struct ValidatedConfig {
     pub tested_codex_version: String,
     pub models: RawModelRegistryConfig,
     pub codex_home: PathBuf,
+    pub api_key: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -248,9 +251,12 @@ impl ValidatedConfig {
     }
 
     pub fn from_raw(raw: RawConfig) -> Result<Self, ConfigError> {
-        let listen_addr = format!("{}:{}", expand_home(&raw.server.host), raw.server.port)
-            .parse()
-            .map_err(|error| ConfigError::Invalid(format!("invalid server address: {error}")))?;
+        let listen_addr: SocketAddr =
+            format!("{}:{}", expand_home(&raw.server.host), raw.server.port)
+                .parse()
+                .map_err(|error| {
+                    ConfigError::Invalid(format!("invalid server address: {error}"))
+                })?;
         if raw.codex.command.trim().is_empty() {
             return Err(ConfigError::Invalid(
                 "codex.command must not be empty".into(),
@@ -282,6 +288,18 @@ impl ValidatedConfig {
                 ConfigError::Invalid("security.allowed_cwds must not be empty".into())
             })?,
         };
+        let api_key = raw
+            .security
+            .api_key_env
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .and_then(|name| env::var(name).ok())
+            .filter(|value| !value.is_empty());
+        if !listen_addr.ip().is_loopback() && api_key.is_none() {
+            return Err(ConfigError::Invalid(
+                "non-loopback server requires security.api_key_env with a non-empty environment value".into(),
+            ));
+        }
         let registry = RawModelRegistryConfig {
             default_model: raw.defaults.model,
             providers: raw.providers,
@@ -299,6 +317,7 @@ impl ValidatedConfig {
             tested_codex_version: raw.codex.compatibility.tested_version,
             models: registry,
             codex_home: proxy_home().join("codex-home"),
+            api_key,
         })
     }
 
@@ -384,6 +403,20 @@ mod tests {
         let mut raw = RawConfig::default();
         raw.security.allowed_cwds.clear();
         assert!(ValidatedConfig::from_raw(raw).is_err());
+    }
+
+    #[test]
+    fn rejects_non_loopback_without_api_key() {
+        let mut raw = RawConfig::default();
+        raw.server.host = "192.0.2.10".into();
+        raw.security.allowed_cwds = vec![
+            std::env::current_dir()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        ];
+        let error = ValidatedConfig::from_raw(raw).unwrap_err();
+        assert!(matches!(error, ConfigError::Invalid(message) if message.contains("non-loopback")));
     }
 
     #[test]

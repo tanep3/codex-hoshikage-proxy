@@ -12,6 +12,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
+    middleware,
     response::{
         IntoResponse, Response,
         sse::{Event, Sse},
@@ -40,6 +41,7 @@ pub struct AppState {
     pub models: Arc<ModelRegistry>,
     pub cwd_policy: CwdPolicy,
     pub default_cwd: std::path::PathBuf,
+    pub api_key: Option<String>,
     pub journal: Arc<EventJournal>,
     responses: Arc<ResponseStore>,
     permits: Arc<ProviderPermitPool>,
@@ -61,6 +63,7 @@ impl AppState {
         models: ModelRegistry,
         cwd_policy: CwdPolicy,
         default_cwd: std::path::PathBuf,
+        api_key: Option<String>,
         journal: Arc<EventJournal>,
         responses: Arc<ResponseStore>,
     ) -> Self {
@@ -72,6 +75,7 @@ impl AppState {
             models: Arc::new(models),
             cwd_policy,
             default_cwd,
+            api_key,
             journal,
             responses,
             permits: Arc::new(ProviderPermitPool::new(provider_limits)),
@@ -177,7 +181,39 @@ pub fn router(state: AppState) -> Router {
             "/v1/codex/approvals/{approval_id}",
             get(get_approval).post(decide_approval),
         )
+        .layer(middleware::from_fn_with_state(state.clone(), authenticate))
         .with_state(state)
+}
+
+async fn authenticate(
+    State(state): State<AppState>,
+    request: axum::http::Request<axum::body::Body>,
+    next: middleware::Next,
+) -> Response {
+    let Some(expected) = state.api_key.as_deref() else {
+        return next.run(request).await;
+    };
+    let authorized = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .is_some_and(|value| value == expected);
+    if authorized {
+        next.run(request).await
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "error": {
+                    "message": "API key is missing or invalid",
+                    "type": "invalid_request_error",
+                    "code": "invalid_api_key"
+                }
+            })),
+        )
+            .into_response()
+    }
 }
 
 async fn list_models(State(state): State<AppState>) -> impl IntoResponse {

@@ -98,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             models,
             config.cwd_policy.clone(),
             config.default_cwd.clone(),
+            config.api_key.clone(),
             journal,
             responses,
         )),

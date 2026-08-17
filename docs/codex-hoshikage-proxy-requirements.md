@@ -840,6 +840,7 @@ allowed_cwds = [
     "${HOME}/work",
     "${HOME}/projects",
 ]
+api_key_env = "CODEX_HOSHIKAGE_PROXY_API_KEY"
 ```
 
 指定された `cwd` は絶対パスで、正規化後にAllowlist内であり、実在する場合だけ受け付ける。Proxyは存在しないディレクトリを作成しない。
