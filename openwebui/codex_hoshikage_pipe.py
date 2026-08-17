@@ -38,6 +38,14 @@ class Pipe:
         )
         REQUEST_TIMEOUT_SECONDS: float = Field(default=120.0, ge=1.0)
         HEALTHCHECK_TIMEOUT_SECONDS: float = Field(default=2.0, ge=0.1)
+        MODEL_LIST_TIMEOUT_SECONDS: float = Field(
+            default=20.0,
+            ge=1.0,
+            description=(
+                "Timeout for refreshing the Proxy model catalog. This is longer "
+                "than the liveness check because Provider catalogs may be slow."
+            ),
+        )
         CONVERSATION_ID: str = Field(
             default="openwebui_id_001",
             description=(
@@ -74,7 +82,7 @@ class Pipe:
             response = httpx.get(
                 f"{self._base_url()}/v1/models",
                 headers=self._headers(),
-                timeout=self._healthcheck_timeout(),
+                timeout=self.valves.MODEL_LIST_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
             models = response.json().get("data", [])

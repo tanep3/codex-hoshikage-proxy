@@ -49,6 +49,10 @@ or Codex is not ready, the Pipe stops quickly and reports that state instead of 
 request timeout. It does not silently send the request to another model.
 
 The Pipe requests `/v1/models` and presents model IDs as `Codex / provider / provider/model`.
+Model discovery can take longer than the Proxy liveness check because the Proxy refreshes
+Provider catalogs on demand. The Pipe therefore uses a separate 20-second model-list timeout.
+After changing Provider availability, save/update the Pipe in OpenWebUI (or reload the Function)
+and refresh the browser so OpenWebUI calls `pipes()` again and rebuilds its manifold model list.
 Refresh the Pipe's model list after changing provider configuration.
 
 ## 4. Context-continuation experiment
@@ -97,8 +101,8 @@ path. A manually cancelled approval also ends the turn and releases the provider
 - **401**: the Pipe key and proxy `security.api_key` must match exactly.
 - **404 on `/v1/chat/completions`**: the Pipe is pointing at an old process or the wrong port; restart
   the current proxy and use the base URL without `/v1`.
-- **Only some models appear**: refresh the Pipe and check that the provider is enabled and its model
-  is registered. Hoshikage models without tool-calling capability are intentionally filtered from Codex
+- **Only some models appear**: save/update or reload the Pipe, then refresh the browser. Check that
+  the provider is enabled and that its catalog endpoint responds. Hoshikage models without tool-calling capability are intentionally filtered from Codex
   agent use.
 - **A turn fails with `tool_calling_not_supported`**: select a model whose provider catalog reports
   tool support.
