@@ -3,7 +3,8 @@ use std::io::{self, BufRead, Write};
 
 fn main() {
     let stdin = io::stdin();
-    let approval_mode = std::env::var("FAKE_CODEX_APPROVAL").is_ok();
+    let approval_mode = std::env::var("FAKE_CODEX_APPROVAL").is_ok()
+        || std::env::args().any(|arg| arg == "--approval");
     let exit_after_initialize = std::env::args().any(|arg| arg == "--exit-after-initialize");
     let mut approval_pending = false;
     for line in stdin.lock().lines().map_while(Result::ok) {

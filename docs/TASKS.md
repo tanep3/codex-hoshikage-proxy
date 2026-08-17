@@ -30,11 +30,12 @@ timeout時はProxy側のCleanupとCodexへの拒否を確認済みだが、標�
 - [ ] Approval capabilityなしクライアントのCleanup後 `approval_required` を確認
 - [x] Approval timeoutの実時間動作を確認（Proxy Cleanup済み、標準Dialogは残ることがある）
 - [ ] Approval二重回答と未提示Decisionの拒否をHTTP経路で確認
-- [ ] SSE開始後にApprovalエラーが発生した場合のSSE error eventを確認
+- [x] SSE開始後にApprovalエラーが発生した場合のSSE error eventを確認（Fake Codex HTTP統合テスト）
 
 自動テストでは、Domain／Approval Managerの二重回答拒否、未提示Decision拒否、
 `approval_required`のThread分離、ApprovalイベントのTurn分離を確認済み。残る項目は
-実HTTP／実Codex経路の受入確認である。
+実Codexを使ったApproval APIの受入確認と、二重回答の実HTTP経路確認である。Fake Codexを
+使ったHTTP統合テストでは、非対話クライアントの`approval_required` SSEとストリーム終了を確認済み。
 
 ### C. リカバリと終了処理
 
