@@ -77,7 +77,7 @@ impl ApprovalManager {
                     continue;
                 };
                 let params = event.get("params").cloned().unwrap_or_else(|| json!({}));
-                let _ = manager.handle_request(rpc_id, params).await;
+                let _ = manager.handle_request(rpc_id, method, params).await;
             }
         });
     }
@@ -143,6 +143,7 @@ impl ApprovalManager {
     async fn handle_request(
         self: &Arc<Self>,
         rpc_id: u64,
+        method: &str,
         params: Value,
     ) -> Result<(), ApprovalManagerError> {
         let thread_id = params
@@ -161,9 +162,10 @@ impl ApprovalManager {
                 values
                     .iter()
                     .filter_map(|value| value.as_str().and_then(parse_codex_decision))
-                    .collect()
+                    .collect::<Vec<_>>()
             })
-            .unwrap_or_default();
+            .filter(|decisions| !decisions.is_empty())
+            .unwrap_or_else(|| default_decisions_for(method));
         let approval_id = {
             let mut next = self.next_id.lock().await;
             let id = format!("approval_{}", *next);
@@ -296,6 +298,22 @@ fn parse_wire_decision(value: &str) -> Option<ApprovalDecision> {
     }
 }
 
+fn default_decisions_for(method: &str) -> Vec<ApprovalDecision> {
+    if matches!(
+        method,
+        "item/commandExecution/requestApproval" | "item/fileChange/requestApproval"
+    ) {
+        vec![
+            ApprovalDecision::Accept,
+            ApprovalDecision::AcceptForSession,
+            ApprovalDecision::Decline,
+            ApprovalDecision::Cancel,
+        ]
+    } else {
+        Vec::new()
+    }
+}
+
 fn parse_codex_decision(value: &str) -> Option<ApprovalDecision> {
     match value {
         "accept" => Some(ApprovalDecision::Accept),
@@ -312,5 +330,28 @@ fn codex_decision(decision: &ApprovalDecision) -> &'static str {
         ApprovalDecision::AcceptForSession => "acceptForSession",
         ApprovalDecision::Decline => "decline",
         ApprovalDecision::Cancel => "cancel",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_approval_without_available_decisions_uses_standard_choices() {
+        assert_eq!(
+            default_decisions_for("item/commandExecution/requestApproval"),
+            vec![
+                ApprovalDecision::Accept,
+                ApprovalDecision::AcceptForSession,
+                ApprovalDecision::Decline,
+                ApprovalDecision::Cancel,
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_approval_method_does_not_gain_implicit_choices() {
+        assert!(default_decisions_for("item/permissions/requestApproval").is_empty());
     }
 }
