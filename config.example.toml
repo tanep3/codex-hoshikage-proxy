@@ -35,3 +35,30 @@ provider = "hoshikage"
 upstream_model = "unsloth-gemma4-12b-qat-thinking-off"
 display_name = "Unsloth Gemma 4 12B (thinking off)"
 reasoning_efforts = []
+
+# Optional ChatGPT provider. Authentication is supplied through the user's
+# Codex auth.json in the generated CODEX_HOME; the Proxy does not create it.
+# [providers.chatgpt]
+# codex_id = "openai"
+# enabled = true
+# max_concurrent_turns = 4
+#
+# [models."chatgpt/<model-id>"]
+# provider = "chatgpt"
+# upstream_model = "<model-id>"
+# display_name = "ChatGPT model"
+# reasoning_efforts = ["low", "medium", "high"]
+# default_reasoning_effort = "medium"
+
+# Optional Ollama provider.
+# [providers.ollama]
+# codex_id = "ollama"
+# enabled = true
+# max_concurrent_turns = 1
+# base_url = "http://127.0.0.1:11434/v1"
+#
+# [models."ollama/<model-id>"]
+# provider = "ollama"
+# upstream_model = "<model-id>"
+# display_name = "Ollama model"
+# reasoning_efforts = []
