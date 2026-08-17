@@ -1,5 +1,6 @@
 use crate::{
     config::CwdPolicy,
+    journal::{EventJournal, JournalEntry, now_ms},
     model::{ModelError, ModelRegistry},
     runtime::{CodexRuntime, RuntimeError},
     turn::{ResponseContentPart, ResponseOutputItem, ResponseRecord},
@@ -8,7 +9,10 @@ use axum::{
     Json, Router,
     extract::State,
     http::StatusCode,
-    response::IntoResponse,
+    response::{
+        IntoResponse, Response,
+        sse::{Event, Sse},
+    },
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
@@ -21,7 +25,11 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::Mutex;
+use tokio::{
+    sync::{Mutex, broadcast, mpsc},
+    time,
+};
+use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -29,6 +37,7 @@ pub struct AppState {
     pub models: Arc<ModelRegistry>,
     pub cwd_policy: CwdPolicy,
     pub default_cwd: std::path::PathBuf,
+    pub journal: Arc<EventJournal>,
     responses: Arc<Mutex<HashMap<String, ThreadContext>>>,
     pub next_response_id: Arc<AtomicU64>,
 }
@@ -39,18 +48,27 @@ struct ThreadContext {
     model_id: String,
 }
 
+struct StartedTurn {
+    model: crate::model::ResolvedModel,
+    thread_id: String,
+    turn_id: Option<String>,
+    notifications: broadcast::Receiver<Value>,
+}
+
 impl AppState {
     pub fn new(
         runtime: Arc<CodexRuntime>,
         models: ModelRegistry,
         cwd_policy: CwdPolicy,
         default_cwd: std::path::PathBuf,
+        journal: Arc<EventJournal>,
     ) -> Self {
         Self {
             runtime,
             models: Arc::new(models),
             cwd_policy,
             default_cwd,
+            journal,
             responses: Arc::new(Mutex::new(HashMap::new())),
             next_response_id: Arc::new(AtomicU64::new(1)),
         }
@@ -154,95 +172,18 @@ async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
 async fn create_response(
     State(state): State<AppState>,
     Json(request): Json<ResponsesRequest>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
+    let response_id = next_response_id(&state);
+    let started = begin_turn(&state, &request).await?;
     if request.stream {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "unsupported_parameter",
-            "streaming Responses is implemented in Phase 3",
-        ));
+        return stream_response(state, response_id, started).await;
     }
-    let reasoning = request.reasoning.and_then(|value| value.effort);
-    let model = state
-        .models
-        .resolve(request.model.as_deref(), reasoning.as_deref())
-        .map_err(model_error)?;
-    let cwd = request
-        .metadata
-        .get("codex.cwd")
-        .map(String::as_str)
-        .map(|value| state.cwd_policy.validate(value))
-        .transpose()
-        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, "invalid_cwd", error.to_string()))?
-        .unwrap_or_else(|| state.default_cwd.clone());
-    let input = normalize_input(&request.input)?;
-
-    let (thread_id, previous_response_id) =
-        if let Some(response_id) = request.previous_response_id.as_deref() {
-            let responses = state.responses.lock().await;
-            let context = responses.get(response_id).ok_or_else(|| {
-                ApiError::new(
-                    StatusCode::NOT_FOUND,
-                    "thread_not_found",
-                    "previous response was not found",
-                )
-            })?;
-            if context.model_id != model.public_model_id {
-                return Err(ApiError::new(
-                    StatusCode::BAD_REQUEST,
-                    "model_mismatch",
-                    "a durable Responses thread cannot change model",
-                ));
-            }
-            (context.thread_id.clone(), Some(response_id.to_string()))
-        } else {
-            let result = state
-                .runtime
-                .request(
-                    "thread/start",
-                    json!({
-                        "model": model.upstream_model_id,
-                        "modelProvider": model.codex_provider_id,
-                        "cwd": cwd,
-                        "ephemeral": false,
-                        "approvalPolicy": "on-request",
-                        "sandbox": "workspace-write"
-                    }),
-                )
-                .await
-                .map_err(runtime_error)?;
-            let thread_id = string_at(&result, &["thread", "id"])
-                .or_else(|| result.get("id").and_then(Value::as_str))
-                .ok_or_else(|| {
-                    ApiError::new(
-                        StatusCode::BAD_GATEWAY,
-                        "runtime_error",
-                        "thread/start returned no thread id",
-                    )
-                })?
-                .to_string();
-            (thread_id, None)
-        };
-
-    let mut notifications = state.runtime.subscribe();
-    let turn_result = state
-        .runtime
-        .request(
-            "turn/start",
-            json!({
-                "threadId": thread_id,
-                "input": input,
-                "model": model.upstream_model_id,
-                "cwd": cwd,
-                "effort": model.reasoning_effort.map(reasoning_name),
-                "approvalPolicy": "on-request"
-            }),
-        )
-        .await
-        .map_err(runtime_error)?;
-    let turn_id = string_at(&turn_result, &["turn", "id"])
-        .or_else(|| turn_result.get("id").and_then(Value::as_str))
-        .map(str::to_owned);
+    let StartedTurn {
+        model,
+        thread_id,
+        turn_id,
+        mut notifications,
+    } = started;
     let mut text = String::new();
     loop {
         let event = tokio::time::timeout(Duration::from_secs(120), notifications.recv())
@@ -290,10 +231,6 @@ async fn create_response(
         }
     }
 
-    let response_id = format!(
-        "resp_{}",
-        state.next_response_id.fetch_add(1, Ordering::Relaxed)
-    );
     state.responses.lock().await.insert(
         response_id.clone(),
         ThreadContext {
@@ -317,8 +254,295 @@ async fn create_response(
         }],
         status: "completed",
     };
-    let _ = previous_response_id;
-    Ok((StatusCode::OK, Json(response)))
+    let _ = state
+        .journal
+        .append(&JournalEntry {
+            timestamp_ms: now_ms(),
+            event: "response.completed",
+            response_id: &response.id,
+            model: &response.model,
+            status: "completed",
+        })
+        .await;
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+async fn begin_turn(state: &AppState, request: &ResponsesRequest) -> Result<StartedTurn, ApiError> {
+    let reasoning = request
+        .reasoning
+        .as_ref()
+        .and_then(|value| value.effort.as_deref());
+    let model = state
+        .models
+        .resolve(request.model.as_deref(), reasoning)
+        .map_err(model_error)?;
+    let cwd = request
+        .metadata
+        .get("codex.cwd")
+        .map(String::as_str)
+        .map(|value| state.cwd_policy.validate(value))
+        .transpose()
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, "invalid_cwd", error.to_string()))?
+        .unwrap_or_else(|| state.default_cwd.clone());
+    let input = normalize_input(&request.input)?;
+    let thread_id = if let Some(response_id) = request.previous_response_id.as_deref() {
+        let responses = state.responses.lock().await;
+        let context = responses.get(response_id).ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "thread_not_found",
+                "previous response was not found",
+            )
+        })?;
+        if context.model_id != model.public_model_id {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "model_mismatch",
+                "a durable Responses thread cannot change model",
+            ));
+        }
+        context.thread_id.clone()
+    } else {
+        let result = state
+            .runtime
+            .request(
+                "thread/start",
+                json!({
+                    "model": model.upstream_model_id,
+                    "modelProvider": model.codex_provider_id,
+                    "cwd": cwd,
+                    "ephemeral": false,
+                    "approvalPolicy": "on-request",
+                    "sandbox": "workspace-write"
+                }),
+            )
+            .await
+            .map_err(runtime_error)?;
+        string_at(&result, &["thread", "id"])
+            .or_else(|| result.get("id").and_then(Value::as_str))
+            .ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::BAD_GATEWAY,
+                    "runtime_error",
+                    "thread/start returned no thread id",
+                )
+            })?
+            .to_string()
+    };
+    let notifications = state.runtime.subscribe();
+    let turn_result = state
+        .runtime
+        .request(
+            "turn/start",
+            json!({
+                "threadId": thread_id,
+                "input": input,
+                "model": model.upstream_model_id,
+                "cwd": cwd,
+                "effort": model.reasoning_effort.map(reasoning_name),
+                "approvalPolicy": "on-request"
+            }),
+        )
+        .await
+        .map_err(runtime_error)?;
+    let turn_id = string_at(&turn_result, &["turn", "id"])
+        .or_else(|| turn_result.get("id").and_then(Value::as_str))
+        .map(str::to_owned);
+    Ok(StartedTurn {
+        model,
+        thread_id,
+        turn_id,
+        notifications,
+    })
+}
+
+async fn stream_response(
+    state: AppState,
+    response_id: String,
+    started: StartedTurn,
+) -> Result<Response, ApiError> {
+    let created = ResponseRecord {
+        id: response_id.clone(),
+        object: "response",
+        model: started.model.public_model_id.clone(),
+        output: Vec::new(),
+        status: "in_progress",
+    };
+    let (sender, receiver) = mpsc::channel::<Event>(32);
+    let _ = state
+        .journal
+        .append(&JournalEntry {
+            timestamp_ms: now_ms(),
+            event: "response.created",
+            response_id: &response_id,
+            model: &started.model.public_model_id,
+            status: "in_progress",
+        })
+        .await;
+    sender
+        .send(sse_json("response.created", &created).map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "stream_error",
+                error.to_string(),
+            )
+        })?)
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "stream_error",
+                "stream closed",
+            )
+        })?;
+    tokio::spawn(run_stream(state, response_id, started, sender));
+    let stream = ReceiverStream::new(receiver).map(Ok::<Event, std::convert::Infallible>);
+    Ok(Sse::new(stream).into_response())
+}
+
+async fn run_stream(
+    state: AppState,
+    response_id: String,
+    started: StartedTurn,
+    sender: mpsc::Sender<Event>,
+) {
+    let StartedTurn {
+        model,
+        thread_id,
+        turn_id,
+        mut notifications,
+    } = started;
+    loop {
+        let event = time::timeout(Duration::from_secs(120), notifications.recv()).await;
+        let Ok(Ok(event)) = event else {
+            let _ = sender
+                .send(
+                    sse_json(
+                        "response.failed",
+                        &json!({"id": response_id, "status": "failed"}),
+                    )
+                    .unwrap_or_else(|_| Event::default()),
+                )
+                .await;
+            let _ = state
+                .journal
+                .append(&JournalEntry {
+                    timestamp_ms: now_ms(),
+                    event: "response.failed",
+                    response_id: &response_id,
+                    model: &model.public_model_id,
+                    status: "failed",
+                })
+                .await;
+            break;
+        };
+        let method = event
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let params = event.get("params").cloned().unwrap_or_else(|| json!({}));
+        if !matches_thread_and_turn(&params, &thread_id, turn_id.as_deref()) {
+            continue;
+        }
+        if method == "item/agentMessage/delta" {
+            let Some(delta) = params.get("delta").and_then(Value::as_str) else {
+                continue;
+            };
+            let payload =
+                json!({"id": response_id, "output_index": 0, "item_id": "msg_1", "delta": delta});
+            if sender
+                .send(
+                    sse_json("response.output_text.delta", &payload)
+                        .unwrap_or_else(|_| Event::default()),
+                )
+                .await
+                .is_err()
+            {
+                if let Some(turn_id) = turn_id.as_deref() {
+                    let _ = state
+                        .runtime
+                        .request(
+                            "turn/interrupt",
+                            json!({"threadId": thread_id, "turnId": turn_id}),
+                        )
+                        .await;
+                }
+                break;
+            }
+            let _ = state
+                .journal
+                .append(&JournalEntry {
+                    timestamp_ms: now_ms(),
+                    event: "response.output_text.delta",
+                    response_id: &response_id,
+                    model: &model.public_model_id,
+                    status: "in_progress",
+                })
+                .await;
+        } else if method == "turn/completed" {
+            let status = params
+                .pointer("/turn/status")
+                .and_then(Value::as_str)
+                .unwrap_or("completed");
+            if status != "completed" {
+                let _ = sender
+                    .send(
+                        sse_json(
+                            "response.failed",
+                            &json!({"id": response_id, "status": "failed"}),
+                        )
+                        .unwrap_or_else(|_| Event::default()),
+                    )
+                    .await;
+                let _ = state
+                    .journal
+                    .append(&JournalEntry {
+                        timestamp_ms: now_ms(),
+                        event: "response.failed",
+                        response_id: &response_id,
+                        model: &model.public_model_id,
+                        status: "failed",
+                    })
+                    .await;
+                break;
+            }
+            state.responses.lock().await.insert(
+                response_id.clone(),
+                ThreadContext {
+                    thread_id,
+                    model_id: model.public_model_id.clone(),
+                },
+            );
+            let completed = json!({"id": response_id, "object": "response", "status": "completed", "model": model.public_model_id});
+            let _ = sender
+                .send(
+                    sse_json("response.completed", &completed).unwrap_or_else(|_| Event::default()),
+                )
+                .await;
+            let _ = state
+                .journal
+                .append(&JournalEntry {
+                    timestamp_ms: now_ms(),
+                    event: "response.completed",
+                    response_id: &response_id,
+                    model: &model.public_model_id,
+                    status: "completed",
+                })
+                .await;
+            break;
+        }
+    }
+}
+
+fn next_response_id(state: &AppState) -> String {
+    format!(
+        "resp_{}",
+        state.next_response_id.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+fn sse_json<T: Serialize>(event: &str, value: &T) -> Result<Event, axum::Error> {
+    Event::default().event(event).json_data(value)
 }
 
 fn normalize_input(input: &Value) -> Result<Vec<Value>, ApiError> {

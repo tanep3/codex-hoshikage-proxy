@@ -1,6 +1,7 @@
 use codex_hoshikage_proxy::{
     config::{ValidatedConfig, default_config_path},
     http::{AppState, router},
+    journal::EventJournal,
     model::ModelRegistry,
     runtime::CodexRuntime,
 };
@@ -14,6 +15,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_path = default_config_path();
     let config = ValidatedConfig::load(&config_path)?;
     config.prepare_codex_home()?;
+    let journal = std::sync::Arc::new(
+        EventJournal::open(
+            config
+                .codex_home
+                .parent()
+                .unwrap_or(config.codex_home.as_path()),
+        )
+        .await?,
+    );
     let models = ModelRegistry::from_config(&config.models)?;
     let runtime = CodexRuntime::launch(&config).await?;
     let listener = tokio::net::TcpListener::bind(config.listen_addr).await?;
@@ -25,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             models,
             config.cwd_policy.clone(),
             config.default_cwd.clone(),
+            journal,
         )),
     )
     .with_graceful_shutdown(async move {
