@@ -52,6 +52,7 @@ Fake Codex統合テストでは、Codex transport終了時のpending request解�
 - [ ] Responses / Chat Completionsの非Streaming・Streaming受入テストを実行
 - [ ] 3 Providerの切り替え受入テストを実行
 - [ ] `/v1/models`のProvider別件数と重複なしを確認
+- [ ] Hoshikage詳細カタログでTool Calling非対応モデルがProxy一覧から除外されることを実機確認
 - [ ] OpenWebUI v0.11.0受入結果をRequirements / System Designへ反映
 - [ ] 要件・設計書の状態を Draft / Decided / Implemented / Verified へ更新
 

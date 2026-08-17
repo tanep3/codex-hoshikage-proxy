@@ -708,7 +708,7 @@ MVPでは、静的Registryを基礎にProvider別のモデルカタログを起�
 
 ```text
 Static Config
-Hoshikage /v1/models
+Hoshikage /v1/models + /v1/hoshikage/models
 Ollama /api/tags
 ChatGPT Codex model/list
         ↓
@@ -719,7 +719,7 @@ Model Registry
 GET /v1/models / Model Resolver
 ```
 
-静的定義を優先し、動的取得失敗はProvider単位で隔離する。Codex App Serverの`model/list`はProvider横断カタログとして扱い、他ProviderのHTTPカタログで既知のUpstream Model IDをChatGPTへ重複登録しない。MVPでは定期更新や専用Indexは設けない。
+静的定義を優先し、動的取得失敗はProvider単位で隔離する。Hoshikageについては`/v1/models`のID一覧に加えて`/v1/hoshikage/models`の能力詳細を取得し、`tools=false`のBundleをCodex用Registryへ登録しない。詳細カタログを取得できない場合も安全側でHoshikageの動的モデル登録を行わない。Codex App Serverの`model/list`はProvider横断カタログとして扱い、他ProviderのHTTPカタログで既知のUpstream Model IDをChatGPTへ重複登録しない。MVPでは定期更新や専用Indexは設けない。
 
 ---
 

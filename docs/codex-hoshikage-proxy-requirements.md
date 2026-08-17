@@ -449,11 +449,13 @@ model = "hoshikage/unsloth-gemma4-12b-qat-thinking-off"
 MVPでは、モデルカタログを以下の優先順位で統合する。
 
 1. Proxy設定ファイルの静的モデル定義
-2. Hoshikage `/v1/models`
+2. Hoshikage `/v1/models` と詳細能力カタログ `/v1/hoshikage/models`
 3. Ollama `/api/tags`
 4. ChatGPT/Codex App Server `model/list`（Codex全体カタログから、他Providerで既知のモデルを除外）
 
 静的定義と動的取得結果が同じPublic Model IDになる場合は、静的定義を優先する。Codex App Serverの`model/list`はProvider横断カタログとして扱い、Hoshikage/Ollamaのカタログで既知のUpstream Model IDはChatGPTへ重複登録しない。動的に発見したモデルもModel Resolverへ登録し、`model` へ指定して利用できるようにする。
+
+Hoshikageの動的モデルは詳細能力カタログの`tools`を確認する。Codex Agent RuntimeはTool Callingを必須とするため、`tools=false`または詳細能力を取得できないHoshikageモデルはProxyの公開モデル一覧へ登録しない。モデル名から能力を推測してはならない。
 
 カタログ取得はProxy起動時に行う。Providerのカタログ取得に失敗しても、静的モデルおよび他Providerのモデルを返し、一覧API全体を失敗させない。失敗はEvent Journalまたは運用ログへ記録する。
 

@@ -22,6 +22,19 @@ struct OpenAiModel {
 }
 
 #[derive(Debug, Deserialize)]
+struct HoshikageModelsResponse {
+    #[serde(default)]
+    data: Vec<HoshikageModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HoshikageModel {
+    id: String,
+    #[serde(default)]
+    tools: bool,
+}
+
+#[derive(Debug, Deserialize)]
 struct OllamaModelsResponse {
     #[serde(default)]
     models: Vec<OllamaModel>,
@@ -94,14 +107,30 @@ pub async fn discover_http_models(config: &RawModelRegistryConfig) -> Vec<Discov
                 }
             }
         } else {
-            match serde_json::from_slice::<OpenAiModelsResponse>(&body) {
-                Ok(models) => {
-                    discovered.extend(models.data.into_iter().map(|model| DiscoveredModel {
-                        provider_id: provider_id.clone(),
-                        upstream_id: model.id,
-                        reasoning_efforts: model.supported_reasoning_levels,
-                    }))
+            let tool_capable_ids = if provider_id == "hoshikage" {
+                match fetch_hoshikage_tool_capabilities(&client, base_url, provider).await {
+                    Some(ids) => Some(ids),
+                    None => continue,
                 }
+            } else {
+                None
+            };
+            match serde_json::from_slice::<OpenAiModelsResponse>(&body) {
+                Ok(models) => discovered.extend(
+                    models
+                        .data
+                        .into_iter()
+                        .filter(|model| {
+                            tool_capable_ids
+                                .as_ref()
+                                .is_none_or(|ids| ids.contains(&model.id))
+                        })
+                        .map(|model| DiscoveredModel {
+                            provider_id: provider_id.clone(),
+                            upstream_id: model.id,
+                            reasoning_efforts: model.supported_reasoning_levels,
+                        }),
+                ),
                 Err(error) => {
                     tracing::warn!(provider = %provider_id, error = %error, "model catalog could not be decoded")
                 }
@@ -109,4 +138,71 @@ pub async fn discover_http_models(config: &RawModelRegistryConfig) -> Vec<Discov
         }
     }
     discovered
+}
+
+async fn fetch_hoshikage_tool_capabilities(
+    client: &reqwest::Client,
+    base_url: &str,
+    provider: &crate::config::RawProviderConfig,
+) -> Option<std::collections::HashSet<String>> {
+    let endpoint = format!(
+        "{}/v1/hoshikage/models",
+        base_url.trim_end_matches('/').trim_end_matches("/v1")
+    );
+    let mut request = client.get(endpoint);
+    if let Some(env_key) = provider.auth_env_key.as_deref()
+        && let Ok(token) = std::env::var(env_key)
+    {
+        request = request.bearer_auth(token);
+    }
+    let response = match request.send().await {
+        Ok(response) if response.status().is_success() => response,
+        Ok(response) => {
+            tracing::warn!(status = %response.status(), "Hoshikage detailed model catalog returned an error");
+            return None;
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "Hoshikage detailed model catalog unavailable");
+            return None;
+        }
+    };
+    let catalog = match response.json::<HoshikageModelsResponse>().await {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            tracing::warn!(error = %error, "Hoshikage detailed model catalog could not be decoded");
+            return None;
+        }
+    };
+    Some(
+        catalog
+            .data
+            .into_iter()
+            .filter(|model| model.tools)
+            .map(|model| model.id)
+            .collect(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hoshikage_detail_catalog_keeps_only_tool_capable_models() {
+        let body = r#"{
+            "data": [
+                {"id":"gemma-tool","tools":true},
+                {"id":"lfm-text-only","tools":false}
+            ]
+        }"#;
+        let catalog: HoshikageModelsResponse = serde_json::from_str(body).unwrap();
+        let ids: std::collections::HashSet<_> = catalog
+            .data
+            .into_iter()
+            .filter(|model| model.tools)
+            .map(|model| model.id)
+            .collect();
+        assert!(ids.contains("gemma-tool"));
+        assert!(!ids.contains("lfm-text-only"));
+    }
 }
