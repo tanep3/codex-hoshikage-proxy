@@ -18,7 +18,14 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 use tokio::{
     sync::{broadcast, mpsc},
     time,
@@ -33,6 +40,7 @@ pub struct AppState {
     pub default_cwd: std::path::PathBuf,
     pub journal: Arc<EventJournal>,
     responses: Arc<ResponseStore>,
+    next_chat_id: Arc<AtomicU64>,
 }
 
 struct StartedTurn {
@@ -58,6 +66,7 @@ impl AppState {
             default_cwd,
             journal,
             responses,
+            next_chat_id: Arc::new(AtomicU64::new(1)),
         }
     }
 }
@@ -74,6 +83,22 @@ pub struct ResponsesRequest {
     pub metadata: HashMap<String, String>,
     #[serde(default)]
     pub reasoning: Option<ReasoningRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChatCompletionsRequest {
+    pub model: Option<String>,
+    pub messages: Vec<ChatMessage>,
+    #[serde(default)]
+    pub stream: bool,
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +161,7 @@ pub fn router(state: AppState) -> Router {
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/v1/responses", post(create_response))
+        .route("/v1/chat/completions", post(create_chat_completion))
         .with_state(state)
 }
 
@@ -266,7 +292,241 @@ async fn create_response(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
+async fn create_chat_completion(
+    State(state): State<AppState>,
+    Json(request): Json<ChatCompletionsRequest>,
+) -> Result<Response, ApiError> {
+    let input = chat_messages_to_input(&request.messages)?;
+    let internal = ResponsesRequest {
+        model: request.model.clone(),
+        input: Value::Array(input),
+        previous_response_id: None,
+        stream: request.stream,
+        metadata: request.metadata,
+        reasoning: None,
+    };
+    let started = begin_turn_with_mode(&state, &internal, true).await?;
+    if request.stream {
+        return stream_chat_completion(state, started).await;
+    }
+    let StartedTurn {
+        model,
+        thread_id,
+        turn_id,
+        mut notifications,
+    } = started;
+    let text = collect_turn_text(&mut notifications, &thread_id, turn_id.as_deref()).await?;
+    let response = json!({
+        "id": format!(
+            "chatcmpl_{}",
+            state.next_chat_id.fetch_add(1, Ordering::Relaxed)
+        ),
+        "object": "chat.completion",
+        "created": now_ms() / 1000,
+        "model": model.public_model_id,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": text},
+            "finish_reason": "stop"
+        }]
+    });
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+async fn collect_turn_text(
+    notifications: &mut broadcast::Receiver<Value>,
+    thread_id: &str,
+    turn_id: Option<&str>,
+) -> Result<String, ApiError> {
+    let mut text = String::new();
+    loop {
+        let event = tokio::time::timeout(Duration::from_secs(120), notifications.recv())
+            .await
+            .map_err(|_| {
+                ApiError::new(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "runtime_timeout",
+                    "Codex turn timed out",
+                )
+            })?
+            .map_err(|error| runtime_error(RuntimeError::Protocol(error.to_string())))?;
+        let method = event
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let params = event.get("params").cloned().unwrap_or_else(|| json!({}));
+        if !matches_thread_and_turn(&params, thread_id, turn_id) {
+            continue;
+        }
+        match method {
+            "item/agentMessage/delta" => {
+                if let Some(delta) = params.get("delta").and_then(Value::as_str) {
+                    text.push_str(delta);
+                }
+            }
+            "turn/completed" => {
+                let status = params
+                    .pointer("/turn/status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("completed");
+                if status != "completed" {
+                    let detail = params
+                        .pointer("/turn/error")
+                        .cloned()
+                        .unwrap_or_else(|| params.clone());
+                    return Err(ApiError::new(
+                        StatusCode::BAD_GATEWAY,
+                        "turn_failed",
+                        format!("Codex turn ended with status {status}: {detail}"),
+                    ));
+                }
+                if text.is_empty() {
+                    text = collect_text(&params);
+                }
+                return Ok(text);
+            }
+            _ => {}
+        }
+    }
+}
+
+async fn stream_chat_completion(
+    state: AppState,
+    started: StartedTurn,
+) -> Result<Response, ApiError> {
+    let id = format!(
+        "chatcmpl_{}",
+        state.next_chat_id.fetch_add(1, Ordering::Relaxed)
+    );
+    let (sender, receiver) = mpsc::channel::<Event>(32);
+    tokio::spawn(run_chat_stream(state, id, started, sender));
+    let stream = ReceiverStream::new(receiver).map(Ok::<Event, std::convert::Infallible>);
+    Ok(Sse::new(stream).into_response())
+}
+
+async fn run_chat_stream(
+    state: AppState,
+    id: String,
+    started: StartedTurn,
+    sender: mpsc::Sender<Event>,
+) {
+    let StartedTurn {
+        model,
+        thread_id,
+        turn_id,
+        mut notifications,
+    } = started;
+    let created = now_ms() / 1000;
+    let role_chunk = json!({
+        "id": id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model.public_model_id,
+        "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]
+    });
+    if sender.send(sse_data(&role_chunk)).await.is_err() {
+        return;
+    }
+    loop {
+        let event = time::timeout(Duration::from_secs(120), notifications.recv()).await;
+        let Ok(Ok(event)) = event else {
+            let _ = sender
+                .send(sse_data(&json!({"error": "Codex turn timed out"})))
+                .await;
+            let _ = sender.send(sse_done()).await;
+            return;
+        };
+        let method = event
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let params = event.get("params").cloned().unwrap_or_else(|| json!({}));
+        if !matches_thread_and_turn(&params, &thread_id, turn_id.as_deref()) {
+            continue;
+        }
+        if method == "item/agentMessage/delta" {
+            let Some(delta) = params.get("delta").and_then(Value::as_str) else {
+                continue;
+            };
+            let chunk = json!({
+                "id": id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model.public_model_id,
+                "choices": [{"index": 0, "delta": {"content": delta}, "finish_reason": null}]
+            });
+            if sender.send(sse_data(&chunk)).await.is_err() {
+                if let Some(turn_id) = turn_id.as_deref() {
+                    let _ = state
+                        .runtime
+                        .request(
+                            "turn/interrupt",
+                            json!({"threadId": thread_id, "turnId": turn_id}),
+                        )
+                        .await;
+                }
+                return;
+            }
+        } else if method == "turn/completed" {
+            let status = params
+                .pointer("/turn/status")
+                .and_then(Value::as_str)
+                .unwrap_or("completed");
+            if status != "completed" {
+                let _ = sender
+                    .send(sse_data(
+                        &json!({"error": format!("Codex turn ended with status {status}")}),
+                    ))
+                    .await;
+                let _ = sender.send(sse_done()).await;
+                return;
+            }
+            let finish = json!({
+                "id": id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model.public_model_id,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+            });
+            let _ = sender.send(sse_data(&finish)).await;
+            let _ = sender.send(sse_done()).await;
+            return;
+        }
+    }
+}
+
+fn chat_messages_to_input(messages: &[ChatMessage]) -> Result<Vec<Value>, ApiError> {
+    if messages.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            "messages must not be empty",
+        ));
+    }
+    messages
+        .iter()
+        .map(|message| {
+            let content = message.content.as_str().ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "unsupported_parameter",
+                    "only string message content is supported",
+                )
+            })?;
+            Ok(json!({"type": "text", "text": format!("[{}]\n{}", message.role, content)}))
+        })
+        .collect()
+}
+
 async fn begin_turn(state: &AppState, request: &ResponsesRequest) -> Result<StartedTurn, ApiError> {
+    begin_turn_with_mode(state, request, false).await
+}
+
+async fn begin_turn_with_mode(
+    state: &AppState,
+    request: &ResponsesRequest,
+    ephemeral: bool,
+) -> Result<StartedTurn, ApiError> {
     let reasoning = request
         .reasoning
         .as_ref()
@@ -310,7 +570,7 @@ async fn begin_turn(state: &AppState, request: &ResponsesRequest) -> Result<Star
                     "model": model.upstream_model_id,
                     "modelProvider": model.codex_provider_id,
                     "cwd": cwd,
-                    "ephemeral": false,
+                    "ephemeral": ephemeral,
                     "approvalPolicy": "on-request",
                     "sandbox": "workspace-write"
                 }),
@@ -565,6 +825,16 @@ fn sse_json<T: Serialize>(event: &str, value: &T) -> Result<Event, axum::Error> 
     Event::default().event(event).json_data(value)
 }
 
+fn sse_data<T: Serialize>(value: &T) -> Event {
+    Event::default()
+        .json_data(value)
+        .unwrap_or_else(|_| Event::default())
+}
+
+fn sse_done() -> Event {
+    Event::default().data("[DONE]")
+}
+
 fn normalize_input(input: &Value) -> Result<Vec<Value>, ApiError> {
     if let Some(text) = input.as_str() {
         return Ok(vec![json!({ "type": "text", "text": text })]);
@@ -664,6 +934,40 @@ fn model_error(error: ModelError) -> ApiError {
             "configuration_error",
             message,
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chat_messages_are_projected_to_role_tagged_text() {
+        let messages = vec![
+            ChatMessage {
+                role: "system".into(),
+                content: Value::String("Be concise".into()),
+            },
+            ChatMessage {
+                role: "user".into(),
+                content: Value::String("Hello".into()),
+            },
+        ];
+        let input = chat_messages_to_input(&messages).unwrap();
+        assert_eq!(input[0]["text"], "[system]\nBe concise");
+        assert_eq!(input[1]["text"], "[user]\nHello");
+    }
+
+    #[test]
+    fn chat_messages_reject_non_string_content() {
+        let messages = vec![ChatMessage {
+            role: "user".into(),
+            content: json!([{ "type": "text", "text": "Hello" }]),
+        }];
+        assert_eq!(
+            chat_messages_to_input(&messages).unwrap_err().code,
+            "unsupported_parameter"
+        );
     }
 }
 
