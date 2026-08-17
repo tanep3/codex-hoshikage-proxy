@@ -150,7 +150,7 @@ impl Default for RawProviderConfig {
             enabled: true,
             max_concurrent_turns: 1,
             base_url: Some("http://127.0.0.1:3030/v1".into()),
-            auth_env_key: Some("HOSHIKAGE_API_KEY".into()),
+            auth_env_key: None,
         }
     }
 }
@@ -316,15 +316,18 @@ impl ValidatedConfig {
                 continue;
             };
             let name = toml_string(public_id);
-            let env_key = provider
+            content.push_str(&format!(
+                "[model_providers.{public_id}]\nname = {name}\nbase_url = {}\nwire_api = \"responses\"\n",
+                toml_string(base_url),
+            ));
+            if let Some(env_key) = provider
                 .auth_env_key
                 .as_deref()
-                .unwrap_or("HOSHIKAGE_API_KEY");
-            content.push_str(&format!(
-                "[model_providers.{public_id}]\nname = {name}\nbase_url = {}\nwire_api = \"responses\"\nenv_key = {}\n\n",
-                toml_string(base_url),
-                toml_string(env_key),
-            ));
+                .filter(|value| !value.is_empty())
+            {
+                content.push_str(&format!("env_key = {}\n", toml_string(env_key)));
+            }
+            content.push('\n');
         }
         fs::write(self.codex_home.join("config.toml"), content).map_err(|source| {
             ConfigError::Read {
@@ -418,7 +421,28 @@ mod tests {
             .expect("provider config generated");
         let generated = fs::read_to_string(config.codex_home.join("config.toml")).unwrap();
         assert!(generated.contains("[model_providers.hoshikage]"));
-        assert!(generated.contains("HOSHIKAGE_API_KEY"));
+        assert!(!generated.contains("env_key"));
         assert!(!config.codex_home.join("auth.json").exists());
+    }
+
+    #[test]
+    fn generates_auth_env_key_only_when_configured() {
+        let mut raw = RawConfig::default();
+        raw.server.default_cwd = Some("/tmp".into());
+        raw.security.allowed_cwds = vec!["/tmp".into()];
+        raw.providers
+            .get_mut("hoshikage")
+            .expect("default provider")
+            .auth_env_key = Some("HOSHIKAGE_API_KEY".into());
+        let mut config = ValidatedConfig::from_raw(raw).expect("valid test config");
+        config.codex_home = std::env::temp_dir().join(format!(
+            "codex-hoshikage-proxy-auth-test-{}",
+            std::process::id()
+        ));
+        config
+            .prepare_codex_home()
+            .expect("provider config generated");
+        let generated = fs::read_to_string(config.codex_home.join("config.toml")).unwrap();
+        assert!(generated.contains("env_key = \"HOSHIKAGE_API_KEY\""));
     }
 }

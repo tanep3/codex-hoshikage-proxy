@@ -216,10 +216,14 @@ async fn create_response(
                     .and_then(Value::as_str)
                     .unwrap_or("completed");
                 if status != "completed" {
+                    let detail = params
+                        .pointer("/turn/error")
+                        .cloned()
+                        .unwrap_or_else(|| params.clone());
                     return Err(ApiError::new(
                         StatusCode::BAD_GATEWAY,
                         "turn_failed",
-                        format!("Codex turn ended with status {status}"),
+                        format!("Codex turn ended with status {status}: {detail}"),
                     ));
                 }
                 if text.is_empty() {
@@ -485,11 +489,15 @@ async fn run_stream(
                 .and_then(Value::as_str)
                 .unwrap_or("completed");
             if status != "completed" {
+                let detail = params
+                    .pointer("/turn/error")
+                    .cloned()
+                    .unwrap_or_else(|| params.clone());
                 let _ = sender
                     .send(
                         sse_json(
                             "response.failed",
-                            &json!({"id": response_id, "status": "failed"}),
+                            &json!({"id": response_id, "status": "failed", "error": detail}),
                         )
                         .unwrap_or_else(|_| Event::default()),
                     )
