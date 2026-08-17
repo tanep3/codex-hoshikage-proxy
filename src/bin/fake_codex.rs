@@ -4,6 +4,7 @@ use std::io::{self, BufRead, Write};
 fn main() {
     let stdin = io::stdin();
     let approval_mode = std::env::var("FAKE_CODEX_APPROVAL").is_ok();
+    let exit_after_initialize = std::env::args().any(|arg| arg == "--exit-after-initialize");
     let mut approval_pending = false;
     for line in stdin.lock().lines().map_while(Result::ok) {
         let Ok(request) = serde_json::from_str::<Value>(&line) else {
@@ -27,7 +28,14 @@ fn main() {
             .and_then(Value::as_str)
             .unwrap_or_default();
         let response = match method {
-            "initialize" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
+            "initialize" => {
+                let response = json!({"jsonrpc":"2.0","id":id,"result":{}});
+                write_json(&response);
+                if exit_after_initialize {
+                    return;
+                }
+                continue;
+            }
             "thread/start" => {
                 json!({"jsonrpc":"2.0","id":id,"result":{"thread":{"id":"thread_fake_1"}}})
             }
