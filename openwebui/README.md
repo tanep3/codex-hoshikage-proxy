@@ -25,6 +25,13 @@ the only accepted decision); Cancel maps to `decline` when available, or
 `cancel` otherwise. The Proxy Approval API still supports all four Wire
 Decision values: `accept`, `accept_for_session`, `decline`, and `cancel`.
 
+When the Proxy approval timeout expires, the Proxy rejects the Codex operation
+and ends the Approval/Turn. OpenWebUI v0.11.0 does not provide a standard event
+for a Pipe to close an already displayed `__event_call__` confirmation dialog,
+so the dialog may remain visible until the user dismisses it. This is a known
+limitation of the standard Pipe integration; the operation is already rejected
+and a later decision from the stale dialog is not accepted by the Proxy.
+
 This integration targets OpenWebUI v0.11.0 and requires its asynchronous Pipe
 support and documented `__event_call__` event interface. If package
 installation from Pipe frontmatter is disabled, install `httpx` in the

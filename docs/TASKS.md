@@ -6,7 +6,9 @@
 
 Phase 1からPhase 7までの主要な縦切り実装は完了している。Hoshikage、ChatGPT、Ollamaのモデル一覧統合、Responses API、Chat Completions、OpenWebUI Pipeの通常ストリーミングまでは実環境で確認済み。
 
-OpenWebUI v0.11.0におけるApprovalのAcceptラウンドトリップは実機確認済み。残るのは拒否系・切断系と、受入テスト全体の実機確認である。
+OpenWebUI v0.11.0におけるApprovalのAcceptラウンドトリップとtimeoutの実時間動作は実機確認済み。
+timeout時はProxy側のCleanupとCodexへの拒否を確認済みだが、標準Confirmation Dialogが画面に残る。
+これはOpenWebUI本体を改修しない前提で既知の運用制約とする。残るのは拒否系・切断系と、受入テスト全体の実機確認である。
 
 ## 次に進めるタスク
 
@@ -26,7 +28,7 @@ OpenWebUI v0.11.0におけるApprovalのAcceptラウンドトリップは実機�
 
 - [ ] Approval APIのWire Decision変換を実Codexで確認
 - [ ] Approval capabilityなしクライアントのCleanup後 `approval_required` を確認
-- [ ] Approval timeoutの実時間動作を確認
+- [x] Approval timeoutの実時間動作を確認（Proxy Cleanup済み、標準Dialogは残ることがある）
 - [ ] Approval二重回答と未提示Decisionの拒否をHTTP経路で確認
 - [ ] SSE開始後にApprovalエラーが発生した場合のSSE error eventを確認
 
@@ -54,4 +56,4 @@ OpenWebUI v0.11.0におけるApprovalのAcceptラウンドトリップは実機�
 5. ProxyがDomain Decisionへ変換してCodexへ応答する。
 6. 同じTurnの継続結果をPipeへストリームする。
 
-OpenWebUI v0.11.0の標準UIは4ボタンを提供しないため、Pipeは二択のConfirmation Dialogを使用する。未確定なのは、実環境でOKがAccept、CancelがDeclineとしてCodex Turnを正しく継続・終了させるかである。
+OpenWebUI v0.11.0の標準UIは4ボタンを提供しないため、Pipeは二択のConfirmation Dialogを使用する。Accept経路は実環境で確認済み。timeout後はProxy側でApprovalとTurnが終端になるが、OpenWebUI標準UIにはPipe／Proxyからダイアログを閉じるイベントがないため、画面上にダイアログが残ることがある。この挙動は既知の運用制約とする。

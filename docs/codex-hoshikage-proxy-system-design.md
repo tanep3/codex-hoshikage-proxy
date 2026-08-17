@@ -1704,6 +1704,13 @@ OKを `accept`、Cancelを `decline`（提示されない場合は `cancel`）�
 `accept_for_session` はOK側の候補がそれしかない場合に使用する。ProxyのWire APIと
 Domainは4値を保持し、UI制約による縮約はOpenWebUI Adapter内に閉じ込める。
 
+Approval timeout時、ProxyはApprovalを`Expired`へ遷移させ、Codexへ拒否を返し、
+`approval_resolved`をTurnイベントStreamへ通知する。ただしOpenWebUI v0.11.0の
+標準`__event_call__`には、Pipe／ProxyからConfirmation Dialogを閉じるUIイベントがない。
+したがってタイムアウト後もブラウザ上のダイアログが残る場合がある。これは既知の
+OpenWebUI標準Pipe制約として扱い、OpenWebUI本体の改修や非標準の画面操作は行わない。
+残ったダイアログからの遅延Decisionは、Proxyが終端Approvalとして拒否する。
+
 ### 24.5 Pipe 障害
 
 - Pipe停止・接続断時はProxy Turnへcancelを発行する

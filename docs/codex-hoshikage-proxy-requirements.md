@@ -740,6 +740,13 @@ pub enum ApprovalState {
 
 Codex へ拒否を返し、Turn を失敗終了とする。
 
+OpenWebUI v0.11.0の標準Pipe経路では、Proxyがタイムアウト処理を完了しても、
+OpenWebUI標準のConfirmation DialogをPipe／Proxyから閉じるUIイベントが存在しない。
+そのため、ブラウザ上の確認ダイアログが残ることがある。これはOpenWebUI本体を改修しない
+前提での既知の運用制約であり、ダイアログが残っていてもApprovalは既に`Expired`、Codexへは
+拒否応答済み、Turnは終端状態である。残ったダイアログから後追いで送信されたDecisionは
+受け付けない。
+
 ### 17.8 Approval capabilityを持たないクライアント
 
 OpenWebUI PipeなどApproval capabilityを持たないクライアントでは、Approval Request発生時にHTTP応答だけを先に返してはならない。以下のCleanup Flowを完了させた後、`approval_required` を返す。
@@ -790,6 +797,10 @@ OpenWebUI Function は以下を実装する。
 - Confirmation Dialog 表示（二択UIを4値Wire DecisionへAdapter変換）
 - Approval API 呼び出し
 - 拒否・タイムアウト表示
+
+OpenWebUI v0.11.0の標準Pipeでは、Approval timeout後にConfirmation Dialogが自動的に
+閉じない場合がある。Pipeの対応範囲はProxyへのCleanupと状態通知までとし、ダイアログの
+強制終了は行わない。
 
 ### 18.3 通常クライアント
 
