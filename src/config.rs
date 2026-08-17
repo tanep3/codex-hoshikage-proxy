@@ -123,7 +123,7 @@ impl Default for RawDefaultsConfig {
 impl Default for RawModelRegistryConfig {
     fn default() -> Self {
         let mut providers = HashMap::new();
-        providers.insert("hoshikage".into(), RawProviderConfig::default());
+        providers.insert("hoshikage".into(), RawProviderConfig::hoshikage_default());
         let mut models = HashMap::new();
         models.insert(
             "hoshikage/unsloth-gemma4-12b-qat-thinking-off".into(),
@@ -147,13 +147,25 @@ pub struct RawProviderConfig {
     pub auth_env_key: Option<String>,
 }
 
-impl Default for RawProviderConfig {
-    fn default() -> Self {
+impl RawProviderConfig {
+    fn hoshikage_default() -> Self {
         Self {
             codex_id: "hoshikage".into(),
             enabled: true,
             max_concurrent_turns: 1,
             base_url: Some("http://127.0.0.1:3030/v1".into()),
+            auth_env_key: None,
+        }
+    }
+}
+
+impl Default for RawProviderConfig {
+    fn default() -> Self {
+        Self {
+            codex_id: String::new(),
+            enabled: false,
+            max_concurrent_turns: 1,
+            base_url: None,
             auth_env_key: None,
         }
     }
@@ -438,6 +450,22 @@ mod tests {
         raw.security.api_key = Some("config-secret".into());
         let config = ValidatedConfig::from_raw(raw).unwrap();
         assert_eq!(config.api_key.as_deref(), Some("config-secret"));
+    }
+
+    #[test]
+    fn provider_without_base_url_does_not_inherit_hoshikage_endpoint() {
+        let raw: RawConfig = toml::from_str(
+            r#"
+            [providers.chatgpt]
+            codex_id = "openai"
+            enabled = true
+            max_concurrent_turns = 4
+            "#,
+        )
+        .expect("provider configuration parses");
+
+        let chatgpt = raw.providers.get("chatgpt").expect("chatgpt provider");
+        assert_eq!(chatgpt.base_url, None);
     }
 
     #[test]
