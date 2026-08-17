@@ -32,12 +32,19 @@ timeout時はProxy側のCleanupとCodexへの拒否を確認済みだが、標�
 - [ ] Approval二重回答と未提示Decisionの拒否をHTTP経路で確認
 - [ ] SSE開始後にApprovalエラーが発生した場合のSSE error eventを確認
 
+自動テストでは、Domain／Approval Managerの二重回答拒否、未提示Decision拒否、
+`approval_required`のThread分離、ApprovalイベントのTurn分離を確認済み。残る項目は
+実HTTP／実Codex経路の受入確認である。
+
 ### C. リカバリと終了処理
 
 - [ ] Proxy再起動後のCodex App Server子プロセス残存がないことを確認
 - [ ] Codex App Server異常終了時のpending request処理を確認
 - [x] Proxy再起動後のResponses `previous_response_id` 継続・`thread_not_found`を確認
 - [ ] graceful shutdownの実機確認
+
+Fake Codex統合テストでは、Codex transport終了時のpending request解決と、shutdown時の
+子プロセス終了待ち・RuntimeのStopped遷移を確認済み。実Codexを用いた確認は未実施である。
 
 ### D. 受入テストと文書状態更新
 
