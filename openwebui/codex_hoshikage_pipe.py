@@ -161,42 +161,83 @@ class Pipe:
             headers=self._headers(),
         ) as response:
             response.raise_for_status()
+            lines = response.aiter_lines()
+            next_line = asyncio.create_task(lines.__anext__())
+            approval_call = None
+            approval_id = None
             event_name = None
-            async for line in response.aiter_lines():
-                if line.startswith("event:"):
-                    event_name = line[6:].strip()
-                    continue
-                if not line.startswith("data:"):
-                    continue
-                if event_name != "approval_requested":
-                    continue
-                try:
-                    event = json.loads(line[5:].strip())
-                except json.JSONDecodeError:
-                    continue
-                approval_id = event.get("approval_id")
-                if not isinstance(approval_id, str):
-                    continue
-                decisions = event.get("availableDecisions") or []
-                answer = await event_call(
-                    {
-                        "type": "confirmation",
-                        "data": {
-                            "title": "Codex approval required",
-                            "message": (
-                                "Approve this operation? Available Codex decisions: "
-                                + ", ".join(str(value) for value in decisions)
-                            ),
-                        },
-                    }
+            try:
+                while True:
+                    pending = {next_line}
+                    if approval_call is not None:
+                        pending.add(approval_call)
+                    done, _ = await asyncio.wait(
+                        pending, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if approval_call is not None and approval_call in done:
+                        answer = approval_call.result()
+                        approval_call = None
+                        decision = self._normalize_decision(answer, decisions)
+                        approval_response = await client.post(
+                            f"{self._base_url()}/v1/codex/approvals/{approval_id}",
+                            headers=self._headers(),
+                            json={"decision": decision},
+                        )
+                        approval_response.raise_for_status()
+                        event_name = None
+                        continue
+                    if next_line not in done:
+                        continue
+                    try:
+                        line = next_line.result()
+                    except StopAsyncIteration:
+                        break
+                    next_line = asyncio.create_task(lines.__anext__())
+                    if line.startswith("event:"):
+                        event_name = line[6:].strip()
+                        continue
+                    if not line.startswith("data:"):
+                        continue
+                    try:
+                        event = json.loads(line[5:].strip())
+                    except json.JSONDecodeError:
+                        continue
+                    if event_name == "approval_requested":
+                        requested_id = event.get("approval_id")
+                        if not isinstance(requested_id, str) or approval_call is not None:
+                            continue
+                        approval_id = requested_id
+                        decisions = event.get("availableDecisions") or []
+                        approval_call = asyncio.create_task(
+                            event_call(
+                                {
+                                    "type": "confirmation",
+                                    "data": {
+                                        "title": "Codex approval required",
+                                        "message": (
+                                            "Approve this operation? Available Codex decisions: "
+                                            + ", ".join(str(value) for value in decisions)
+                                        ),
+                                    },
+                                }
+                            )
+                        )
+                    elif event_name == "approval_resolved":
+                        if event.get("approval_id") == approval_id and approval_call:
+                            approval_call.cancel()
+                            await asyncio.gather(approval_call, return_exceptions=True)
+                            approval_call = None
+                            approval_id = None
+                    event_name = None
+            finally:
+                next_line.cancel()
+                if approval_call is not None:
+                    approval_call.cancel()
+                await asyncio.gather(
+                    next_line,
+                    *( [approval_call] if approval_call is not None else [] ),
+                    return_exceptions=True,
                 )
-                decision = self._normalize_decision(answer, decisions)
-                await client.post(
-                    f"{self._base_url()}/v1/codex/approvals/{approval_id}",
-                    headers=self._headers(),
-                    json={"decision": decision},
-                )
-                event_name = None
 
     @staticmethod
     def _normalize_decision(answer: Any, available: list[Any]) -> str:
