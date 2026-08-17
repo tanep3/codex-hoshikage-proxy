@@ -38,6 +38,8 @@ reasoning_efforts = []
 
 # Optional ChatGPT provider. Authentication is supplied through the user's
 # Codex auth.json in the generated CODEX_HOME; the Proxy does not create it.
+# Prepare it with:
+# CODEX_HOME="$HOME/.config/codex-hoshikage-proxy/codex-home" codex login --device-auth
 # [providers.chatgpt]
 # codex_id = "openai"
 # enabled = true

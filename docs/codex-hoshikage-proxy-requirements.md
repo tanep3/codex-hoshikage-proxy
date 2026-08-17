@@ -1072,6 +1072,15 @@ ChatGPT Provider の認証情報は専用 `CODEX_HOME` 配下で管理する。
 
 既存の個人用 Codex 認証情報を暗黙に流用しない。
 
+ChatGPT Providerを利用する場合、ユーザーはProxy専用`CODEX_HOME`でCodex標準ログインを実行する。
+
+```bash
+CODEX_HOME="$HOME/.config/codex-hoshikage-proxy/codex-home" codex login --device-auth
+CODEX_HOME="$HOME/.config/codex-hoshikage-proxy/codex-home" codex login status
+```
+
+`--with-api-key`はChatGPT Plus認証ではなくAPI Key認証なので、Plusプラン利用のProxy設定では使用しない。
+
 ### 24.3 Secret
 
 以下をログへ出力してはならない。

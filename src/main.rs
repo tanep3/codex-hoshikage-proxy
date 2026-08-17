@@ -52,6 +52,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get("chatgpt")
         .is_some_and(|provider| provider.enabled)
     {
+        if !config.codex_home.join("auth.json").is_file() {
+            tracing::warn!(
+                path = %config.codex_home.join("auth.json").display(),
+                "ChatGPT provider is enabled but dedicated Codex auth is missing; run CODEX_HOME=<proxy codex-home> codex login --device-auth"
+            );
+        }
         match runtime
             .request("model/list", json!({"limit": 1000, "includeHidden": false}))
             .await
