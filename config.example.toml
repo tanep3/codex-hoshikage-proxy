@@ -3,6 +3,7 @@
 [server]
 host = "127.0.0.1"
 port = 4040
+default_cwd = "${HOME}/work"
 
 [codex]
 command = "codex"
@@ -17,3 +18,19 @@ allowed_cwds = [
     "${HOME}/work",
     "${HOME}/projects",
 ]
+
+[defaults]
+model = "hoshikage/unsloth-gemma4-12b-qat-thinking-off"
+
+[providers.hoshikage]
+codex_id = "hoshikage"
+enabled = true
+max_concurrent_turns = 1
+base_url = "http://127.0.0.1:3030/v1"
+auth_env_key = "HOSHIKAGE_API_KEY"
+
+[models."hoshikage/unsloth-gemma4-12b-qat-thinking-off"]
+provider = "hoshikage"
+upstream_model = "unsloth-gemma4-12b-qat-thinking-off"
+display_name = "Unsloth Gemma 4 12B (thinking off)"
+reasoning_efforts = []

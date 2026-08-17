@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::{
+    collections::HashMap,
     env, fs,
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -25,6 +26,9 @@ pub struct RawConfig {
     pub server: RawServerConfig,
     pub codex: RawCodexConfig,
     pub security: RawSecurityConfig,
+    pub defaults: RawDefaultsConfig,
+    pub providers: HashMap<String, RawProviderConfig>,
+    pub models: HashMap<String, RawModelConfig>,
 }
 
 impl Default for RawConfig {
@@ -33,6 +37,9 @@ impl Default for RawConfig {
             server: RawServerConfig::default(),
             codex: RawCodexConfig::default(),
             security: RawSecurityConfig::default(),
+            defaults: RawDefaultsConfig::default(),
+            providers: RawModelRegistryConfig::default().providers,
+            models: RawModelRegistryConfig::default().models,
         }
     }
 }
@@ -42,6 +49,7 @@ impl Default for RawConfig {
 pub struct RawServerConfig {
     pub host: String,
     pub port: u16,
+    pub default_cwd: Option<String>,
 }
 
 impl Default for RawServerConfig {
@@ -49,6 +57,7 @@ impl Default for RawServerConfig {
         Self {
             host: "127.0.0.1".into(),
             port: 4040,
+            default_cwd: None,
         }
     }
 }
@@ -87,6 +96,91 @@ impl Default for RawSecurityConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
+pub struct RawModelRegistryConfig {
+    pub default_model: String,
+    pub providers: HashMap<String, RawProviderConfig>,
+    pub models: HashMap<String, RawModelConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct RawDefaultsConfig {
+    pub model: String,
+}
+
+impl Default for RawDefaultsConfig {
+    fn default() -> Self {
+        Self {
+            model: "hoshikage/unsloth-gemma4-12b-qat-thinking-off".into(),
+        }
+    }
+}
+
+impl Default for RawModelRegistryConfig {
+    fn default() -> Self {
+        let mut providers = HashMap::new();
+        providers.insert("hoshikage".into(), RawProviderConfig::default());
+        let mut models = HashMap::new();
+        models.insert(
+            "hoshikage/unsloth-gemma4-12b-qat-thinking-off".into(),
+            RawModelConfig::default(),
+        );
+        Self {
+            default_model: "hoshikage/unsloth-gemma4-12b-qat-thinking-off".into(),
+            providers,
+            models,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct RawProviderConfig {
+    pub codex_id: String,
+    pub enabled: bool,
+    pub max_concurrent_turns: usize,
+    pub base_url: Option<String>,
+    pub auth_env_key: Option<String>,
+}
+
+impl Default for RawProviderConfig {
+    fn default() -> Self {
+        Self {
+            codex_id: "hoshikage".into(),
+            enabled: true,
+            max_concurrent_turns: 1,
+            base_url: Some("http://127.0.0.1:3030/v1".into()),
+            auth_env_key: Some("HOSHIKAGE_API_KEY".into()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct RawModelConfig {
+    #[serde(alias = "provider")]
+    pub provider_id: String,
+    #[serde(alias = "upstream_model")]
+    pub upstream_id: String,
+    pub display_name: String,
+    pub reasoning_efforts: Vec<String>,
+    pub default_reasoning_effort: Option<String>,
+}
+
+impl Default for RawModelConfig {
+    fn default() -> Self {
+        Self {
+            provider_id: "hoshikage".into(),
+            upstream_id: "unsloth-gemma4-12b-qat-thinking-off".into(),
+            display_name: "Unsloth Gemma 4 12B (thinking off)".into(),
+            reasoning_efforts: Vec::new(),
+            default_reasoning_effort: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct RawCompatibilityConfig {
     pub minimum_version: String,
     pub tested_version: String,
@@ -107,8 +201,11 @@ pub struct ValidatedConfig {
     pub codex_command: String,
     pub codex_args: Vec<String>,
     pub cwd_policy: CwdPolicy,
+    pub default_cwd: PathBuf,
     pub minimum_codex_version: String,
     pub tested_codex_version: String,
+    pub models: RawModelRegistryConfig,
+    pub codex_home: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -176,6 +273,20 @@ impl ValidatedConfig {
                 ConfigError::Invalid(format!("allowed cwd does not exist: {path:?}: {error}"))
             })?);
         }
+        let default_cwd = match raw.server.default_cwd {
+            Some(path) => CwdPolicy {
+                allowed_roots: roots.clone(),
+            }
+            .validate(expand_home(&path))?,
+            None => roots.first().cloned().ok_or_else(|| {
+                ConfigError::Invalid("security.allowed_cwds must not be empty".into())
+            })?,
+        };
+        let registry = RawModelRegistryConfig {
+            default_model: raw.defaults.model,
+            providers: raw.providers,
+            models: raw.models,
+        };
         Ok(Self {
             listen_addr,
             codex_command: raw.codex.command,
@@ -183,10 +294,59 @@ impl ValidatedConfig {
             cwd_policy: CwdPolicy {
                 allowed_roots: roots,
             },
+            default_cwd,
             minimum_codex_version: raw.codex.compatibility.minimum_version,
             tested_codex_version: raw.codex.compatibility.tested_version,
+            models: registry,
+            codex_home: proxy_home().join("codex-home"),
         })
     }
+
+    pub fn prepare_codex_home(&self) -> Result<(), ConfigError> {
+        fs::create_dir_all(&self.codex_home).map_err(|source| ConfigError::Read {
+            path: self.codex_home.clone(),
+            source,
+        })?;
+        let mut content = String::from("# Generated by codex-hoshikage-proxy. Do not edit.\n\n");
+        for (public_id, provider) in &self.models.providers {
+            if !provider.enabled {
+                continue;
+            }
+            let Some(base_url) = provider.base_url.as_deref() else {
+                continue;
+            };
+            let name = toml_string(public_id);
+            let env_key = provider
+                .auth_env_key
+                .as_deref()
+                .unwrap_or("HOSHIKAGE_API_KEY");
+            content.push_str(&format!(
+                "[model_providers.{public_id}]\nname = {name}\nbase_url = {}\nwire_api = \"responses\"\nenv_key = {}\n\n",
+                toml_string(base_url),
+                toml_string(env_key),
+            ));
+        }
+        fs::write(self.codex_home.join("config.toml"), content).map_err(|source| {
+            ConfigError::Read {
+                path: self.codex_home.join("config.toml"),
+                source,
+            }
+        })?;
+        Ok(())
+    }
+}
+
+fn toml_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn proxy_home() -> PathBuf {
+    env::var("CODEX_HOSHIKAGE_PROXY_HOME")
+        .map(PathBuf::from)
+        .or_else(|_| {
+            env::var("HOME").map(|home| PathBuf::from(home).join(".config/codex-hoshikage-proxy"))
+        })
+        .unwrap_or_else(|_| PathBuf::from(".codex-hoshikage-proxy"))
 }
 
 pub fn default_config_path() -> PathBuf {
@@ -243,5 +403,22 @@ mod tests {
         let config = ValidatedConfig::from_raw(raw).expect("existing allowlist root");
         assert_eq!(config.minimum_codex_version, "0.147.0");
         assert_eq!(config.tested_codex_version, "0.147.0");
+    }
+
+    #[test]
+    fn generates_codex_provider_config_without_touching_auth() {
+        let mut raw = RawConfig::default();
+        raw.server.default_cwd = Some("/tmp".into());
+        raw.security.allowed_cwds = vec!["/tmp".into()];
+        let mut config = ValidatedConfig::from_raw(raw).expect("valid test config");
+        config.codex_home =
+            std::env::temp_dir().join(format!("codex-hoshikage-proxy-test-{}", std::process::id()));
+        config
+            .prepare_codex_home()
+            .expect("provider config generated");
+        let generated = fs::read_to_string(config.codex_home.join("config.toml")).unwrap();
+        assert!(generated.contains("[model_providers.hoshikage]"));
+        assert!(generated.contains("HOSHIKAGE_API_KEY"));
+        assert!(!config.codex_home.join("auth.json").exists());
     }
 }

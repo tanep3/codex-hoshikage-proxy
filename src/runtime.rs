@@ -45,6 +45,8 @@ struct JsonRpcResponse {
     id: Option<u64>,
     result: Option<Value>,
     error: Option<JsonRpcError>,
+    method: Option<String>,
+    params: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,6 +78,7 @@ impl CodexRuntime {
         let mut command = Command::new(&config.codex_command);
         command
             .args(&config.codex_args)
+            .env("CODEX_HOME", &config.codex_home)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
@@ -217,7 +220,10 @@ impl CodexRuntime {
                         let _ = sender.send(result);
                     }
                 } else {
-                    let _ = notifications.send(json!({"kind":"notification", "message": line}));
+                    let _ = notifications.send(json!({
+                        "method": parsed.method,
+                        "params": parsed.params.unwrap_or_else(|| json!({})),
+                    }));
                 }
             }
             let mut pending = pending_for_exit.lock().await;
@@ -257,6 +263,28 @@ impl CodexRuntime {
 
     pub fn subscribe(&self) -> broadcast::Receiver<Value> {
         self.notifications.subscribe()
+    }
+
+    pub async fn wait_for_notification(
+        &self,
+        method: &str,
+        timeout: Duration,
+    ) -> Result<Value, RuntimeError> {
+        let mut receiver = self.subscribe();
+        let result = tokio::time::timeout(timeout, async move {
+            loop {
+                let value = receiver
+                    .recv()
+                    .await
+                    .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+                if value.get("method").and_then(Value::as_str) == Some(method) {
+                    return Ok(value.get("params").cloned().unwrap_or_else(|| json!({})));
+                }
+            }
+        })
+        .await
+        .map_err(|_| RuntimeError::Protocol(format!("notification timed out: {method}")))?;
+        result
     }
 
     pub async fn shutdown(&self) -> Result<(), RuntimeError> {
