@@ -17,7 +17,7 @@ Phase 1からPhase 7までの主要な縦切り実装は完了している。Hos
 - [ ] Approval Requestを発生させる安全なテスト操作を用意
 - [ ] Proxyの拡張イベントSSEに `approval_requested` が到達することを確認
 - [ ] Pipeの `__event_call__` がOpenWebUI画面に承認ダイアログを表示することを確認
-- [ ] Codexの `availableDecisions`（accept / accept_for_session / decline / cancel）が選択肢へ投影されることを確認
+- [ ] Codexの `availableDecisions` をメッセージへ表示し、OpenWebUIの二択結果が正しいWire Decisionへ変換されることを確認
 - [ ] Accept後、同じTurnが継続して完了することを確認
 - [ ] Decline / Cancel後、TurnとApprovalが終端状態になり、Permitが解放されることを確認
 - [ ] Pipe切断時にTurn cancelが発行されることを確認
@@ -54,5 +54,4 @@ Phase 1からPhase 7までの主要な縦切り実装は完了している。Hos
 5. ProxyがDomain Decisionへ変換してCodexへ応答する。
 6. 同じTurnの継続結果をPipeへストリームする。
 
-未確定なのはこの設計ではなく、OpenWebUI v0.11.0の実環境で `__event_call__` の入力・戻り値形式が現在のPipe実装と一致するかである。
-
+OpenWebUI v0.11.0の標準UIは4ボタンを提供しないため、Pipeは二択のConfirmation Dialogを使用する。未確定なのは、実環境でOKがAccept、CancelがDeclineとしてCodex Turnを正しく継続・終了させるかである。
