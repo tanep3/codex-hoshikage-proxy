@@ -6,19 +6,19 @@
 
 Phase 1からPhase 7までの主要な縦切り実装は完了している。Hoshikage、ChatGPT、Ollamaのモデル一覧統合、Responses API、Chat Completions、OpenWebUI Pipeの通常ストリーミングまでは実環境で確認済み。
 
-残る最優先事項は、OpenWebUI v0.11.0におけるApprovalの実機ラウンドトリップ検証である。
+OpenWebUI v0.11.0におけるApprovalのAcceptラウンドトリップは実機確認済み。残るのは拒否系・切断系と、受入テスト全体の実機確認である。
 
 ## 次に進めるタスク
 
 ### A. OpenWebUI Approval 実機PoC（最優先）
 
-- [ ] OpenWebUI v0.11.0へ最新版 `openwebui/codex_hoshikage_pipe.py` を反映
-- [ ] `PROXY_BASE_URL` とAPI Keyを設定
-- [ ] Approval Requestを発生させる安全なテスト操作を用意
-- [ ] Proxyの拡張イベントSSEに `approval_requested` が到達することを確認
-- [ ] Pipeの `__event_call__` がOpenWebUI画面に承認ダイアログを表示することを確認
-- [ ] Codexの `availableDecisions` をメッセージへ表示し、OpenWebUIの二択結果が正しいWire Decisionへ変換されることを確認
-- [ ] Accept後、同じTurnが継続して完了することを確認
+- [x] OpenWebUI v0.11.0へ最新版 `openwebui/codex_hoshikage_pipe.py` を反映
+- [x] `PROXY_BASE_URL` とAPI Keyを設定
+- [x] Approval Requestを発生させる安全なテスト操作を用意
+- [x] Proxyの拡張イベントSSEに `approval_requested` が到達することを確認
+- [x] Pipeの `__event_call__` がOpenWebUI画面に承認ダイアログを表示することを確認
+- [x] Codexの `availableDecisions` 省略時を含め、二択結果を正しいWire Decisionへ変換することを確認
+- [x] Accept後、同じTurnが継続して完了することを確認
 - [ ] Decline / Cancel後、TurnとApprovalが終端状態になり、Permitが解放されることを確認
 - [ ] Pipe切断時にTurn cancelが発行されることを確認
 
