@@ -46,7 +46,24 @@ valves as `PROXY_API_KEY`. If you use `api_key_env`, export the value in the pro
 The Pipe requests `/v1/models` and presents model IDs as `Codex / provider / provider/model`.
 Refresh the Pipe's model list after changing provider configuration.
 
-## 4. Approval behavior
+## 4. Context-continuation experiment
+
+The current Pipe calls the Proxy's Responses API internally. Its default logical conversation ID is:
+
+```text
+openwebui_id_001
+```
+
+This ID is a Pipe-side conversation key; it is not a Codex thread ID. Internally, the Pipe scopes it by
+OpenWebUI user ID. While the Pipe process remains alive, threads for the same user share the same latest
+Responses context, while different users remain isolated.
+
+When you change the selected model, the Pipe starts a new Codex thread and sends the conversation
+history supplied by OpenWebUI to the new model. The logical conversation ID remains the same, so the
+conversation can continue across the model change. The mapping is currently in memory and is lost when
+OpenWebUI reloads the Pipe. This is intentionally a first-stage experiment.
+
+## 5. Approval behavior
 
 The Pipe uses OpenWebUI's standard `__event_call__` approval event. The standard UI currently offers
 two buttons, even though the proxy domain supports `accept`, `accept_for_session`, `decline`, and
@@ -64,7 +81,7 @@ constraint until the UI event path supports explicit dialog closure.
 Reloading or disconnecting while approval is pending cancels the Codex turn through the Pipe disconnect
 path. A manually cancelled approval also ends the turn and releases the provider permit.
 
-## 5. Troubleshooting
+## 6. Troubleshooting
 
 - **NetworkProblem**: confirm the URL is reachable from the OpenWebUI container. Use the host LAN IP,
   not `127.0.0.1`, and ensure port `4040` is listening.
@@ -76,4 +93,3 @@ path. A manually cancelled approval also ends the turn and releases the provider
   agent use.
 - **A turn fails with `tool_calling_not_supported`**: select a model whose provider catalog reports
   tool support.
-

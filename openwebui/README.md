@@ -14,6 +14,18 @@ for interactive Approval.
 3. Set `PROXY_API_KEY` when the Proxy requires API key authentication.
 4. Enable the generated manifold models.
 
+The current Pipe uses the Proxy Responses API and keeps a context-continuation mapping in memory.
+Its default logical conversation ID is `openwebui_id_001`, so threads for the same OpenWebUI user share
+the same Codex context while the Pipe process remains alive. User IDs are included in the internal key,
+so different OpenWebUI users do not share context. You can change `CONVERSATION_ID` in the Pipe valves
+when you want to start a separate experiment.
+
+When the selected model changes, the Pipe starts a new Codex thread and seeds it with the conversation
+history supplied by OpenWebUI. The external conversation ID remains the same, and subsequent messages
+continue on the newly selected model. This is an MVP experiment: the mapping is lost when OpenWebUI
+reloads the Pipe, and Responses-based interactive Approval still requires the Proxy to expose its
+Responses stream Turn ID.
+
 The Pipe reads `GET /v1/models`, sends requests to
 `POST /v1/chat/completions`, and watches
 `GET /v1/codex/turns/{turn_id}/events/stream` for Approval requests.

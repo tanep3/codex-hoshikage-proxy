@@ -46,7 +46,21 @@ api_key = "tane-codex-proxy-local-key"
 Pipeは `/v1/models` を取得し、モデルを `Codex / provider / provider/model` のように表示します。
 設定変更後はPipeのモデル一覧を更新してください。
 
-## 4. 承認の動き
+## 4. 文脈継承の実験
+
+現在のPipeは内部でProxyのResponses APIを呼び出します。デフォルトの論理会話IDは次の値です。
+
+```text
+openwebui_id_001
+```
+
+これはPipe側の会話キーであり、CodexのThread IDではありません。内部ではOpenWebUIのユーザーIDを組み合わせて分離します。
+Pipeプロセスが生きている間は、同じユーザーのスレッドで同じResponsesの文脈を共有し、別ユーザーとは共有しません。
+
+選択モデルを変更すると、Pipeは新しいCodex Threadを開始し、OpenWebUIから渡された会話履歴を新モデルへ渡します。
+論理会話IDは同じなので、モデル変更後も会話を続けられます。現在は対応表をメモリ上に保持する初期実験のため、OpenWebUIがPipeを再読み込みすると失われます。
+
+## 5. 承認の動き
 
 PipeはOpenWebUI標準の `__event_call__` 承認イベントを使います。Proxyのドメインは `accept`、`accept_for_session`、
 `decline`、`cancel` の4値を扱えますが、標準UIは現在2つのボタンしか表示しません。Pipeは2ボタンの操作を対応するCodex判断へ変換してProxyへ渡します。
@@ -58,11 +72,10 @@ PipeはOpenWebUI標準の `__event_call__` 承認イベントを使います。P
 
 承認中にリロードまたは切断した場合、Pipeの切断処理によってCodex Turnをキャンセルします。手動キャンセルでもTurnが終了し、Provider permitが解放されます。
 
-## 5. 困ったとき
+## 6. 困ったとき
 
 - **NetworkProblem**: OpenWebUIコンテナからURLへ到達できるか確認。`127.0.0.1` ではなくホストのLAN IPを使い、4040番ポートが待受中か確認。
 - **401**: PipeのキーとProxyの `security.api_key` が完全に一致しているか確認。
 - **`/v1/chat/completions` が404**: 古いProxyまたは違うポートを見ています。現在のProxyを再起動し、`/v1`なしのベースURLを設定。
 - **モデルが一部しか出ない**: Pipeを更新し、プロバイダ有効化とモデル登録を確認。ツール呼び出し非対応のHoshikageモデルは意図的に除外されます。
 - **`tool_calling_not_supported`**: プロバイダ一覧でツール対応と報告されるモデルを選んでください。
-

@@ -1,7 +1,7 @@
 """
 title: Codex Hoshikage Proxy
 author: Codex Hoshikage Proxy
-version: 0.1.1
+version: 0.2.0
 requirements: httpx
 
 OpenWebUI Manifold Pipe for Codex Hoshikage Proxy.
@@ -33,10 +33,21 @@ class Pipe:
             description="Optional Proxy API key",
         )
         REQUEST_TIMEOUT_SECONDS: float = Field(default=120.0, ge=1.0)
+        CONVERSATION_ID: str = Field(
+            default="openwebui_id_001",
+            description=(
+                "Logical Codex conversation ID shared by OpenWebUI threads "
+                "for the context-continuation PoC"
+            ),
+        )
 
     def __init__(self) -> None:
         self.type = "manifold"
         self.valves = self.Valves()
+        # This is intentionally an in-memory PoC state.  A later iteration can
+        # persist it, but keeping it local makes the OpenWebUI-only experiment
+        # easy to reset by reloading the Pipe.
+        self._response_ids: dict[str, tuple[str, str]] = {}
 
     def _headers(self) -> dict[str, str]:
         headers = {"content-type": "application/json"}
@@ -79,31 +90,66 @@ class Pipe:
     async def pipe(
         self,
         body: dict[str, Any],
+        __chat_id__: Optional[str] = None,
+        __metadata__: Optional[dict[str, Any]] = None,
+        __user__: Optional[dict[str, Any]] = None,
         __event_emitter__: Any = None,
         __event_call__: Any = None,
         __task__: Optional[str] = None,
         **_: Any,
     ) -> AsyncGenerator[str, None]:
-        """Stream a Chat Completions response and bridge Approval requests."""
+        """Stream a Responses API result and preserve a logical conversation."""
         import httpx
+
+        # OpenWebUI invokes Pipes for internal tasks such as title generation.
+        # Those calls must not advance the user's Codex conversation.
+        if __task__ is not None:
+            return
 
         payload = dict(body)
         requested_model = payload.get("model")
+        proxy_model = requested_model
         if isinstance(requested_model, str):
-            payload["model"] = self._proxy_model_id(requested_model)
-        metadata = dict(payload.get("metadata") or {})
+            proxy_model = self._proxy_model_id(requested_model)
+            payload["model"] = proxy_model
+
+        source_metadata = __metadata__ or payload.get("metadata") or {}
+        # The proxy's metadata contract is string-to-string.  OpenWebUI's
+        # reserved metadata also contains lists and nested dictionaries.
+        metadata = {
+            str(key): value
+            for key, value in source_metadata.items()
+            if isinstance(value, str)
+        }
         if __event_call__ is not None:
             metadata["codex.approval_capability"] = "interactive"
         else:
             metadata.pop("codex.approval_capability", None)
+        conversation_id = self._conversation_id(__chat_id__, __user__)
+        metadata["codex.openwebui_chat_id"] = conversation_id
         payload["metadata"] = metadata
+        payload["input"] = self._responses_input(
+            body,
+            metadata,
+            conversation_id,
+            proxy_model if isinstance(proxy_model, str) else "",
+        )
+        payload.pop("messages", None)
+        previous_response_id = self._previous_response_id(
+            conversation_id,
+            proxy_model if isinstance(proxy_model, str) else "",
+        )
+        if previous_response_id:
+            payload["previous_response_id"] = previous_response_id
+        else:
+            payload.pop("previous_response_id", None)
         payload["stream"] = True
 
         timeout = httpx.Timeout(self.valves.REQUEST_TIMEOUT_SECONDS)
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream(
                 "POST",
-                f"{self._base_url()}/v1/chat/completions",
+                f"{self._base_url()}/v1/responses",
                 headers=self._headers(),
                 json=payload,
             ) as response:
@@ -112,34 +158,110 @@ class Pipe:
                     raise RuntimeError(
                         f"Proxy returned {response.status_code} for {response.url}: {detail}"
                     )
+                response_id: Optional[str] = None
                 turn_id = response.headers.get("x-codex-turn-id")
                 approval_task = None
+                event_name: Optional[str] = None
                 if turn_id and __event_call__ is not None:
                     approval_task = asyncio.create_task(
                         self._watch_approvals(client, turn_id, __event_call__)
                     )
                 try:
                     async for line in response.aiter_lines():
+                        if line.startswith("event:"):
+                            event_name = line[6:].strip()
+                            continue
                         if not line.startswith("data:"):
                             continue
                         data = line[5:].strip()
                         if data == "[DONE]":
                             break
                         try:
-                            chunk = json.loads(data)
+                            event = json.loads(data)
                         except json.JSONDecodeError:
                             continue
-                        error = chunk.get("error")
-                        if error:
-                            raise RuntimeError(str(error))
-                        for choice in chunk.get("choices", []):
-                            delta = choice.get("delta", {}).get("content")
+                        event_type = event_name
+                        event_name = None
+                        if event_type == "response.created":
+                            candidate = event.get("id")
+                            if isinstance(candidate, str):
+                                response_id = candidate
+                        elif event_type == "response.output_text.delta":
+                            delta = event.get("delta")
                             if isinstance(delta, str) and delta:
                                 yield delta
+                        elif event_type == "response.failed":
+                            raise RuntimeError(str(event.get("error") or event))
+                        elif event_type == "response.completed":
+                            if response_id is None:
+                                candidate = event.get("id")
+                                if isinstance(candidate, str):
+                                    response_id = candidate
+                            if response_id is not None:
+                                self._response_ids[conversation_id] = (
+                                    proxy_model if isinstance(proxy_model, str) else "",
+                                    response_id,
+                                )
                 finally:
                     if approval_task is not None:
                         approval_task.cancel()
                         await asyncio.gather(approval_task, return_exceptions=True)
+
+    def _conversation_id(
+        self, chat_id: Optional[str], user: Optional[dict[str, Any]]
+    ) -> str:
+        configured = self.valves.CONVERSATION_ID.strip()
+        logical_id = configured or chat_id or "openwebui-default"
+        user_id = user.get("id") if isinstance(user, dict) else None
+        if isinstance(user_id, str) and user_id:
+            return f"{user_id}:{logical_id}"
+        return logical_id
+
+    def _previous_response_id(self, conversation_id: str, model_id: str) -> Optional[str]:
+        current = self._response_ids.get(conversation_id)
+        if current is None or current[0] != model_id:
+            return None
+        return current[1]
+
+    def _responses_input(
+        self,
+        body: dict[str, Any],
+        metadata: dict[str, Any],
+        conversation_id: str,
+        model_id: str,
+    ) -> list[dict[str, str]]:
+        """Use the latest prompt normally, or full history after a model switch."""
+        previous = self._previous_response_id(conversation_id, model_id)
+        if previous:
+            prompt = metadata.get("user_prompt")
+            if not isinstance(prompt, str) or not prompt:
+                prompt = self._last_user_content(body.get("messages", []))
+            return [{"type": "text", "text": prompt}]
+
+        messages = body.get("messages") or []
+        result: list[dict[str, str]] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role") or "user")
+            content = message.get("content")
+            if isinstance(content, str) and content:
+                result.append({"type": "text", "text": f"[{role}]\n{content}"})
+        if result:
+            return result
+        prompt = metadata.get("user_prompt")
+        return [{"type": "text", "text": prompt if isinstance(prompt, str) else ""}]
+
+    @staticmethod
+    def _last_user_content(messages: Any) -> str:
+        if not isinstance(messages, list):
+            return ""
+        for message in reversed(messages):
+            if isinstance(message, dict) and message.get("role") == "user":
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content
+        return ""
 
     @staticmethod
     def _proxy_model_id(model_id: str) -> str:
