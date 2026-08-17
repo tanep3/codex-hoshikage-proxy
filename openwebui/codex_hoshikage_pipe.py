@@ -180,14 +180,13 @@ class Pipe:
                 decisions = event.get("availableDecisions") or []
                 answer = await event_call(
                     {
-                        "type": "input",
+                        "type": "confirmation",
                         "data": {
                             "title": "Codex approval required",
                             "message": (
-                                "Choose one of: "
+                                "Approve this operation? Available Codex decisions: "
                                 + ", ".join(str(value) for value in decisions)
                             ),
-                            "placeholder": "accept / accept_for_session / decline / cancel",
                         },
                     }
                 )
@@ -202,8 +201,20 @@ class Pipe:
     @staticmethod
     def _normalize_decision(answer: Any, available: list[Any]) -> str:
         value = answer.get("value") if isinstance(answer, dict) else answer
+        allowed = {str(item) for item in available}
+        if isinstance(value, bool):
+            if value:
+                if "accept" in allowed:
+                    return "accept"
+                if "accept_for_session" in allowed:
+                    return "accept_for_session"
+            else:
+                if "decline" in allowed:
+                    return "decline"
+                if "cancel" in allowed:
+                    return "cancel"
+            return "cancel"
         value = str(value or "cancel").strip()
         aliases = {"approve": "accept", "deny": "decline"}
         value = aliases.get(value, value)
-        allowed = {str(item) for item in available}
         return value if value in allowed else "cancel"

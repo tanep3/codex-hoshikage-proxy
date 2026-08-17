@@ -1697,9 +1697,12 @@ Public Model ID（例: `chatgpt/gpt-5.6-luna`）だけを渡す。
 
 ### 24.4 Approval UI
 
-Codex の `availableDecisions` をそのまま UI 選択肢へ投影する。
-
-固定の Yes / No に丸めない。
+OpenWebUI v0.11.0の標準 `__event_call__` は、`confirmation` がOK/Cancelの
+二択、`input` がテキスト入力であり、4つのボタンを持つApproval UIを提供しない。
+そのためPipeのAdapterは、Codexの `availableDecisions` をメッセージへ表示したうえで、
+OKを `accept`、Cancelを `decline`（提示されない場合は `cancel`）へ変換する。
+`accept_for_session` はOK側の候補がそれしかない場合に使用する。ProxyのWire APIと
+Domainは4値を保持し、UI制約による縮約はOpenWebUI Adapter内に閉じ込める。
 
 ### 24.5 Pipe 障害
 

@@ -18,9 +18,12 @@ The Pipe reads `GET /v1/models`, sends requests to
 OpenWebUI prefixes Pipe model IDs with its Function ID; the Pipe removes that
 namespace before sending the Public Model ID to the Proxy.
 
-The Approval dialog uses OpenWebUI's `__event_call__` input event and sends
-the selected value unchanged from the Proxy's `availableDecisions` list.
-Use `accept`, `accept_for_session`, `decline`, or `cancel` as appropriate.
+The Approval dialog uses OpenWebUI's `__event_call__` confirmation event.
+OpenWebUI v0.11.0 provides an OK/Cancel dialog rather than a four-button
+decision selector. OK maps to `accept` (or `accept_for_session` when that is
+the only accepted decision); Cancel maps to `decline` when available, or
+`cancel` otherwise. The Proxy Approval API still supports all four Wire
+Decision values: `accept`, `accept_for_session`, `decline`, and `cancel`.
 
 This integration targets OpenWebUI v0.11.0 and requires its asynchronous Pipe
 support and documented `__event_call__` event interface. If package

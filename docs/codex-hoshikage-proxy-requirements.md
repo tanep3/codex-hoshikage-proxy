@@ -720,7 +720,7 @@ Request:
 }
 ```
 
-Approval APIのWire Decisionは、Codexの `availableDecisions` と同じ4値を使用する。Proxyは `accept`、`accept_for_session`、`decline`、`cancel` をDomainの `Accept`、`AcceptForSession`、`Decline`、`Cancel` へ変換し、Codexへ返す。
+Approval APIのWire Decisionは、Codexの `availableDecisions` と同じ4値を使用する。Proxyは `accept`、`accept_for_session`、`decline`、`cancel` をDomainの `Accept`、`AcceptForSession`、`Decline`、`Cancel` へ変換し、Codexへ返す。OpenWebUI v0.11.0の標準Confirmation Dialogは二択のため、PipeはUI上の承認を `accept`、キャンセルを `decline`（提示されない場合は `cancel`）へAdapter変換する。
 
 ### 17.6 Approval State
 
@@ -787,7 +787,7 @@ OpenWebUI Function は以下を実装する。
 - SSE ストリーミング
 - Codex 状態表示
 - Approval Request 検出
-- Confirmation Dialog 表示
+- Confirmation Dialog 表示（二択UIを4値Wire DecisionへAdapter変換）
 - Approval API 呼び出し
 - 拒否・タイムアウト表示
 
