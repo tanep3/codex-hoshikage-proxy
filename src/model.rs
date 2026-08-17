@@ -177,7 +177,7 @@ impl ModelRegistry {
             return Err(ModelError::ProviderUnavailable(model.provider_id.clone()));
         }
         let reasoning_effort = match requested_reasoning {
-            Some(value) if provider.codex_id != "chatgpt" => {
+            Some(_) if model.provider_id != "chatgpt" => {
                 return Err(ModelError::UnsupportedReasoning(model.provider_id.clone()));
             }
             Some(value) => {
@@ -225,5 +225,36 @@ mod tests {
             registry.resolve(None, Some("medium")),
             Err(ModelError::UnsupportedReasoning("hoshikage".into()))
         );
+    }
+
+    #[test]
+    fn accepts_reasoning_effort_for_chatgpt_public_provider() {
+        let mut config = RawModelRegistryConfig::default();
+        config.providers.insert(
+            "chatgpt".into(),
+            crate::config::RawProviderConfig {
+                codex_id: "openai".into(),
+                enabled: true,
+                max_concurrent_turns: 4,
+                base_url: None,
+                auth_env_key: None,
+            },
+        );
+        config.models.insert(
+            "chatgpt/gpt-5.6-sol".into(),
+            crate::config::RawModelConfig {
+                provider_id: "chatgpt".into(),
+                upstream_id: "gpt-5.6-sol".into(),
+                display_name: "GPT-5.6 Sol".into(),
+                reasoning_efforts: vec!["low".into(), "medium".into(), "high".into()],
+                default_reasoning_effort: Some("medium".into()),
+            },
+        );
+        let registry = ModelRegistry::from_config(&config).unwrap();
+        let model = registry
+            .resolve(Some("chatgpt/gpt-5.6-sol"), Some("high"))
+            .unwrap();
+        assert_eq!(model.codex_provider_id, "openai");
+        assert_eq!(model.reasoning_effort, Some(ReasoningEffort::High));
     }
 }
