@@ -195,7 +195,7 @@ impl ApprovalManager {
         let state = if capability == ApprovalCapability::Interactive {
             ApprovalState::Pending {
                 request: request.clone(),
-                expires_at_ms: crate::journal::now_ms() + 300_000,
+                expires_at_ms: crate::journal::now_ms() + timeout_ms(self.timeout),
             }
         } else {
             ApprovalState::Cancelled
@@ -266,6 +266,10 @@ impl ApprovalManager {
         tracing::warn!(approval_id, state = view.state, "approval expired");
         Ok(())
     }
+}
+
+fn timeout_ms(timeout: Duration) -> u128 {
+    timeout.as_millis()
 }
 
 fn view_of(id: &str, record: &ApprovalRecord) -> ApprovalView {
@@ -342,6 +346,12 @@ fn codex_decision(decision: &ApprovalDecision) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timeout_is_exposed_in_milliseconds_without_fixed_default() {
+        assert_eq!(timeout_ms(Duration::from_secs(10)), 10_000);
+        assert_eq!(timeout_ms(Duration::from_millis(250)), 250);
+    }
 
     #[test]
     fn command_approval_without_available_decisions_uses_standard_choices() {
