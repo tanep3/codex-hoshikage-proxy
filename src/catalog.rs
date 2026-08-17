@@ -52,10 +52,10 @@ pub async fn discover_http_models(config: &RawModelRegistryConfig) -> Vec<Discov
             _ => format!("{}/models", base_url.trim_end_matches('/')),
         };
         let mut request = client.get(endpoint);
-        if let Some(env_key) = provider.auth_env_key.as_deref() {
-            if let Ok(token) = std::env::var(env_key) {
-                request = request.bearer_auth(token);
-            }
+        if let Some(env_key) = provider.auth_env_key.as_deref()
+            && let Ok(token) = std::env::var(env_key)
+        {
+            request = request.bearer_auth(token);
         }
         let response = match request.send().await {
             Ok(response) => response,

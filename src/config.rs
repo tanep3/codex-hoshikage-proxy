@@ -96,22 +96,12 @@ impl Default for RawCodexConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct RawSecurityConfig {
     pub allowed_cwds: Vec<String>,
     pub api_key: Option<String>,
     pub api_key_env: Option<String>,
-}
-
-impl Default for RawSecurityConfig {
-    fn default() -> Self {
-        Self {
-            allowed_cwds: Vec::new(),
-            api_key: None,
-            api_key_env: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

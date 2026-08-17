@@ -297,7 +297,7 @@ impl CodexRuntime {
         timeout: Duration,
     ) -> Result<Value, RuntimeError> {
         let mut receiver = self.subscribe();
-        let result = tokio::time::timeout(timeout, async move {
+        tokio::time::timeout(timeout, async move {
             loop {
                 let value = receiver
                     .recv()
@@ -309,8 +309,7 @@ impl CodexRuntime {
             }
         })
         .await
-        .map_err(|_| RuntimeError::Protocol(format!("notification timed out: {method}")))?;
-        result
+        .map_err(|_| RuntimeError::Protocol(format!("notification timed out: {method}")))?
     }
 
     pub async fn shutdown(&self) -> Result<(), RuntimeError> {

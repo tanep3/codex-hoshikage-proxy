@@ -58,6 +58,7 @@ struct StartedTurn {
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         runtime: Arc<CodexRuntime>,
         models: ModelRegistry,
@@ -557,10 +558,10 @@ async fn stream_chat_completion(
     tokio::spawn(run_chat_stream(state, id, started, sender));
     let stream = ReceiverStream::new(receiver).map(Ok::<Event, std::convert::Infallible>);
     let mut response = Sse::new(stream).into_response();
-    if let Some(turn_id) = turn_id {
-        if let Ok(value) = turn_id.parse() {
-            response.headers_mut().insert("x-codex-turn-id", value);
-        }
+    if let Some(turn_id) = turn_id
+        && let Ok(value) = turn_id.parse()
+    {
+        response.headers_mut().insert("x-codex-turn-id", value);
     }
     Ok(response)
 }
@@ -1209,9 +1210,51 @@ fn approval_error(error: crate::approval_manager::ApprovalManagerError) -> ApiEr
     }
 }
 
+fn runtime_error(error: RuntimeError) -> ApiError {
+    ApiError::new(StatusCode::BAD_GATEWAY, "runtime_error", error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn approval_required_is_scoped_to_thread() {
+        let event = json!({
+            "kind": "approval_required",
+            "threadId": "thread_1",
+            "approval_id": "approval_1"
+        });
+        assert!(is_approval_required(&event, "thread_1"));
+        assert!(!is_approval_required(&event, "thread_2"));
+        assert!(!is_approval_required(
+            &json!({"kind": "approval_requested", "threadId": "thread_1"}),
+            "thread_1"
+        ));
+    }
+
+    #[test]
+    fn turn_event_filter_accepts_proxy_and_codex_event_shapes() {
+        assert!(matches_turn_event(
+            &json!({"kind": "approval_resolved", "turnId": "turn_1"}),
+            "turn_1"
+        ));
+        assert!(matches_turn_event(
+            &json!({
+                "method": "turn/completed",
+                "params": {"turnId": "turn_1"}
+            }),
+            "turn_1"
+        ));
+        assert!(!matches_turn_event(
+            &json!({"kind": "approval_resolved", "turnId": "turn_2"}),
+            "turn_1"
+        ));
+        assert!(!matches_turn_event(
+            &json!({"kind": "approval_resolved", "threadId": "thread_1"}),
+            "turn_1"
+        ));
+    }
 
     #[test]
     fn chat_messages_are_projected_to_role_tagged_text() {
@@ -1241,8 +1284,4 @@ mod tests {
             "unsupported_parameter"
         );
     }
-}
-
-fn runtime_error(error: RuntimeError) -> ApiError {
-    ApiError::new(StatusCode::BAD_GATEWAY, "runtime_error", error.to_string())
 }
