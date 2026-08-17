@@ -1,0 +1,19 @@
+# Copy this file to the path selected by CODEX_HOSHIKAGE_PROXY_CONFIG.
+
+[server]
+host = "127.0.0.1"
+port = 4040
+
+[codex]
+command = "codex"
+args = ["app-server", "--listen", "stdio://"]
+
+[codex.compatibility]
+minimum_version = "0.147.0"
+tested_version = "0.147.0"
+
+[security]
+allowed_cwds = [
+    "${HOME}/work",
+    "${HOME}/projects",
+]
