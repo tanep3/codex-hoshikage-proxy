@@ -67,11 +67,16 @@ impl AppState {
         default_cwd: std::path::PathBuf,
         api_key: Option<String>,
         approval_timeout: Duration,
+        auto_approve_workspace: bool,
         journal: Arc<EventJournal>,
         responses: Arc<ResponseStore>,
     ) -> Self {
         let provider_limits = catalog.provider_limits();
-        let approvals = ApprovalManager::new(Arc::clone(&runtime), approval_timeout);
+        let approvals = ApprovalManager::new(
+            Arc::clone(&runtime),
+            approval_timeout,
+            auto_approve_workspace,
+        );
         approvals.start();
         Self {
             runtime,
@@ -261,7 +266,22 @@ async fn turn_events_stream(
 ) -> Response {
     let mut notifications = state.runtime.subscribe();
     let (sender, receiver) = mpsc::channel::<Event>(32);
+    let approvals = Arc::clone(&state.approvals);
     tokio::spawn(async move {
+        for event in approvals.pending_events_for_turn(&turn_id).await {
+            if sender
+                .send(
+                    Event::default()
+                        .event("approval_requested")
+                        .json_data(&event)
+                        .unwrap_or_default(),
+                )
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
         loop {
             let event = match notifications.recv().await {
                 Ok(event) => event,
@@ -813,7 +833,10 @@ async fn begin_turn_with_mode(
     } else {
         ApprovalCapability::None
     };
-    state.approvals.register_turn(&thread_id, capability).await;
+    state
+        .approvals
+        .register_turn(&thread_id, capability, &cwd)
+        .await;
     let turn_result = state
         .runtime
         .request(

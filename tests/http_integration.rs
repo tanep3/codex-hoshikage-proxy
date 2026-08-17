@@ -61,6 +61,7 @@ async fn test_app(args: &[&str]) -> axum::Router {
         config.default_cwd.clone(),
         None,
         Duration::from_secs(5),
+        true,
         journal,
         responses,
     ))

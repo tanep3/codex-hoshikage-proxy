@@ -50,12 +50,14 @@ impl Default for RawConfig {
 #[serde(default)]
 pub struct RawApprovalConfig {
     pub timeout_seconds: u64,
+    pub auto_approve_workspace: bool,
 }
 
 impl Default for RawApprovalConfig {
     fn default() -> Self {
         Self {
             timeout_seconds: 300,
+            auto_approve_workspace: true,
         }
     }
 }
@@ -235,6 +237,7 @@ pub struct ValidatedConfig {
     pub codex_home: PathBuf,
     pub api_key: Option<String>,
     pub approval_timeout_seconds: u64,
+    pub auto_approve_workspace: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -350,6 +353,7 @@ impl ValidatedConfig {
             codex_home: proxy_home().join("codex-home"),
             api_key,
             approval_timeout_seconds: raw.approval.timeout_seconds,
+            auto_approve_workspace: raw.approval.auto_approve_workspace,
         })
     }
 

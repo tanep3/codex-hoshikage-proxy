@@ -47,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.default_cwd.clone(),
             config.api_key.clone(),
             std::time::Duration::from_secs(config.approval_timeout_seconds),
+            config.auto_approve_workspace,
             journal,
             responses,
         )),

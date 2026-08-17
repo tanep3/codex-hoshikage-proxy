@@ -23,6 +23,7 @@ Important settings:
 | `security.api_key` / `api_key_env` | Client authentication; required for non-loopback |
 | `defaults.model` | Public model ID used when a request omits `model` |
 | `approval.timeout_seconds` | Approval expiry interval |
+| `approval.auto_approve_workspace` | Automatically accepts operations Codex reports inside the requested workspace; default `true` |
 | provider `enabled` | Enables a provider |
 | provider `max_concurrent_turns` | Provider concurrency limit |
 | `models."provider/model"` | Public-to-upstream model mapping |
@@ -119,6 +120,10 @@ advanced fields.
 
 Approval remains pending until accepted, declined, cancelled, or expired. The provider permit is held
 through the turn, including approval waiting, by design in the MVP. A client disconnect cancels the turn.
+When `approval.auto_approve_workspace = true`, operations reported by Codex as running in the requested
+workspace are accepted automatically. This is intended for trusted local work and does not make the
+Proxy safe for untrusted users; keep the cwd allowlist narrow. Operations outside the workspace still
+use the interactive approval flow.
 
 ## Security and operations
 

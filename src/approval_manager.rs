@@ -7,7 +7,11 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use thiserror::Error;
 use tokio::{sync::Mutex, time::Duration};
 
@@ -42,22 +46,34 @@ struct ApprovalRecord {
     state: ApprovalState,
 }
 
+#[derive(Clone)]
+struct TurnApprovalContext {
+    capability: ApprovalCapability,
+    cwd: PathBuf,
+}
+
 pub struct ApprovalManager {
     runtime: Arc<CodexRuntime>,
     next_id: Mutex<u64>,
-    turn_capabilities: Mutex<HashMap<String, ApprovalCapability>>,
+    turn_contexts: Mutex<HashMap<String, TurnApprovalContext>>,
     records: Mutex<HashMap<String, ApprovalRecord>>,
     timeout: Duration,
+    auto_approve_workspace: bool,
 }
 
 impl ApprovalManager {
-    pub fn new(runtime: Arc<CodexRuntime>, timeout: Duration) -> Arc<Self> {
+    pub fn new(
+        runtime: Arc<CodexRuntime>,
+        timeout: Duration,
+        auto_approve_workspace: bool,
+    ) -> Arc<Self> {
         Arc::new(Self {
             runtime,
             next_id: Mutex::new(1),
-            turn_capabilities: Mutex::new(HashMap::new()),
+            turn_contexts: Mutex::new(HashMap::new()),
             records: Mutex::new(HashMap::new()),
             timeout,
+            auto_approve_workspace,
         })
     }
 
@@ -84,11 +100,36 @@ impl ApprovalManager {
         });
     }
 
-    pub async fn register_turn(&self, thread_id: &str, capability: ApprovalCapability) {
-        self.turn_capabilities
-            .lock()
-            .await
-            .insert(thread_id.into(), capability);
+    pub async fn register_turn(&self, thread_id: &str, capability: ApprovalCapability, cwd: &Path) {
+        self.turn_contexts.lock().await.insert(
+            thread_id.into(),
+            TurnApprovalContext {
+                capability,
+                cwd: cwd.to_path_buf(),
+            },
+        );
+    }
+
+    pub async fn pending_events_for_turn(&self, turn_id: &str) -> Vec<Value> {
+        let records = self.records.lock().await;
+        records
+            .values()
+            .filter_map(|record| {
+                let request = &record.request;
+                if request.turn_id.as_deref() != Some(turn_id)
+                    || !matches!(record.state, ApprovalState::Pending { .. })
+                {
+                    return None;
+                }
+                Some(json!({
+                    "kind": "approval_requested",
+                    "approval_id": request.approval_id,
+                    "threadId": request.thread_id,
+                    "turnId": request.turn_id,
+                    "availableDecisions": request.available_decisions,
+                }))
+            })
+            .collect()
     }
 
     pub async fn get(&self, approval_id: &str) -> Result<ApprovalView, ApprovalManagerError> {
@@ -185,14 +226,23 @@ impl ApprovalManager {
             details: params.clone(),
         };
         let available_decisions = request.available_decisions.clone();
-        let capability = self
-            .turn_capabilities
+        let context = self
+            .turn_contexts
             .lock()
             .await
             .get(&thread_id)
-            .copied()
-            .unwrap_or(ApprovalCapability::None);
-        let state = if capability == ApprovalCapability::Interactive {
+            .cloned()
+            .unwrap_or(TurnApprovalContext {
+                capability: ApprovalCapability::None,
+                cwd: PathBuf::new(),
+            });
+        let capability = context.capability;
+        let auto_approved =
+            self.auto_approve_workspace && request_is_in_workspace(&params, &context.cwd);
+        let automatic_decision = auto_approved.then(|| preferred_accept(&available_decisions));
+        let state = if let Some(decision) = automatic_decision.clone() {
+            ApprovalState::Approved { decision }
+        } else if capability == ApprovalCapability::Interactive {
             ApprovalState::Pending {
                 request: request.clone(),
                 expires_at_ms: crate::journal::now_ms() + timeout_ms(self.timeout),
@@ -204,7 +254,21 @@ impl ApprovalManager {
             .lock()
             .await
             .insert(approval_id.clone(), ApprovalRecord { request, state });
-        if capability == ApprovalCapability::Interactive {
+        if auto_approved {
+            let decision = automatic_decision.expect("automatic approval decision is present");
+            self.runtime
+                .respond_to_server_request(rpc_id, json!({"decision": codex_decision(&decision)}))
+                .await?;
+            self.runtime.publish(json!({
+                "kind": "approval_resolved",
+                "approval_id": approval_id,
+                "threadId": thread_id,
+                "turnId": turn_id,
+                "state": "approved",
+                "automatic": true,
+            }));
+            tracing::info!(approval_id, "workspace approval automatically accepted");
+        } else if capability == ApprovalCapability::Interactive {
             let manager = Arc::clone(self);
             let timeout_id = approval_id.clone();
             tokio::spawn(async move {
@@ -266,6 +330,30 @@ impl ApprovalManager {
         tracing::warn!(approval_id, state = view.state, "approval expired");
         Ok(())
     }
+}
+
+fn preferred_accept(decisions: &[ApprovalDecision]) -> ApprovalDecision {
+    if decisions.contains(&ApprovalDecision::Accept) {
+        ApprovalDecision::Accept
+    } else if decisions.contains(&ApprovalDecision::AcceptForSession) {
+        ApprovalDecision::AcceptForSession
+    } else {
+        ApprovalDecision::Cancel
+    }
+}
+
+fn request_is_in_workspace(params: &Value, cwd: &Path) -> bool {
+    if cwd.as_os_str().is_empty() {
+        return false;
+    }
+    params
+        .get("cwd")
+        .and_then(Value::as_str)
+        .is_some_and(|request_cwd| Path::new(request_cwd) == cwd)
+        || params
+            .get("command")
+            .and_then(Value::as_str)
+            .is_some_and(|command| command.contains(cwd.to_string_lossy().as_ref()))
 }
 
 fn timeout_ms(timeout: Duration) -> u128 {
@@ -369,5 +457,18 @@ mod tests {
     #[test]
     fn unknown_approval_method_does_not_gain_implicit_choices() {
         assert!(default_decisions_for("item/permissions/requestApproval").is_empty());
+    }
+
+    #[test]
+    fn workspace_request_is_detected_by_cwd() {
+        let cwd = Path::new("/home/tane/work");
+        assert!(request_is_in_workspace(
+            &json!({"cwd": "/home/tane/work", "command": "python3 script.py"}),
+            cwd
+        ));
+        assert!(!request_is_in_workspace(
+            &json!({"cwd": "/tmp", "command": "python3 script.py"}),
+            cwd
+        ));
     }
 }

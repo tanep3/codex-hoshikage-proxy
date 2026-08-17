@@ -648,13 +648,13 @@ Approval Policy は設定可能とする。
 ```toml
 [approval]
 policy = "interactive"
-auto_approve_workspace_write = true
+auto_approve_workspace = true
 timeout_seconds = 300
 ```
 
 ### 17.2 自動承認
 
-安全な `workspace-write` 範囲内の操作は、自動承認可能とする。
+Codexがリクエストされたcwd内の操作として報告したものは、自動承認可能とする。これには、cwd配下に置いた `.codex/skills` のスキル実行も含む。許可ルート外の操作は自動承認しない。
 
 ### 17.3 対話承認
 

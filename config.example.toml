@@ -23,6 +23,8 @@ allowed_cwds = [
 [approval]
 # Approval timeout in seconds. Use a short value only for testing.
 timeout_seconds = 300
+# Automatically approve operations Codex reports inside the requested workspace.
+auto_approve_workspace = true
 
 [defaults]
 model = "chatgpt/gpt-5.6-luna"

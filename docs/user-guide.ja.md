@@ -21,6 +21,7 @@
 | `security.api_key` / `api_key_env` | クライアント認証。非loopbackでは必須 |
 | `defaults.model` | リクエストにmodelがない場合のモデル |
 | `approval.timeout_seconds` | 承認の有効期限 |
+| `approval.auto_approve_workspace` | 指定ワークスペース内のCodex操作を自動承認するか。デフォルトは `true` |
 | プロバイダの `enabled` | プロバイダの有効化 |
 | プロバイダの `max_concurrent_turns` | 同時実行数 |
 | `models."provider/model"` | 公開IDと上流モデルの対応 |
@@ -107,6 +108,9 @@ curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
 - `turn_failed`等: 利用可能ならCodexの失敗詳細を含みます。
 
 承認は承認、拒否、キャンセル、期限切れのいずれかまでPendingです。MVPでは承認待ち中もTurn全体のProvider permitを保持します。クライアント切断時はTurnをキャンセルします。
+`approval.auto_approve_workspace = true` の場合、Codexが指定ワークスペース内の操作として報告した承認要求は自動承認します。
+信頼したローカル作業向けの設定であり、信頼できない利用者へProxyを公開してよいという意味ではありません。許可するcwdは狭く保ってください。
+ワークスペース外の操作は、これまでどおり対話承認の対象です。
 
 ## セキュリティと運用
 
