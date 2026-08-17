@@ -15,9 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any, AsyncGenerator, Optional
 
 from pydantic import BaseModel, Field
+
+
+log = logging.getLogger(__name__)
 
 
 class _ProxyThreadNotFound(Exception):
@@ -106,6 +110,7 @@ class Pipe:
     async def pipe(
         self,
         body: dict[str, Any],
+        __request__: Any = None,
         __chat_id__: Optional[str] = None,
         __metadata__: Optional[dict[str, Any]] = None,
         __user__: Optional[dict[str, Any]] = None,
@@ -121,6 +126,8 @@ class Pipe:
         # Those calls must not advance the user's Codex conversation.
         if __task__ is not None:
             return
+
+        await self._refresh_openwebui_model_cache(__request__)
 
         timeout = httpx.Timeout(self.valves.REQUEST_TIMEOUT_SECONDS)
         payload = dict(body)
@@ -219,6 +226,24 @@ class Pipe:
                     __event_call__,
                 ):
                     yield delta
+
+    async def _refresh_openwebui_model_cache(self, request: Any) -> None:
+        """Refresh OpenWebUI's manifold model cache before a user turn.
+
+        OpenWebUI normally invokes ``pipes()`` only while rebuilding its model
+        catalog.  Calling the internal v0.11.0 model aggregator here gives the
+        next model-list request current Provider state without making an HTTP
+        loop back into OpenWebUI.
+        """
+        if request is None:
+            return
+        try:
+            from open_webui.utils.models import get_all_models
+
+            await get_all_models(request, refresh=True)
+        except Exception as error:
+            # A catalog refresh must not prevent an otherwise valid chat turn.
+            log.warning("OpenWebUI model catalog refresh failed: %s", error)
 
     async def _stream_responses(
         self,

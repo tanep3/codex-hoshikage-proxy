@@ -53,6 +53,9 @@ Model discovery can take longer than the Proxy liveness check because the Proxy 
 Provider catalogs on demand. The Pipe therefore uses a separate 20-second model-list timeout.
 After changing Provider availability, save/update the Pipe in OpenWebUI (or reload the Function)
 and refresh the browser so OpenWebUI calls `pipes()` again and rebuilds its manifold model list.
+For chat requests, the Pipe also asks OpenWebUI v0.11.0 to refresh its internal model cache before
+forwarding the turn. This keeps the server-side cache current even when the browser has not yet
+reloaded the model picker.
 Refresh the Pipe's model list after changing provider configuration.
 
 ## 4. Context-continuation experiment
