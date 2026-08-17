@@ -44,7 +44,14 @@ async fn test_app(args: &[&str]) -> axum::Router {
         .expect("fake runtime launches");
     let journal = Arc::new(EventJournal::open(&config.codex_home).await.unwrap());
     let responses = Arc::new(ResponseStore::open(&config.codex_home).await.unwrap());
-    let models = ModelRegistry::from_config(&config.models).unwrap();
+    let mut models = ModelRegistry::from_config(&config.models).unwrap();
+    models
+        .add_discovered_model(
+            "hoshikage".into(),
+            "unsloth-gemma4-12b-qat-thinking-off".into(),
+            vec![],
+        )
+        .unwrap();
     router(AppState::new(
         runtime,
         models,

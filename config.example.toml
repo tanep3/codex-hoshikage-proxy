@@ -25,36 +25,25 @@ allowed_cwds = [
 timeout_seconds = 300
 
 [defaults]
-model = "hoshikage/unsloth-gemma4-12b-qat-thinking-off"
+model = "chatgpt/gpt-5.6-luna"
 
 [providers.hoshikage]
 codex_id = "hoshikage"
 enabled = true
 max_concurrent_turns = 1
 base_url = "http://127.0.0.1:3030/v1"
-# For a non-loopback Hoshikage endpoint, set auth_env_key to your token environment variable.
-
-[models."hoshikage/unsloth-gemma4-12b-qat-thinking-off"]
-provider = "hoshikage"
-upstream_model = "unsloth-gemma4-12b-qat-thinking-off"
-display_name = "Unsloth Gemma 4 12B (thinking off)"
-reasoning_efforts = []
+# Models are discovered from Hoshikage at startup. Static model entries are optional.
 
 # Optional ChatGPT provider. Authentication is supplied through the user's
 # Codex auth.json in the generated CODEX_HOME; the Proxy does not create it.
 # Prepare it with:
 # CODEX_HOME="$HOME/.config/codex-hoshikage-proxy/codex-home" codex login --device-auth
-# [providers.chatgpt]
-# codex_id = "openai"
-# enabled = true
-# max_concurrent_turns = 4
-#
-# [models."chatgpt/<model-id>"]
-# provider = "chatgpt"
-# upstream_model = "<model-id>"
-# display_name = "ChatGPT model"
-# reasoning_efforts = ["low", "medium", "high"]
-# default_reasoning_effort = "medium"
+[providers.chatgpt]
+codex_id = "openai"
+enabled = true
+max_concurrent_turns = 4
+# ChatGPT models are discovered from Codex App Server after authentication.
+# The default model above uses low reasoning when Codex advertises it.
 
 # Optional Ollama provider.
 # [providers.ollama]
@@ -62,9 +51,4 @@ reasoning_efforts = []
 # enabled = true
 # max_concurrent_turns = 1
 # Codex's built-in Ollama provider uses its standard local endpoint.
-#
-# [models."ollama/<model-id>"]
-# provider = "ollama"
-# upstream_model = "<model-id>"
-# display_name = "Ollama model"
-# reasoning_efforts = []
+# Ollama models are discovered from the Ollama catalog.

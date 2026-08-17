@@ -83,22 +83,17 @@ ChatGPT sign-in uses subscription/workspace access. API-key sign-in is a differe
 OpenAI Platform usage-based billing; it is not the ChatGPT Plus allowance. The official authentication
 details are in [OpenAI's Codex authentication guide](https://learn.chatgpt.com/docs/auth).
 
-Enable a ChatGPT model in the proxy configuration, for example:
+Enable the ChatGPT provider in the proxy configuration. ChatGPT models are discovered from Codex App
+Server after authentication; static model entries are not required.
 
 ```toml
 [providers.chatgpt]
 codex_id = "openai"
 enabled = true
 max_concurrent_turns = 4
-
-[models."chatgpt/gpt-5.6-luna"]
-provider = "chatgpt"
-upstream_model = "gpt-5.6-luna"
-display_name = "GPT-5.6 Luna"
-reasoning_efforts = ["low", "medium", "high"]
-default_reasoning_effort = "medium"
 ```
 
+The default model is `chatgpt/gpt-5.6-luna` with `low` reasoning when Codex advertises that effort.
 Reasoning effort is exposed for ChatGPT models only. Other providers use their Codex-side default;
 the proxy recommends `medium` when a default is required.
 

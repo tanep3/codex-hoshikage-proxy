@@ -78,23 +78,17 @@ Proxy専用の `CODEX_HOME` は管理領域です。Proxyは `config.toml` を�
 ChatGPT認証はサブスクリプション／ワークスペース権限を使います。API Key認証は別方式で、OpenAI Platformの従量課金です。
 ChatGPT Plusの利用枠とは異なります。詳細は[OpenAI公式のCodex認証ガイド](https://learn.chatgpt.com/docs/auth)を参照してください。
 
-ChatGPTモデルを有効化する例:
+ChatGPTプロバイダを有効化します。ChatGPTモデルは認証後にCodex App Serverから動的取得されるため、静的なモデル登録は不要です。
 
 ```toml
 [providers.chatgpt]
 codex_id = "openai"
 enabled = true
 max_concurrent_turns = 4
-
-[models."chatgpt/gpt-5.6-luna"]
-provider = "chatgpt"
-upstream_model = "gpt-5.6-luna"
-display_name = "GPT-5.6 Luna"
-reasoning_efforts = ["low", "medium", "high"]
-default_reasoning_effort = "medium"
 ```
 
-推論レベルはChatGPTモデルのみ指定できます。他のプロバイダではCodex側のデフォルトを使い、必要な場合は `medium` を推奨します。
+デフォルトモデルは `chatgpt/gpt-5.6-luna` で、Codexが `low` を通知した場合はlow推論を使います。推論レベルはChatGPTモデルのみ指定できます。
+他のプロバイダではCodex側のデフォルトを使い、必要な場合は `medium` を推奨します。
 
 ## 4. HoshikageとOllama
 

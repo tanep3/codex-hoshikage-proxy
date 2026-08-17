@@ -363,7 +363,7 @@ ollama
 
 `hoshikage` および `ollama` では、クライアントから `reasoning.effort` が明示された場合、`unsupported_parameter` として拒否する。ProxyがCodex側へ既定値を設定する必要がある場合のみ、`medium` を使用する。
 
-推論レベルの値は、選択されたChatGPTモデルがCodex/OpenAI仕様上サポートする値だけを受け付ける。モデルごとの対応値は静的モデル定義で管理する。
+推論レベルの値は、選択されたChatGPTモデルがCodex/OpenAI仕様上サポートする値だけを受け付ける。モデルごとの対応値は、Codex App Serverの動的モデルカタログを正とする。静的モデル定義が存在する場合は、明示的な上書き・固定値として扱う。
 
 ---
 
@@ -396,6 +396,8 @@ upstream_model = "actual-upstream-model-name"
 display_name = "Example Model"
 ```
 
+通常のモデルは起動時にProviderのカタログから発見するため、静的なモデル定義は必須ではない。必要な場合だけ、公開名の別名や表示名、能力の固定値を設定ファイルで上書きする。
+
 ### 12.2.1 Model Selection と Reasoning Effort
 
 ProviderとModelは `provider/model` のPublic Model IDとして一体に解決する。一方、Reasoning EffortはModel Selectionとは独立したリクエスト設定として扱う。
@@ -421,8 +423,12 @@ Responses APIでは、ChatGPT Providerに限り以下を受け付ける。
 
 ```toml
 [defaults]
-model = "hoshikage/unsloth-gemma4-12b-qat-thinking-off"
+model = "chatgpt/gpt-5.6-luna"
 ```
+
+ChatGPTの既定モデルは、Codexが対応値を広告している場合、推論レベル `low` を既定値として使用する。
+
+既定モデルが起動時のカタログに現れなくても起動は継続する。そのモデルを指定した要求には `model_not_found` または `provider_unavailable` を返す。
 
 ### 12.4 モデル省略
 
@@ -446,18 +452,18 @@ model = "hoshikage/unsloth-gemma4-12b-qat-thinking-off"
 
 `GET /v1/models` は、Proxyが利用可能なモデルをOpenAI互換形式で返す。
 
-MVPでは、モデルカタログを以下の優先順位で統合する。
+MVPでは、モデルカタログを以下の順に収集・統合する。
 
-1. Proxy設定ファイルの静的モデル定義
-2. Hoshikage `/v1/models` と詳細能力カタログ `/v1/hoshikage/models`
-3. Ollama `/api/tags`
-4. ChatGPT/Codex App Server `model/list`（Codex全体カタログから、他Providerで既知のモデルを除外）
+1. Hoshikage `/v1/models` と詳細能力カタログ `/v1/hoshikage/models`
+2. Ollama `/api/tags`
+3. ChatGPT/Codex App Server `model/list`（Codex全体カタログから、他Providerで既知のモデルを除外）
+4. Proxy設定ファイルの静的モデル定義（任意の上書き・別名）
 
 静的定義と動的取得結果が同じPublic Model IDになる場合は、静的定義を優先する。Codex App Serverの`model/list`はProvider横断カタログとして扱い、Hoshikage/Ollamaのカタログで既知のUpstream Model IDはChatGPTへ重複登録しない。動的に発見したモデルもModel Resolverへ登録し、`model` へ指定して利用できるようにする。
 
 Hoshikageの動的モデルは詳細能力カタログの`tools`を確認する。Codex Agent RuntimeはTool Callingを必須とするため、`tools=false`または詳細能力を取得できないHoshikageモデルはProxyの公開モデル一覧へ登録しない。モデル名から能力を推測してはならない。
 
-カタログ取得はProxy起動時に行う。Providerのカタログ取得に失敗しても、静的モデルおよび他Providerのモデルを返し、一覧API全体を失敗させない。失敗はEvent Journalまたは運用ログへ記録する。
+カタログ取得はProxy起動時に行う。Providerのカタログ取得に失敗しても、取得できた他Providerのモデルを返し、一覧API全体を失敗させない。失敗したProviderの動的モデルを推測して登録することはしない。失敗はEvent Journalまたは運用ログへ記録する。
 
 外部へ公開するIDは必ず以下の形式とする。
 
@@ -1454,7 +1460,7 @@ MVP の主要決定事項は以下とする。
 5. Provider は `chatgpt`、`hoshikage`、`ollama`
 6. Public Model ID は `provider/model`
 7. モデル一覧は設定ファイルとProviderカタログを統合して管理する
-8. Providerカタログ取得は起動時に行い、静的設定を優先する
+8. Providerカタログ取得は起動時に行い、静的モデル定義は任意の上書き・別名として適用する
 9. `model` は省略可能
 10. `default` は設定された既定モデルへ解決する
 11. Responses の継続中モデル変更は禁止する

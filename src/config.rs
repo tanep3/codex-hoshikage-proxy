@@ -121,7 +121,7 @@ pub struct RawDefaultsConfig {
 impl Default for RawDefaultsConfig {
     fn default() -> Self {
         Self {
-            model: "hoshikage/unsloth-gemma4-12b-qat-thinking-off".into(),
+            model: "chatgpt/gpt-5.6-luna".into(),
         }
     }
 }
@@ -130,15 +130,20 @@ impl Default for RawModelRegistryConfig {
     fn default() -> Self {
         let mut providers = HashMap::new();
         providers.insert("hoshikage".into(), RawProviderConfig::hoshikage_default());
-        let mut models = HashMap::new();
-        models.insert(
-            "hoshikage/unsloth-gemma4-12b-qat-thinking-off".into(),
-            RawModelConfig::default(),
+        providers.insert(
+            "chatgpt".into(),
+            RawProviderConfig {
+                codex_id: "openai".into(),
+                enabled: true,
+                max_concurrent_turns: 4,
+                base_url: None,
+                auth_env_key: None,
+            },
         );
         Self {
-            default_model: "hoshikage/unsloth-gemma4-12b-qat-thinking-off".into(),
+            default_model: "chatgpt/gpt-5.6-luna".into(),
             providers,
-            models,
+            models: HashMap::new(),
         }
     }
 }

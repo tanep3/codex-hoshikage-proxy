@@ -666,7 +666,7 @@ Application ServiceはRuleの内部条件を知らず、Transitionを適用し�
 
 ### 9.1 Registry
 
-MVP の Model Registry は設定ファイルから構築した静的 Registry を基礎とし、起動時にProviderカタログで拡張する。
+MVP の Model Registry は起動時にProviderカタログから構築する。設定ファイルの静的モデル定義は必須ではなく、必要な場合だけ動的定義の上書き・別名として適用する。
 
 ```rust
 pub struct ModelRegistry {
@@ -698,28 +698,29 @@ Resolved Model
 - Model 未登録: `model_not_found`
 - Provider 未登録: 起動時設定エラー
 - Provider disabled: `provider_unavailable`
-- Default Model 不正: 起動時設定エラー
+- Default Model が未発見: 起動は継続し、要求時に `model_not_found` または `provider_unavailable`
 - 非対応Reasoning Effort: `unsupported_parameter`
 - 非ChatGPT ProviderへのReasoning Effort指定: `unsupported_parameter`
 
 ### 9.4 Model Catalog Aggregator
 
-MVPでは、静的Registryを基礎にProvider別のモデルカタログを起動時に統合する。
+MVPでは、Provider別のモデルカタログを起動時に統合してRegistryを構築する。静的モデル定義は任意であり、同じPublic Model IDの動的定義を上書きする。
 
 ```text
-Static Config
 Hoshikage /v1/models + /v1/hoshikage/models
 Ollama /api/tags
 ChatGPT Codex model/list
         ↓
 Model Catalog Aggregator
         ↓
+Optional Static Overrides
+        ↓
 Model Registry
         ↓
 GET /v1/models / Model Resolver
 ```
 
-静的定義を優先し、動的取得失敗はProvider単位で隔離する。Hoshikageについては`/v1/models`のID一覧に加えて`/v1/hoshikage/models`の能力詳細を取得し、`tools=false`のBundleをCodex用Registryへ登録しない。詳細カタログを取得できない場合も安全側でHoshikageの動的モデル登録を行わない。Codex App Serverの`model/list`はProvider横断カタログとして扱い、他ProviderのHTTPカタログで既知のUpstream Model IDをChatGPTへ重複登録しない。MVPでは定期更新や専用Indexは設けない。
+動的取得失敗はProvider単位で隔離する。Hoshikageについては`/v1/models`のID一覧に加えて`/v1/hoshikage/models`の能力詳細を取得し、`tools=false`のBundleをCodex用Registryへ登録しない。詳細カタログを取得できない場合も安全側でHoshikageの動的モデル登録を行わない。Codex App Serverの`model/list`はProvider横断カタログとして扱い、他ProviderのHTTPカタログで既知のUpstream Model IDをChatGPTへ重複登録しない。既定モデルがカタログに現れない場合も起動は継続し、要求時に明示的なエラーを返す。MVPでは定期更新や専用Indexは設けない。
 
 ---
 

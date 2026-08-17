@@ -160,11 +160,6 @@ impl ModelRegistry {
                 ))
             })
             .collect::<Result<HashMap<_, _>, ModelError>>()?;
-        if !models.contains_key(&config.default_model) {
-            return Err(ModelError::InvalidRegistry(
-                "default_model is not registered".into(),
-            ));
-        }
         Ok(Self {
             default_model: config.default_model.clone(),
             providers,
@@ -190,14 +185,21 @@ impl ModelRegistry {
         let supported_reasoning_efforts = reasoning_efforts
             .into_iter()
             .filter_map(|value| ReasoningEffort::parse(&value))
-            .collect();
+            .collect::<Vec<_>>();
+        let default_reasoning_effort = if provider_id == "chatgpt"
+            && supported_reasoning_efforts.contains(&ReasoningEffort::Low)
+        {
+            Some(ReasoningEffort::Low)
+        } else {
+            None
+        };
         self.models.insert(
             public_id,
             ModelDefinition {
                 provider_id,
                 upstream_id,
                 supported_reasoning_efforts,
-                default_reasoning_effort: None,
+                default_reasoning_effort,
             },
         );
         Ok(())
@@ -271,21 +273,38 @@ mod tests {
     use crate::config::RawModelRegistryConfig;
 
     #[test]
-    fn resolves_default_hoshikage_model() {
+    fn resolves_default_model_after_discovery() {
         let registry = ModelRegistry::from_config(&RawModelRegistryConfig::default()).unwrap();
-        let model = registry.resolve(None, None).unwrap();
-        assert_eq!(model.public_provider_id, "hoshikage");
         assert_eq!(
-            model.upstream_model_id,
-            "unsloth-gemma4-12b-qat-thinking-off"
+            registry.resolve(None, None),
+            Err(ModelError::NotFound("chatgpt/gpt-5.6-luna".into()))
         );
     }
 
     #[test]
+    fn resolves_discovered_default_chatgpt_model_with_low_reasoning() {
+        let mut registry = ModelRegistry::from_config(&RawModelRegistryConfig::default()).unwrap();
+        registry
+            .add_discovered_model(
+                "chatgpt".into(),
+                "gpt-5.6-luna".into(),
+                vec!["low".into(), "medium".into(), "high".into()],
+            )
+            .unwrap();
+        let model = registry.resolve(None, None).unwrap();
+        assert_eq!(model.public_provider_id, "chatgpt");
+        assert_eq!(model.reasoning_effort, Some(ReasoningEffort::Low));
+        assert_eq!(model.upstream_model_id, "gpt-5.6-luna");
+    }
+
+    #[test]
     fn rejects_reasoning_effort_for_non_chatgpt_provider() {
-        let registry = ModelRegistry::from_config(&RawModelRegistryConfig::default()).unwrap();
+        let mut registry = ModelRegistry::from_config(&RawModelRegistryConfig::default()).unwrap();
+        registry
+            .add_discovered_model("hoshikage".into(), "model".into(), vec![])
+            .unwrap();
         assert_eq!(
-            registry.resolve(None, Some("medium")),
+            registry.resolve(Some("hoshikage/model"), Some("medium")),
             Err(ModelError::UnsupportedReasoning("hoshikage".into()))
         );
     }
@@ -322,20 +341,13 @@ mod tests {
     }
 
     #[test]
-    fn merges_discovered_models_and_keeps_static_definition() {
+    fn discovered_models_are_registered_without_static_definitions() {
         let mut registry = ModelRegistry::from_config(&RawModelRegistryConfig::default()).unwrap();
         registry
             .add_discovered_model(
                 "hoshikage".into(),
                 "new-model".into(),
                 vec!["medium".into()],
-            )
-            .unwrap();
-        registry
-            .add_discovered_model(
-                "hoshikage".into(),
-                "unsloth-gemma4-12b-qat-thinking-off".into(),
-                vec!["high".into()],
             )
             .unwrap();
 
@@ -346,17 +358,15 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(ids.contains(&"hoshikage/new-model".into()));
         assert_eq!(
-            ids.iter()
-                .filter(|id| *id == "hoshikage/unsloth-gemma4-12b-qat-thinking-off")
-                .count(),
+            ids.iter().filter(|id| *id == "hoshikage/new-model").count(),
             1
         );
         assert_eq!(
             registry
-                .resolve(Some("hoshikage/unsloth-gemma4-12b-qat-thinking-off"), None)
+                .resolve(Some("hoshikage/new-model"), None)
                 .unwrap()
                 .supported_reasoning_efforts,
-            Vec::<ReasoningEffort>::new()
+            vec![ReasoningEffort::Medium]
         );
     }
 }
