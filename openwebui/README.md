@@ -1,7 +1,7 @@
 # OpenWebUI Manifold Pipe
 
-`codex_hoshikage_pipe.py` is the official OpenWebUI integration path for
-interactive Approval.
+`codex_hoshikage_pipe.py` is the official OpenWebUI v0.11.0 integration path
+for interactive Approval.
 
 ## Installation
 
@@ -19,5 +19,7 @@ The Approval dialog uses OpenWebUI's `__event_call__` input event and sends
 the selected value unchanged from the Proxy's `availableDecisions` list.
 Use `accept`, `accept_for_session`, `decline`, or `cancel` as appropriate.
 
-This integration requires an OpenWebUI build that supports asynchronous Pipe
-methods and the documented `__event_call__` event interface.
+This integration targets OpenWebUI v0.11.0 and requires its asynchronous Pipe
+support and documented `__event_call__` event interface. If package
+installation from Pipe frontmatter is disabled, install `httpx` in the
+OpenWebUI environment or enable its function dependency installation setting.

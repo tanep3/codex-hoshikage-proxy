@@ -1,4 +1,10 @@
-"""OpenWebUI Manifold Pipe for Codex Hoshikage Proxy.
+"""
+title: Codex Hoshikage Proxy
+author: Codex Hoshikage Proxy
+version: 0.1.0
+requirements: httpx
+
+OpenWebUI Manifold Pipe for Codex Hoshikage Proxy.
 
 Install this file as an OpenWebUI Function/Manifold Pipe.  The Pipe talks to
 the Proxy only through its OpenAI-compatible API and the documented Codex

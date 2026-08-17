@@ -2080,7 +2080,7 @@ pub struct CodexScenario {
 ### Phase 7: OpenWebUI
 
 - Manifold Pipe
-- `openwebui/codex_hoshikage_pipe.py`
+- `openwebui/codex_hoshikage_pipe.py`（OpenWebUI v0.11.0対象）
 - Dynamic model list from Proxy
 - Streaming
 - Extension Event monitor
