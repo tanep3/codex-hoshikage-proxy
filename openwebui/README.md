@@ -1,5 +1,7 @@
 # OpenWebUI Manifold Pipe
 
+For the end-user setup flow, see the bilingual [OpenWebUI Registration Guide](../docs/openwebui.md).
+
 `codex_hoshikage_pipe.py` is the official OpenWebUI v0.11.0 integration path
 for interactive Approval.
 
