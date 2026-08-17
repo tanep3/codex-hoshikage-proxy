@@ -1654,7 +1654,7 @@ JSONL Journal の過去分を replay 後、live event を配信可能とする�
 
 Extension API は通常 API と同じ API Key Policy を使用する。
 
-Loopback bindではAPI Keyを任意とし、非loopback bindでは単一API Keyを必須とする。API Keyは設定ファイルに値を保存せず、`security.api_key_env`で指定した環境変数から起動時に取得する。認証情報がない非loopback起動はfail-closedとし、通常APIの`Authorization: Bearer <key>`を検証する。TLSはリバースプロキシへ委譲し、CORSは既定で無効とする。複数Keyと権限管理はPhase 2とする。
+Loopback bindではAPI Keyを任意とし、非loopback bindでは単一API Keyを必須とする。API Keyは`security.api_key`へ直接記載でき、`security.api_key_env`で指定した環境変数から取得することもできる。両方が指定された場合は`api_key`を優先する。認証情報がない非loopback起動はfail-closedとし、通常APIの`Authorization: Bearer <key>`を検証する。TLSはリバースプロキシへ委譲し、CORSは既定で無効とする。複数Keyと権限管理はPhase 2とする。
 
 ---
 

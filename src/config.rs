@@ -84,6 +84,7 @@ impl Default for RawCodexConfig {
 #[serde(default)]
 pub struct RawSecurityConfig {
     pub allowed_cwds: Vec<String>,
+    pub api_key: Option<String>,
     pub api_key_env: Option<String>,
 }
 
@@ -91,6 +92,7 @@ impl Default for RawSecurityConfig {
     fn default() -> Self {
         Self {
             allowed_cwds: Vec::new(),
+            api_key: None,
             api_key_env: None,
         }
     }
@@ -290,11 +292,16 @@ impl ValidatedConfig {
         };
         let api_key = raw
             .security
-            .api_key_env
-            .as_deref()
-            .filter(|name| !name.trim().is_empty())
-            .and_then(|name| env::var(name).ok())
-            .filter(|value| !value.is_empty());
+            .api_key
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                raw.security
+                    .api_key_env
+                    .as_deref()
+                    .filter(|name| !name.trim().is_empty())
+                    .and_then(|name| env::var(name).ok())
+                    .filter(|value| !value.is_empty())
+            });
         if !listen_addr.ip().is_loopback() && api_key.is_none() {
             return Err(ConfigError::Invalid(
                 "non-loopback server requires security.api_key_env with a non-empty environment value".into(),
@@ -417,6 +424,20 @@ mod tests {
         ];
         let error = ValidatedConfig::from_raw(raw).unwrap_err();
         assert!(matches!(error, ConfigError::Invalid(message) if message.contains("non-loopback")));
+    }
+
+    #[test]
+    fn accepts_api_key_from_declarative_config() {
+        let mut raw = RawConfig::default();
+        raw.security.allowed_cwds = vec![
+            std::env::current_dir()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        ];
+        raw.security.api_key = Some("config-secret".into());
+        let config = ValidatedConfig::from_raw(raw).unwrap();
+        assert_eq!(config.api_key.as_deref(), Some("config-secret"));
     }
 
     #[test]

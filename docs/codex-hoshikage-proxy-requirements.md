@@ -840,7 +840,7 @@ allowed_cwds = [
     "${HOME}/work",
     "${HOME}/projects",
 ]
-api_key_env = "CODEX_HOSHIKAGE_PROXY_API_KEY"
+api_key = "change-me"
 ```
 
 指定された `cwd` は絶対パスで、正規化後にAllowlist内であり、実在する場合だけ受け付ける。Proxyは存在しないディレクトリを作成しない。
@@ -1062,7 +1062,7 @@ display_name = "Ollama Example"
 
 Loopback bindではAPI Key認証を任意とする。非loopbackへListenする場合はAPI Key認証を必須とする。
 
-MVPは単一API Keyに対応する。複数Keyと権限管理はPhase 2とする。TLSはリバースプロキシへ委譲し、CORSはデフォルト無効とする。OpenWebUI Pipeには同じAPI KeyをSecretまたは環境設定から渡す。
+MVPは単一API Keyに対応する。`security.api_key`へ直接記載でき、`security.api_key_env`を指定した場合は環境変数からの取得も可能とする。両方が指定された場合は`api_key`を優先する。複数Keyと権限管理はPhase 2とする。TLSはリバースプロキシへ委譲し、CORSはデフォルト無効とする。OpenWebUI Pipeには同じAPI KeyをSecretまたは環境設定から渡す。
 
 ### 24.2 ChatGPT 認証
 
