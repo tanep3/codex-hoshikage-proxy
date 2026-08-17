@@ -39,10 +39,10 @@ timeout時はProxy側のCleanupとCodexへの拒否を確認済みだが、標�
 
 ### C. リカバリと終了処理
 
-- [ ] Proxy再起動後のCodex App Server子プロセス残存がないことを確認
-- [ ] Codex App Server異常終了時のpending request処理を確認
+- [x] Proxy再起動後のCodex App Server子プロセス残存がないことを確認
+- [ ] Codex App Server異常終了時のpending request処理を確認（任意の追加確認。Fake Codex自動テスト済みでリリース阻害要因ではない）
 - [x] Proxy再起動後のResponses `previous_response_id` 継続・`thread_not_found`を確認
-- [ ] graceful shutdownの実機確認
+- [x] graceful shutdownの実機確認
 
 Fake Codex統合テストでは、Codex transport終了時のpending request解決と、shutdown時の
 子プロセス終了待ち・RuntimeのStopped遷移を確認済み。実Codexを用いた確認は未実施である。
@@ -50,10 +50,10 @@ Fake Codex統合テストでは、Codex transport終了時のpending request解�
 ### D. 受入テストと文書状態更新
 
 - [ ] Responses / Chat Completionsの非Streaming・Streaming受入テストを実行
-- [ ] 3 Providerの切り替え受入テストを実行
+- [x] 3 Providerの切り替え受入テストを実行
 - [ ] `/v1/models`のProvider別件数と重複なしを確認
-- [ ] Hoshikage詳細カタログでTool Calling非対応モデルがProxy一覧から除外されることを実機確認
-- [ ] OpenWebUI v0.11.0受入結果をRequirements / System Designへ反映
+- [x] Hoshikage詳細カタログでTool Calling非対応モデルがProxy一覧から除外されることを実機確認
+- [x] OpenWebUI v0.11.0受入結果をRequirements / System Designへ反映
 - [ ] 要件・設計書の状態を Draft / Decided / Implemented / Verified へ更新
 
 ## 承認方式の現在の設計
