@@ -261,12 +261,28 @@ impl CodexRuntime {
         let child = Arc::clone(&self.child);
         let state = Arc::clone(&self.state);
         tokio::spawn(async move {
-            let status = {
-                let mut guard = child.lock().await;
-                match guard.as_mut() {
-                    Some(process) => process.wait().await.ok(),
-                    None => None,
+            let status = loop {
+                let status = {
+                    let mut guard = child.lock().await;
+                    let Some(process) = guard.as_mut() else {
+                        return;
+                    };
+                    match process.try_wait() {
+                        Ok(Some(status)) => {
+                            let _ = guard.take();
+                            Some(status)
+                        }
+                        Ok(None) => None,
+                        Err(error) => {
+                            tracing::warn!(error = %error, "failed to poll Codex App Server process");
+                            return;
+                        }
+                    }
+                };
+                if status.is_some() {
+                    break status;
                 }
+                tokio::time::sleep(Duration::from_millis(50)).await;
             };
             let mut current = state.write().await;
             *current = reduce_runtime(
