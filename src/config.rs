@@ -312,6 +312,11 @@ impl ValidatedConfig {
             if !provider.enabled {
                 continue;
             }
+            if matches!(provider.codex_id.as_str(), "openai" | "ollama") {
+                // Codex owns these built-in providers and rejects attempts to
+                // override them through model_providers.
+                continue;
+            }
             let Some(base_url) = provider.base_url.as_deref() else {
                 continue;
             };
@@ -444,5 +449,32 @@ mod tests {
             .expect("provider config generated");
         let generated = fs::read_to_string(config.codex_home.join("config.toml")).unwrap();
         assert!(generated.contains("env_key = \"HOSHIKAGE_API_KEY\""));
+    }
+
+    #[test]
+    fn does_not_override_codex_builtin_providers() {
+        let mut raw = RawConfig::default();
+        raw.server.default_cwd = Some("/tmp".into());
+        raw.security.allowed_cwds = vec!["/tmp".into()];
+        raw.providers.insert(
+            "ollama".into(),
+            RawProviderConfig {
+                codex_id: "ollama".into(),
+                enabled: true,
+                max_concurrent_turns: 1,
+                base_url: Some("http://127.0.0.1:11434/v1".into()),
+                auth_env_key: None,
+            },
+        );
+        let mut config = ValidatedConfig::from_raw(raw).expect("valid test config");
+        config.codex_home = std::env::temp_dir().join(format!(
+            "codex-hoshikage-proxy-builtin-test-{}",
+            std::process::id()
+        ));
+        config
+            .prepare_codex_home()
+            .expect("provider config generated");
+        let generated = fs::read_to_string(config.codex_home.join("config.toml")).unwrap();
+        assert!(!generated.contains("[model_providers.ollama]"));
     }
 }

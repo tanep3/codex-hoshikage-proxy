@@ -55,7 +55,7 @@ reasoning_efforts = []
 # codex_id = "ollama"
 # enabled = true
 # max_concurrent_turns = 1
-# base_url = "http://127.0.0.1:11434/v1"
+# Codex's built-in Ollama provider uses its standard local endpoint.
 #
 # [models."ollama/<model-id>"]
 # provider = "ollama"
