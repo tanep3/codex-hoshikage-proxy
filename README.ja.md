@@ -2,42 +2,60 @@
 
 # Codex Hoshikage Proxy
 
-Codex Hoshikage Proxy は、Codex を利用するAIを、ひとつの OpenAI互換エンドポイントから
-使えるようにするセルフホスト型プロキシです。Hoshikage、ChatGPT/Codexのサブスクリプション
-モデル、OllamaをCodex App Serverへ接続し、モデル一覧とAPIを統合して提供します。
-OpenWebUIからも利用できます。
+## いつものOpenAI互換APIから、Codexを使う
 
-## できること
+OpenAI APIに対応したアプリを、もう使っていますか？
 
-- `GET /v1/models`、`POST /v1/responses`、`POST /v1/chat/completions` を提供。
-- `hoshikage/...`、`chatgpt/...`、`ollama/...` の公開モデルIDでプロバイダとモデルを選択。
-- テキスト、ツール呼び出し、使用量、終了状態、エラー、キャンセルをストリーミング。
-- Codexのシェル実行・ファイル操作などのエージェント機能を利用。
-- 作業ディレクトリの許可リストと、ツール実行時の承認を管理。
-- OpenAI APIキーを使わず、ChatGPT/Codexサブスクリプション認証を利用。
-- ローカルのHoshikage/OllamaとChatGPTモデルを同じエンドポイントで切り替え。
-- 付属PipeによってOpenWebUIへ登録。
+そのアプリの接続先をこのProxyに変えるだけで、同じような操作感でCodexを使えるようになります。
 
-## 利用者にとってのメリット
+OpenWebUIや自作スクリプトなどから、ChatGPT/Codexのサブスクリプションモデル、Hoshikage、Ollamaを選んで使えます。
 
-クライアントごとにプロバイダ設定をやり直す必要がありません。プロキシを一度設定すれば、
-統合されたモデル一覧から選ぶだけで、ローカルモデルとサブスクリプションモデルを同じ操作で
-切り替えられます。Codexがアクセスできるディレクトリや、ツール操作の承認も明示的に制御できます。
+## 何がうれしいの？
 
-## 現在の状態
+- **接続先はひとつだけ。** アプリ側を毎回設定し直さず、モデルを選ぶだけでプロバイダを切り替えられます。
+- **Codexのサブスクを使える。** ChatGPTアカウントでCodexにログインすれば、そのアカウントで使えるCodexモデルを利用できます。ChatGPTログインならOpenAI PlatformのAPI Keyは不要です。
+- **ローカルとクラウドを使い分けられる。** HoshikageやOllamaをローカルで使い、必要なときだけChatGPTモデルへ切り替えられます。
+- **Codexの得意技が使える。** ファイルを読んだり、コマンドを実行したりできます。承認確認とアクセス可能なディレクトリの制限もあります。
+- **OpenWebUIで使える。** 付属のPipeを登録すれば、OpenWebUIのモデル選択画面から使えます。
 
-セルフホスト利用を想定したMVPです。Codex CLI/App Server `0.147.0`以降を対象とし、
-OpenWebUI連携はOpenWebUI `v0.11.0`と標準Pipeイベントを対象とします。OpenWebUI標準の承認
-ダイアログには現在2ボタンの制約があります。詳細は[OpenWebUI登録ガイド](docs/openwebui.ja.md)を参照してください。
+## 何ができるの？
 
-## まず読むガイド
+統合されたモデル一覧から選んで、いつものOpenAI形式のリクエストを送れます。
+
+```text
+chatgpt/gpt-5.6-luna
+hoshikage/unsloth-gemma4-12b-qat-thinking-off
+ollama/gemma4:e4b
+```
+
+提供する機能は次のとおりです。
+
+- OpenAI互換のモデル一覧 `GET /v1/models`
+- Responses API `POST /v1/responses`
+- Chat Completions API `POST /v1/chat/completions`
+- テキスト、ツール呼び出し、usage、完了状態、エラー、キャンセルのストリーミング
+- Codexによるファイル操作・シェル実行、承認処理、作業ディレクトリの許可リスト
+- ChatGPTモデルだけに適用できる推論レベル指定
+
+つまり、使い慣れたOpenAI互換クライアントからCodexを呼び出すための橋渡しです。
+
+## はじめ方
+
+1. Codex CLIとこのProxyをインストール。
+2. サンプル設定を `~/.config/codex-hoshikage-proxy/config.toml` へコピー。
+3. 使いたいプロバイダと、アクセスを許可するディレクトリを設定。
+4. ChatGPTモデルを使うならCodexへログイン。
+5. ユーザー権限のsystemdサービスとして起動。
+
+詳しくはこちら:
 
 - [インストールガイド](docs/installation.ja.md)
 - [ユーザー／APIガイド](docs/user-guide.ja.md)
 - [OpenWebUI登録ガイド](docs/openwebui.ja.md)
-- [内部要件定義](docs/codex-hoshikage-proxy-requirements.md)／[システム設計](docs/codex-hoshikage-proxy-system-design.md)
 
-## ライセンスと著作者
+Codex CLI/App Server `0.147.0`以降、OpenWebUI `v0.11.0`を対象としています。
 
-Copyright (c) 2026 Tane Channel Technology。MIT Licenseです。詳細は[`LICENSE`](LICENSE)を参照してください。
+## ライセンス
+
+Copyright (c) 2026 Tane Channel Technology。[[MIT License](LICENSE)]です。
 

@@ -19,15 +19,18 @@ codex --version
 Proxyは子プロセスとして `codex app-server --listen stdio://` を起動します。Codexの認証を置き換えたり、
 認証情報を作成したりはしません。
 
-## 2. ビルドと設定
+## 2. インストールと設定
 
 リポジトリのルートで実行します。
 
 ```sh
-cargo build --release
+cargo install --path .
 mkdir -p "$HOME/.config/codex-hoshikage-proxy"
 cp config.example.toml "$HOME/.config/codex-hoshikage-proxy/config.toml"
 ```
+
+これで `~/.cargo/bin/codex-hoshikage-proxy` にProxyがインストールされます。Proxyは常駐サービスなので、通常は `cargo run` で起動せず、
+ユーザー権限のsystemdサービスとして動かします。
 
 `~/.config/codex-hoshikage-proxy/config.toml` を編集します。
 
@@ -110,13 +113,45 @@ base_url = "http://127.0.0.1:3030/v1"
 
 Ollamaはプロバイダを有効にし、公開モデルIDを設定します。標準のローカルエンドポイントを利用します。
 
-## 5. 起動と確認
+## 5. 認証してサービスを起動
+
+ChatGPTモデルを使う場合は、サービスを起動する前にProxy専用Codex homeでログインします。サービスも同じhomeを自動的に使います。
 
 ```sh
-cargo run --release --bin codex-hoshikage-proxy
+CODEX_HOME="$HOME/.config/codex-hoshikage-proxy/codex-home" codex login --device-auth
 ```
 
-別の端末で:
+サービスユニットを登録します。
+
+```sh
+mkdir -p "$HOME/.config/systemd/user"
+cp contrib/systemd/codex-hoshikage-proxy.service \
+  "$HOME/.config/systemd/user/codex-hoshikage-proxy.service"
+systemctl --user daemon-reload
+systemctl --user enable --now codex-hoshikage-proxy.service
+```
+
+状態とログの確認:
+
+```sh
+systemctl --user status codex-hoshikage-proxy.service
+journalctl --user -u codex-hoshikage-proxy.service -f
+```
+
+付属ユニットは `~/.cargo/bin/codex-hoshikage-proxy` を使います。`codex` が標準以外の場所にある場合は、ユニットの `Environment=PATH=...` を編集してください。
+ログアウト後も常駐させるには、次を一度実行します。
+
+```sh
+loginctl enable-linger "$USER"
+```
+
+停止・無効化:
+
+```sh
+systemctl --user disable --now codex-hoshikage-proxy.service
+```
+
+## 6. APIを確認
 
 ```sh
 curl -H "Authorization: Bearer replace-with-a-long-random-secret" \
@@ -125,8 +160,7 @@ curl -H "Authorization: Bearer replace-with-a-long-random-secret" \
 
 loopback専用でAPI Key未設定ならAuthorizationヘッダーは不要です。レスポンスには `provider/model` 形式のモデルIDが含まれます。
 
-## 6. 次に読むもの
+## 7. 次に読むもの
 
 - [ユーザー／APIガイド](user-guide.ja.md)
 - [OpenWebUI登録ガイド](openwebui.ja.md)
-

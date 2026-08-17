@@ -2,60 +2,64 @@
 
 # Codex Hoshikage Proxy
 
-Codex Hoshikage Proxy lets you use Codex-powered AI through one OpenAI-compatible endpoint.
-It connects Codex App Server with Hoshikage, ChatGPT/Codex subscription models, and Ollama,
-then exposes a common model list and API for applications such as OpenWebUI.
+## Use Codex from any OpenAI-compatible client
 
-## What can it do?
+You already have an app that can talk to the OpenAI API?
+Point it at this proxy and use Codex from the same kind of interface.
 
-- Provide `GET /v1/models`, `POST /v1/responses`, and `POST /v1/chat/completions`.
-- Select a provider and model with one public model ID such as
-  `hoshikage/unsloth-gemma4-12b-qat-thinking-off` or `chatgpt/gpt-5.6-luna`.
-- Stream text, tool calls, usage, completion status, errors, and cancellation through
-  OpenAI-compatible responses.
-- Use Codex's local agent capabilities, including shell and file operations, with approval
-  and working-directory controls.
-- Connect ChatGPT/Codex subscription authentication without requiring an OpenAI API key.
-- Combine local Hoshikage and Ollama models with ChatGPT models behind the same endpoint.
-- Register the endpoint in OpenWebUI through the included Pipe.
+That means you can use Codex from OpenWebUI, scripts, and other OpenAI-compatible tools while
+choosing the model you want: ChatGPT/Codex subscription models, Hoshikage, or Ollama.
 
-## Why use it?
+## Why is this useful?
 
-You do not need to configure every client separately for every provider. Configure the proxy
-once, choose a model from the unified list, and keep the same client workflow when switching
-between local and subscription-backed models. The proxy also gives you explicit control over
-which directories Codex may access and whether a tool operation needs approval.
+- **One API endpoint.** Your client only needs to know the proxy. You do not have to reconfigure it
+  every time you switch providers.
+- **Use your Codex subscription.** Sign in to Codex with ChatGPT and use the Codex models available
+  to your account. No OpenAI Platform API key is needed for that login method.
+- **Mix local and cloud models.** Try Hoshikage or Ollama locally, then switch to a ChatGPT model
+  with a model selector.
+- **Keep Codex's useful powers.** Codex can work with files and run commands, with approval prompts
+  and an allowed-directory list to keep things under control.
+- **Works with OpenWebUI.** The included Pipe turns the proxy into a model source for OpenWebUI.
 
-## Current status
+## What can you do with it?
 
-This is an MVP release intended for self-hosted use. It targets Codex CLI/App Server `0.147.0`
-or later. OpenWebUI integration targets OpenWebUI `v0.11.0` and its standard Pipe events.
-The standard OpenWebUI approval dialog currently has a two-button limitation; see the
-[OpenWebUI guide](docs/openwebui.md).
+Pick a model from the unified list and send a normal OpenAI-style request:
 
-## Quick start
+```text
+chatgpt/gpt-5.6-luna
+hoshikage/unsloth-gemma4-12b-qat-thinking-off
+ollama/gemma4:e4b
+```
 
-1. Install Codex CLI and, if needed, Hoshikage or Ollama.
-2. Copy [`config.example.toml`](config.example.toml) to
-   `~/.config/codex-hoshikage-proxy/config.toml` and edit the provider and directory settings.
-3. Authenticate Codex if you will use ChatGPT models.
-4. Start the proxy and call `/v1/models`.
+The proxy provides:
 
-See the [installation guide](docs/installation.md), [user and API guide](docs/user-guide.md),
-and [OpenWebUI registration guide](docs/openwebui.md).
+- OpenAI-compatible `GET /v1/models`.
+- Responses API at `POST /v1/responses`.
+- Chat Completions API at `POST /v1/chat/completions`.
+- Streaming text, tool calls, usage, completion status, errors, and cancellation.
+- Codex file and shell operations, approval handling, and working-directory allowlists.
+- Independent reasoning-effort selection for ChatGPT models.
 
-## Documentation
+In short: it is a bridge between familiar OpenAI-compatible clients and Codex.
 
-- [Installation guide](docs/installation.md) — prerequisites, configuration, authentication,
-  and startup.
-- [User and API guide](docs/user-guide.md) — environment settings, model selection, APIs,
-  errors, and operations.
-- [OpenWebUI registration guide](docs/openwebui.md) — OpenWebUI `v0.11.0` setup.
-- [Internal requirements](docs/codex-hoshikage-proxy-requirements.md) and
-  [system design](docs/codex-hoshikage-proxy-system-design.md) — project design references.
+## Getting started
 
-## License and author
+1. Install Codex CLI and this proxy.
+2. Copy the example configuration to `~/.config/codex-hoshikage-proxy/config.toml`.
+3. Choose the providers and directories you want to allow.
+4. Sign in to Codex if you want ChatGPT subscription models.
+5. Run the proxy as a user-level systemd service.
 
-Copyright (c) 2026 Tane Channel Technology. This project is licensed under the MIT License;
-see [`LICENSE`](LICENSE).
+Start here:
+
+- [Installation guide](docs/installation.md)
+- [User and API guide](docs/user-guide.md)
+- [OpenWebUI registration guide](docs/openwebui.md)
+
+This project targets Codex CLI/App Server `0.147.0` or later and OpenWebUI `v0.11.0`.
+
+## License
+
+Copyright (c) 2026 Tane Channel Technology. Licensed under the [MIT License](LICENSE).
 

@@ -19,15 +19,18 @@ codex --version
 The proxy starts `codex app-server --listen stdio://` as a child process. It does not replace
 Codex authentication and it does not create Codex credentials.
 
-## 2. Build and configure
+## 2. Install and configure
 
 From the repository root:
 
 ```sh
-cargo build --release
+cargo install --path .
 mkdir -p "$HOME/.config/codex-hoshikage-proxy"
 cp config.example.toml "$HOME/.config/codex-hoshikage-proxy/config.toml"
 ```
+
+This installs the proxy as `~/.cargo/bin/codex-hoshikage-proxy`. It is a long-running service, so
+the normal way to run it is a user-level systemd service, not `cargo run`.
 
 Edit `~/.config/codex-hoshikage-proxy/config.toml`:
 
@@ -118,13 +121,47 @@ are not dynamically exposed for Codex tool use.
 For Ollama, enable the provider and define the public model IDs. Ollama is expected to be available at
 its standard local endpoint.
 
-## 5. Start and verify
+## 5. Authenticate and start the service
+
+If you use ChatGPT models, complete the Codex login in the dedicated Proxy Codex home before starting
+the service. The service uses the same home automatically:
 
 ```sh
-cargo run --release --bin codex-hoshikage-proxy
+CODEX_HOME="$HOME/.config/codex-hoshikage-proxy/codex-home" codex login --device-auth
 ```
 
-In another terminal:
+Install the service unit:
+
+```sh
+mkdir -p "$HOME/.config/systemd/user"
+cp contrib/systemd/codex-hoshikage-proxy.service \
+  "$HOME/.config/systemd/user/codex-hoshikage-proxy.service"
+systemctl --user daemon-reload
+systemctl --user enable --now codex-hoshikage-proxy.service
+```
+
+Check the service:
+
+```sh
+systemctl --user status codex-hoshikage-proxy.service
+journalctl --user -u codex-hoshikage-proxy.service -f
+```
+
+The included unit expects the binary at `~/.cargo/bin/codex-hoshikage-proxy`. If `codex` is installed
+outside the standard user PATH, edit the unit's `Environment=PATH=...` line. To keep the service alive
+after logging out, enable lingering once:
+
+```sh
+loginctl enable-linger "$USER"
+```
+
+To stop or disable it:
+
+```sh
+systemctl --user disable --now codex-hoshikage-proxy.service
+```
+
+## 6. Verify the API
 
 ```sh
 curl -H "Authorization: Bearer replace-with-a-long-random-secret" \
@@ -134,8 +171,7 @@ curl -H "Authorization: Bearer replace-with-a-long-random-secret" \
 Omit the `Authorization` header for a loopback-only listener when no API key is configured. A normal
 response contains model IDs in `provider/model` form.
 
-## 6. Next steps
+## 7. Next steps
 
 - Use the [user and API guide](user-guide.md) for configuration and requests.
 - Use the [OpenWebUI guide](openwebui.md) to register the Pipe.
-
