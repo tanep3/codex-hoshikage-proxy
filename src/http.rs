@@ -316,11 +316,22 @@ async fn create_chat_completion(
         mut notifications,
     } = started;
     let text = collect_turn_text(&mut notifications, &thread_id, turn_id.as_deref()).await?;
+    let response_id = format!(
+        "chatcmpl_{}",
+        state.next_chat_id.fetch_add(1, Ordering::Relaxed)
+    );
+    let _ = state
+        .journal
+        .append(&JournalEntry {
+            timestamp_ms: now_ms(),
+            event: "chat.completion.completed",
+            response_id: &response_id,
+            model: &model.public_model_id,
+            status: "completed",
+        })
+        .await;
     let response = json!({
-        "id": format!(
-            "chatcmpl_{}",
-            state.next_chat_id.fetch_add(1, Ordering::Relaxed)
-        ),
+        "id": response_id,
         "object": "chat.completion",
         "created": now_ms() / 1000,
         "model": model.public_model_id,
@@ -427,6 +438,16 @@ async fn run_chat_stream(
     if sender.send(sse_data(&role_chunk)).await.is_err() {
         return;
     }
+    let _ = state
+        .journal
+        .append(&JournalEntry {
+            timestamp_ms: now_ms(),
+            event: "chat.completion.created",
+            response_id: &id,
+            model: &model.public_model_id,
+            status: "in_progress",
+        })
+        .await;
     loop {
         let event = time::timeout(Duration::from_secs(120), notifications.recv()).await;
         let Ok(Ok(event)) = event else {
@@ -467,6 +488,16 @@ async fn run_chat_stream(
                 }
                 return;
             }
+            let _ = state
+                .journal
+                .append(&JournalEntry {
+                    timestamp_ms: now_ms(),
+                    event: "chat.completion.delta",
+                    response_id: &id,
+                    model: &model.public_model_id,
+                    status: "in_progress",
+                })
+                .await;
         } else if method == "turn/completed" {
             let status = params
                 .pointer("/turn/status")
@@ -489,6 +520,16 @@ async fn run_chat_stream(
                 "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
             });
             let _ = sender.send(sse_data(&finish)).await;
+            let _ = state
+                .journal
+                .append(&JournalEntry {
+                    timestamp_ms: now_ms(),
+                    event: "chat.completion.completed",
+                    response_id: &id,
+                    model: &model.public_model_id,
+                    status: "completed",
+                })
+                .await;
             let _ = sender.send(sse_done()).await;
             return;
         }
