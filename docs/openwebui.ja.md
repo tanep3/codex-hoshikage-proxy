@@ -64,6 +64,9 @@ Pipeプロセスが生きている間は、同じユーザーのスレッドで�
 選択モデルを変更すると、Pipeは新しいCodex Threadを開始し、OpenWebUIから渡された会話履歴を新モデルへ渡します。
 論理会話IDは同じなので、モデル変更後も会話を続けられます。現在は対応表をメモリ上に保持する初期実験のため、OpenWebUIがPipeを再読み込みすると失われます。
 
+Pipeが古いResponse IDを保持したままProxyを再起動すると、Codex側のThreadが存在しなくなることがあります。
+Pipeは`thread_not_found`を検知すると古いIDを破棄し、OpenWebUIが持つ表示中の会話履歴から新しいThreadを作り直して1回だけ再試行します。
+
 ## 5. 承認の動き
 
 PipeはOpenWebUI標準の `__event_call__` 承認イベントを使います。Proxyのドメインは `accept`、`accept_for_session`、
@@ -83,3 +86,4 @@ PipeはOpenWebUI標準の `__event_call__` 承認イベントを使います。P
 - **`/v1/chat/completions` が404**: 古いProxyまたは違うポートを見ています。現在のProxyを再起動し、`/v1`なしのベースURLを設定。
 - **モデルが一部しか出ない**: Pipeを更新し、プロバイダ有効化とモデル登録を確認。ツール呼び出し非対応のHoshikageモデルは意図的に除外されます。
 - **`tool_calling_not_supported`**: プロバイダ一覧でツール対応と報告されるモデルを選んでください。
+- **Proxy再起動後の`thread_not_found`**: PipeがOpenWebUIの会話履歴から自動復旧します。それでも失敗する場合は、Pipeを一度再読み込みしてメモリ上の対応表を消してください。

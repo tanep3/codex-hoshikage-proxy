@@ -68,6 +68,10 @@ history supplied by OpenWebUI to the new model. The logical conversation ID rema
 conversation can continue across the model change. The mapping is currently in memory and is lost when
 OpenWebUI reloads the Pipe. This is intentionally a first-stage experiment.
 
+If the Proxy restarts while the Pipe still holds an old Response ID, the Codex thread may no longer
+exist. The Pipe detects `thread_not_found`, discards the stale ID, and retries once using OpenWebUI's
+visible conversation history to create a replacement thread.
+
 ## 5. Approval behavior
 
 The Pipe uses OpenWebUI's standard `__event_call__` approval event. The standard UI currently offers
@@ -98,3 +102,5 @@ path. A manually cancelled approval also ends the turn and releases the provider
   agent use.
 - **A turn fails with `tool_calling_not_supported`**: select a model whose provider catalog reports
   tool support.
+- **`thread_not_found` after a Proxy restart**: the Pipe should recover automatically from the visible
+  OpenWebUI history. If recovery still fails, reload the Pipe once to clear its in-memory mapping.

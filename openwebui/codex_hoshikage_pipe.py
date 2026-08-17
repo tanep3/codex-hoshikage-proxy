@@ -20,6 +20,10 @@ from typing import Any, AsyncGenerator, Optional
 from pydantic import BaseModel, Field
 
 
+class _ProxyThreadNotFound(Exception):
+    """The persisted Response mapping points to a Codex thread that is gone."""
+
+
 class Pipe:
     """Expose each Proxy model as an OpenWebUI manifold model."""
 
@@ -179,65 +183,101 @@ class Pipe:
                         pass
                 yield message
                 return
-            async with client.stream(
-                "POST",
-                f"{self._base_url()}/v1/responses",
-                headers=self._headers(),
-                json=payload,
-            ) as response:
-                if response.is_error:
-                    detail = (await response.aread()).decode(errors="replace")
-                    raise RuntimeError(
-                        f"Proxy returned {response.status_code} for {response.url}: {detail}"
-                    )
-                response_id: Optional[str] = None
-                turn_id = response.headers.get("x-codex-turn-id")
-                approval_task = None
-                event_name: Optional[str] = None
-                if turn_id and __event_call__ is not None:
-                    approval_task = asyncio.create_task(
-                        self._watch_approvals(client, turn_id, __event_call__)
-                    )
-                try:
-                    async for line in response.aiter_lines():
-                        if line.startswith("event:"):
-                            event_name = line[6:].strip()
-                            continue
-                        if not line.startswith("data:"):
-                            continue
-                        data = line[5:].strip()
-                        if data == "[DONE]":
-                            break
-                        try:
-                            event = json.loads(data)
-                        except json.JSONDecodeError:
-                            continue
-                        event_type = event_name
-                        event_name = None
-                        if event_type == "response.created":
+            try:
+                async for delta in self._stream_responses(
+                    client,
+                    payload,
+                    conversation_id,
+                    proxy_model if isinstance(proxy_model, str) else "",
+                    __event_call__,
+                ):
+                    yield delta
+            except _ProxyThreadNotFound:
+                # Proxy state can outlive the Codex App Server process.  Start
+                # a replacement thread from OpenWebUI's visible history.
+                self._response_ids.pop(conversation_id, None)
+                payload.pop("previous_response_id", None)
+                payload["input"] = self._responses_input(
+                    body,
+                    metadata,
+                    conversation_id,
+                    proxy_model if isinstance(proxy_model, str) else "",
+                )
+                async for delta in self._stream_responses(
+                    client,
+                    payload,
+                    conversation_id,
+                    proxy_model if isinstance(proxy_model, str) else "",
+                    __event_call__,
+                ):
+                    yield delta
+
+    async def _stream_responses(
+        self,
+        client: Any,
+        payload: dict[str, Any],
+        conversation_id: str,
+        model_id: str,
+        event_call: Any,
+    ) -> AsyncGenerator[str, None]:
+        async with client.stream(
+            "POST",
+            f"{self._base_url()}/v1/responses",
+            headers=self._headers(),
+            json=payload,
+        ) as response:
+            if response.is_error:
+                detail = (await response.aread()).decode(errors="replace")
+                if response.status_code == 404 and "thread_not_found" in detail:
+                    raise _ProxyThreadNotFound(detail)
+                raise RuntimeError(
+                    f"Proxy returned {response.status_code} for {response.url}: {detail}"
+                )
+            response_id: Optional[str] = None
+            turn_id = response.headers.get("x-codex-turn-id")
+            approval_task = None
+            event_name: Optional[str] = None
+            if turn_id and event_call is not None:
+                approval_task = asyncio.create_task(
+                    self._watch_approvals(client, turn_id, event_call)
+                )
+            try:
+                async for line in response.aiter_lines():
+                    if line.startswith("event:"):
+                        event_name = line[6:].strip()
+                        continue
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        event = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    event_type = event_name
+                    event_name = None
+                    if event_type == "response.created":
+                        candidate = event.get("id")
+                        if isinstance(candidate, str):
+                            response_id = candidate
+                    elif event_type == "response.output_text.delta":
+                        delta = event.get("delta")
+                        if isinstance(delta, str) and delta:
+                            yield delta
+                    elif event_type == "response.failed":
+                        raise RuntimeError(str(event.get("error") or event))
+                    elif event_type == "response.completed":
+                        if response_id is None:
                             candidate = event.get("id")
                             if isinstance(candidate, str):
                                 response_id = candidate
-                        elif event_type == "response.output_text.delta":
-                            delta = event.get("delta")
-                            if isinstance(delta, str) and delta:
-                                yield delta
-                        elif event_type == "response.failed":
-                            raise RuntimeError(str(event.get("error") or event))
-                        elif event_type == "response.completed":
-                            if response_id is None:
-                                candidate = event.get("id")
-                                if isinstance(candidate, str):
-                                    response_id = candidate
-                            if response_id is not None:
-                                self._response_ids[conversation_id] = (
-                                    proxy_model if isinstance(proxy_model, str) else "",
-                                    response_id,
-                                )
-                finally:
-                    if approval_task is not None:
-                        approval_task.cancel()
-                        await asyncio.gather(approval_task, return_exceptions=True)
+                        if response_id is not None:
+                            self._response_ids[conversation_id] = (model_id, response_id)
+            finally:
+                if approval_task is not None:
+                    approval_task.cancel()
+                    await asyncio.gather(approval_task, return_exceptions=True)
 
     def _conversation_id(
         self, chat_id: Optional[str], user: Optional[dict[str, Any]]
