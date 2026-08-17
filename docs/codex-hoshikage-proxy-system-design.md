@@ -1678,7 +1678,9 @@ Codex / Hoshikage / Example
 Codex / Ollama / Example
 ```
 
-内部 ID は Public Model ID を保持する。
+OpenWebUI は内部的に Function ID をPublic Model IDへ前置する場合がある。
+Pipe は転送時にこの Function namespace と `codex/` 接頭辞を除去し、Proxyへ
+Public Model ID（例: `chatgpt/gpt-5.6-luna`）だけを渡す。
 
 ### 24.3 pipe()
 

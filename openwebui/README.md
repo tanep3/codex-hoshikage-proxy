@@ -7,13 +7,16 @@ for interactive Approval.
 
 1. In OpenWebUI, create a new Pipe/Function and paste the contents of
    `codex_hoshikage_pipe.py`.
-2. Set `PROXY_BASE_URL` to the Proxy URL.
+2. Set `PROXY_BASE_URL` to the Proxy URL without `/v1`, for example
+   `http://192.168.0.220:4040`.
 3. Set `PROXY_API_KEY` when the Proxy requires API key authentication.
 4. Enable the generated manifold models.
 
 The Pipe reads `GET /v1/models`, sends requests to
 `POST /v1/chat/completions`, and watches
 `GET /v1/codex/turns/{turn_id}/events/stream` for Approval requests.
+OpenWebUI prefixes Pipe model IDs with its Function ID; the Pipe removes that
+namespace before sending the Public Model ID to the Proxy.
 
 The Approval dialog uses OpenWebUI's `__event_call__` input event and sends
 the selected value unchanged from the Proxy's `availableDecisions` list.

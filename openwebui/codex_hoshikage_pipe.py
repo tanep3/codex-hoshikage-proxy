@@ -1,7 +1,7 @@
 """
 title: Codex Hoshikage Proxy
 author: Codex Hoshikage Proxy
-version: 0.1.0
+version: 0.1.1
 requirements: httpx
 
 OpenWebUI Manifold Pipe for Codex Hoshikage Proxy.
@@ -89,8 +89,8 @@ class Pipe:
 
         payload = dict(body)
         requested_model = payload.get("model")
-        if isinstance(requested_model, str) and requested_model.startswith("codex/"):
-            payload["model"] = requested_model.removeprefix("codex/")
+        if isinstance(requested_model, str):
+            payload["model"] = self._proxy_model_id(requested_model)
         metadata = dict(payload.get("metadata") or {})
         if __event_call__ is not None:
             metadata["codex.approval_capability"] = "interactive"
@@ -107,7 +107,11 @@ class Pipe:
                 headers=self._headers(),
                 json=payload,
             ) as response:
-                response.raise_for_status()
+                if response.is_error:
+                    detail = (await response.aread()).decode(errors="replace")
+                    raise RuntimeError(
+                        f"Proxy returned {response.status_code} for {response.url}: {detail}"
+                    )
                 turn_id = response.headers.get("x-codex-turn-id")
                 approval_task = None
                 if turn_id and __event_call__ is not None:
@@ -136,6 +140,14 @@ class Pipe:
                     if approval_task is not None:
                         approval_task.cancel()
                         await asyncio.gather(approval_task, return_exceptions=True)
+
+    @staticmethod
+    def _proxy_model_id(model_id: str) -> str:
+        """Remove OpenWebUI's Function namespace before forwarding the model."""
+        marker = "codex/"
+        if marker not in model_id:
+            return model_id
+        return model_id.split(marker, 1)[1]
 
     async def _watch_approvals(
         self,
