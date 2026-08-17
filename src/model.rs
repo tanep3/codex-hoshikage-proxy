@@ -73,6 +73,14 @@ struct ModelDefinition {
 }
 
 impl ModelRegistry {
+    pub fn provider_limits(&self) -> HashMap<String, usize> {
+        self.providers
+            .iter()
+            .filter(|(_, provider)| provider.enabled)
+            .map(|(id, provider)| (id.clone(), provider.max_concurrent_turns))
+            .collect()
+    }
+
     pub fn from_config(config: &RawModelRegistryConfig) -> Result<Self, ModelError> {
         if config.default_model.trim().is_empty() {
             return Err(ModelError::InvalidRegistry("default_model is empty".into()));

@@ -2,6 +2,7 @@ use crate::{
     config::CwdPolicy,
     journal::{EventJournal, JournalEntry, now_ms},
     model::{ModelError, ModelRegistry},
+    permit::ProviderPermitPool,
     runtime::{CodexRuntime, RuntimeError},
     store::{ResponseMapping, ResponseStore},
     turn::{ResponseContentPart, ResponseOutputItem, ResponseRecord},
@@ -40,6 +41,7 @@ pub struct AppState {
     pub default_cwd: std::path::PathBuf,
     pub journal: Arc<EventJournal>,
     responses: Arc<ResponseStore>,
+    permits: Arc<ProviderPermitPool>,
     next_chat_id: Arc<AtomicU64>,
 }
 
@@ -48,6 +50,7 @@ struct StartedTurn {
     thread_id: String,
     turn_id: Option<String>,
     notifications: broadcast::Receiver<Value>,
+    _permit: tokio::sync::OwnedSemaphorePermit,
 }
 
 impl AppState {
@@ -59,6 +62,7 @@ impl AppState {
         journal: Arc<EventJournal>,
         responses: Arc<ResponseStore>,
     ) -> Self {
+        let provider_limits = models.provider_limits();
         Self {
             runtime,
             models: Arc::new(models),
@@ -66,6 +70,7 @@ impl AppState {
             default_cwd,
             journal,
             responses,
+            permits: Arc::new(ProviderPermitPool::new(provider_limits)),
             next_chat_id: Arc::new(AtomicU64::new(1)),
         }
     }
@@ -196,6 +201,7 @@ async fn create_response(
         thread_id,
         turn_id,
         mut notifications,
+        _permit,
     } = started;
     let mut text = String::new();
     loop {
@@ -314,6 +320,7 @@ async fn create_chat_completion(
         thread_id,
         turn_id,
         mut notifications,
+        _permit,
     } = started;
     let text = collect_turn_text(&mut notifications, &thread_id, turn_id.as_deref()).await?;
     let response_id = format!(
@@ -426,6 +433,7 @@ async fn run_chat_stream(
         thread_id,
         turn_id,
         mut notifications,
+        _permit,
     } = started;
     let created = now_ms() / 1000;
     let role_chunk = json!({
@@ -576,6 +584,17 @@ async fn begin_turn_with_mode(
         .models
         .resolve(request.model.as_deref(), reasoning)
         .map_err(model_error)?;
+    let permit = state
+        .permits
+        .acquire(&model.public_provider_id)
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider_unavailable",
+                error.to_string(),
+            )
+        })?;
     let cwd = request
         .metadata
         .get("codex.cwd")
@@ -659,6 +678,7 @@ async fn begin_turn_with_mode(
         thread_id,
         turn_id,
         notifications,
+        _permit: permit,
     })
 }
 
@@ -717,6 +737,7 @@ async fn run_stream(
         thread_id,
         turn_id,
         mut notifications,
+        _permit,
     } = started;
     loop {
         let event = time::timeout(Duration::from_secs(120), notifications.recv()).await;
