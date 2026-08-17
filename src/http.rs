@@ -552,9 +552,16 @@ async fn stream_chat_completion(
         state.next_chat_id.fetch_add(1, Ordering::Relaxed)
     );
     let (sender, receiver) = mpsc::channel::<Event>(32);
+    let turn_id = started.turn_id.clone();
     tokio::spawn(run_chat_stream(state, id, started, sender));
     let stream = ReceiverStream::new(receiver).map(Ok::<Event, std::convert::Infallible>);
-    Ok(Sse::new(stream).into_response())
+    let mut response = Sse::new(stream).into_response();
+    if let Some(turn_id) = turn_id {
+        if let Ok(value) = turn_id.parse() {
+            response.headers_mut().insert("x-codex-turn-id", value);
+        }
+    }
+    Ok(response)
 }
 
 async fn run_chat_stream(

@@ -178,6 +178,7 @@ impl ApprovalManager {
             available_decisions,
             details: params.clone(),
         };
+        let available_decisions = request.available_decisions.clone();
         let capability = self
             .turn_capabilities
             .lock()
@@ -209,6 +210,7 @@ impl ApprovalManager {
                 "approval_id": approval_id,
                 "threadId": thread_id,
                 "turnId": turn_id,
+                "availableDecisions": available_decisions,
             }));
         } else {
             self.runtime

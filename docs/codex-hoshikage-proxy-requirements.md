@@ -943,6 +943,8 @@ OpenWebUI Function は拡張イベント API を利用し、必要に応じて�
 - Approval Request
 - Turn 状態
 
+公式Pipe実装は `openwebui/codex_hoshikage_pipe.py` として同梱する。Pipeは`/v1/models`からモデル一覧を取得し、Chat CompletionsのTurn IDを拡張イベントSSEへ接続してApprovalを`__event_call__`へ投影する。
+
 ---
 
 ## 22. 設定要件
