@@ -86,6 +86,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             Ok(result) => {
                 if let Some(data) = result.get("data").and_then(|value| value.as_array()) {
+                    let mut imported = 0usize;
+                    let mut excluded = 0usize;
                     for model in data {
                         let Some(upstream_id) = model.get("id").and_then(|value| value.as_str())
                         else {
@@ -101,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 provider != "openai" && provider != "chatgpt"
                             })
                         {
+                            excluded += 1;
                             continue;
                         }
                         let reasoning_efforts = model
@@ -123,7 +126,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             upstream_id.into(),
                             reasoning_efforts,
                         )?;
+                        imported += 1;
                     }
+                    tracing::info!(
+                        codex_catalog_count = data.len(),
+                        chatgpt_imported = imported,
+                        external_excluded = excluded,
+                        "processed Codex model catalog"
+                    );
                 }
             }
             Err(error) => tracing::warn!(error = %error, "ChatGPT model catalog unavailable"),
