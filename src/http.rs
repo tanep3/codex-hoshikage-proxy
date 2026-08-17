@@ -666,7 +666,7 @@ async fn run_chat_stream(
             if status != "completed" {
                 let _ = sender
                     .send(sse_data(
-                        &json!({"error": format!("Codex turn ended with status {status}")}),
+                        &json!({"error": turn_failure_message(status, &params)}),
                     ))
                     .await;
                 let _ = sender.send(sse_done()).await;
@@ -1214,6 +1214,21 @@ fn runtime_error(error: RuntimeError) -> ApiError {
     ApiError::new(StatusCode::BAD_GATEWAY, "runtime_error", error.to_string())
 }
 
+fn turn_failure_message(status: &str, params: &Value) -> String {
+    let detail = params
+        .pointer("/turn/error")
+        .or_else(|| params.pointer("/turn/lastError"))
+        .or_else(|| params.get("error"))
+        .filter(|value| !value.is_null())
+        .map(Value::to_string)
+        .unwrap_or_default();
+    if detail.is_empty() {
+        format!("Codex turn ended with status {status}")
+    } else {
+        format!("Codex turn ended with status {status}: {detail}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1282,6 +1297,22 @@ mod tests {
         assert_eq!(
             chat_messages_to_input(&messages).unwrap_err().code,
             "unsupported_parameter"
+        );
+    }
+
+    #[test]
+    fn turn_failure_message_preserves_codex_error_detail() {
+        let message = turn_failure_message(
+            "failed",
+            &json!({"turn": {"error": {"message": "model rejected request"}}}),
+        );
+        assert_eq!(
+            message,
+            "Codex turn ended with status failed: {\"message\":\"model rejected request\"}"
+        );
+        assert_eq!(
+            turn_failure_message("interrupted", &json!({})),
+            "Codex turn ended with status interrupted"
         );
     }
 }
