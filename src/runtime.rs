@@ -218,6 +218,13 @@ impl CodexRuntime {
                             )),
                         };
                         let _ = sender.send(result);
+                    } else if let Some(method) = parsed.method {
+                        let _ = notifications.send(json!({
+                            "kind": "server_request",
+                            "rpc_id": id,
+                            "method": method,
+                            "params": parsed.params.unwrap_or_else(|| json!({})),
+                        }));
                     }
                 } else {
                     let _ = notifications.send(json!({
@@ -233,6 +240,21 @@ impl CodexRuntime {
                 )));
             }
         });
+    }
+
+    pub async fn respond_to_server_request(
+        &self,
+        rpc_id: u64,
+        result: Value,
+    ) -> Result<(), RuntimeError> {
+        let message = json!({
+            "jsonrpc": "2.0",
+            "id": rpc_id,
+            "result": result,
+        });
+        let bytes = serde_json::to_vec(&message)
+            .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+        self.write_line(&bytes).await
     }
 
     fn spawn_process_monitor(self: &Arc<Self>) {
@@ -263,6 +285,10 @@ impl CodexRuntime {
 
     pub fn subscribe(&self) -> broadcast::Receiver<Value> {
         self.notifications.subscribe()
+    }
+
+    pub fn publish(&self, event: Value) {
+        let _ = self.notifications.send(event);
     }
 
     pub async fn wait_for_notification(

@@ -1,4 +1,5 @@
 use crate::{
+    approval_manager::{ApprovalCapability, ApprovalDecisionRequest, ApprovalManager},
     config::CwdPolicy,
     journal::{EventJournal, JournalEntry, now_ms},
     model::{ModelError, ModelRegistry},
@@ -9,7 +10,7 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::{
         IntoResponse, Response,
@@ -42,6 +43,7 @@ pub struct AppState {
     pub journal: Arc<EventJournal>,
     responses: Arc<ResponseStore>,
     permits: Arc<ProviderPermitPool>,
+    pub approvals: Arc<ApprovalManager>,
     next_chat_id: Arc<AtomicU64>,
 }
 
@@ -63,6 +65,8 @@ impl AppState {
         responses: Arc<ResponseStore>,
     ) -> Self {
         let provider_limits = models.provider_limits();
+        let approvals = ApprovalManager::new(Arc::clone(&runtime));
+        approvals.start();
         Self {
             runtime,
             models: Arc::new(models),
@@ -71,6 +75,7 @@ impl AppState {
             journal,
             responses,
             permits: Arc::new(ProviderPermitPool::new(provider_limits)),
+            approvals,
             next_chat_id: Arc::new(AtomicU64::new(1)),
         }
     }
@@ -167,7 +172,36 @@ pub fn router(state: AppState) -> Router {
         .route("/readyz", get(readyz))
         .route("/v1/responses", post(create_response))
         .route("/v1/chat/completions", post(create_chat_completion))
+        .route(
+            "/v1/codex/approvals/{approval_id}",
+            get(get_approval).post(decide_approval),
+        )
         .with_state(state)
+}
+
+async fn get_approval(
+    State(state): State<AppState>,
+    Path(approval_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    state
+        .approvals
+        .get(&approval_id)
+        .await
+        .map(|view| (StatusCode::OK, Json(view)))
+        .map_err(approval_error)
+}
+
+async fn decide_approval(
+    State(state): State<AppState>,
+    Path(approval_id): Path<String>,
+    Json(request): Json<ApprovalDecisionRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    state
+        .approvals
+        .decide(&approval_id, &request.decision)
+        .await
+        .map(|view| (StatusCode::OK, Json(view)))
+        .map_err(approval_error)
 }
 
 async fn healthz() -> impl IntoResponse {
@@ -215,6 +249,13 @@ async fn create_response(
                 )
             })?
             .map_err(|error| runtime_error(RuntimeError::Protocol(error.to_string())))?;
+        if is_approval_required(&event, &thread_id) {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "approval_required",
+                "client does not provide interactive approval capability",
+            ));
+        }
         let method = event
             .get("method")
             .and_then(Value::as_str)
@@ -368,6 +409,13 @@ async fn collect_turn_text(
                 )
             })?
             .map_err(|error| runtime_error(RuntimeError::Protocol(error.to_string())))?;
+        if is_approval_required(&event, thread_id) {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "approval_required",
+                "client does not provide interactive approval capability",
+            ));
+        }
         let method = event
             .get("method")
             .and_then(Value::as_str)
@@ -465,6 +513,13 @@ async fn run_chat_stream(
             let _ = sender.send(sse_done()).await;
             return;
         };
+        if is_approval_required(&event, &thread_id) {
+            let _ = sender
+                .send(sse_data(&json!({"error": {"code": "approval_required"}})))
+                .await;
+            let _ = sender.send(sse_done()).await;
+            return;
+        }
         let method = event
             .get("method")
             .and_then(Value::as_str)
@@ -649,6 +704,17 @@ async fn begin_turn_with_mode(
             .to_string()
     };
     let notifications = state.runtime.subscribe();
+    let capability = if request
+        .metadata
+        .get("codex.approval_capability")
+        .map(String::as_str)
+        == Some("interactive")
+    {
+        ApprovalCapability::Interactive
+    } else {
+        ApprovalCapability::None
+    };
+    state.approvals.register_turn(&thread_id, capability).await;
     let turn_result = state
         .runtime
         .request(
@@ -763,6 +829,22 @@ async fn run_stream(
                 .await;
             break;
         };
+        if is_approval_required(&event, &thread_id) {
+            let _ = sender
+                .send(
+                    sse_json(
+                        "response.failed",
+                        &json!({
+                            "id": response_id,
+                            "status": "failed",
+                            "error": {"code": "approval_required"}
+                        }),
+                    )
+                    .unwrap_or_else(|_| Event::default()),
+                )
+                .await;
+            break;
+        }
         let method = event
             .get("method")
             .and_then(Value::as_str)
@@ -936,6 +1018,11 @@ fn is_thread_not_found(error: &RuntimeError) -> bool {
         && (message.contains("not found") || message.contains("unknown thread"))
 }
 
+fn is_approval_required(event: &Value, thread_id: &str) -> bool {
+    event.get("kind").and_then(Value::as_str) == Some("approval_required")
+        && event.get("threadId").and_then(Value::as_str) == Some(thread_id)
+}
+
 fn collect_text(value: &Value) -> String {
     let mut result = String::new();
     collect_text_values(value, &mut result);
@@ -996,6 +1083,23 @@ fn model_error(error: ModelError) -> ApiError {
             "configuration_error",
             message,
         ),
+    }
+}
+
+fn approval_error(error: crate::approval_manager::ApprovalManagerError) -> ApiError {
+    match error {
+        crate::approval_manager::ApprovalManagerError::NotFound(_) => ApiError::new(
+            StatusCode::NOT_FOUND,
+            "approval_not_found",
+            error.to_string(),
+        ),
+        crate::approval_manager::ApprovalManagerError::InvalidDecision(_)
+        | crate::approval_manager::ApprovalManagerError::Rejected => {
+            ApiError::new(StatusCode::CONFLICT, "approval_rejected", error.to_string())
+        }
+        crate::approval_manager::ApprovalManagerError::Runtime(_) => {
+            ApiError::new(StatusCode::BAD_GATEWAY, "runtime_error", error.to_string())
+        }
     }
 }
 
