@@ -719,7 +719,7 @@ Model Registry
 GET /v1/models / Model Resolver
 ```
 
-静的定義を優先し、動的取得失敗はProvider単位で隔離する。MVPでは定期更新や専用Indexは設けない。
+静的定義を優先し、動的取得失敗はProvider単位で隔離する。Codex App Serverの`model/list`はProvider横断カタログとして扱い、他ProviderのHTTPカタログで既知のUpstream Model IDをChatGPTへ重複登録しない。MVPでは定期更新や専用Indexは設けない。
 
 ---
 

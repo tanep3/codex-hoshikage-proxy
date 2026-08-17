@@ -8,6 +8,7 @@ use codex_hoshikage_proxy::{
     store::ResponseStore,
 };
 use serde_json::json;
+use std::collections::HashSet;
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 #[tokio::main]
@@ -37,6 +38,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?,
     );
     let discovered = discover_http_models(&config.models).await;
+    let mut non_chatgpt_upstream_ids = config
+        .models
+        .models
+        .values()
+        .filter(|model| model.provider_id != "chatgpt")
+        .map(|model| model.upstream_id.clone())
+        .collect::<HashSet<_>>();
+    non_chatgpt_upstream_ids.extend(
+        discovered
+            .iter()
+            .filter(|model| model.provider_id != "chatgpt")
+            .map(|model| model.upstream_id.clone()),
+    );
     let mut models = ModelRegistry::from_config(&config.models)?;
     for model in discovered {
         models.add_discovered_model(
@@ -69,6 +83,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         else {
                             continue;
                         };
+                        let provider_from_catalog = model
+                            .get("modelProvider")
+                            .or_else(|| model.get("model_provider"))
+                            .and_then(|value| value.as_str());
+                        if provider_from_catalog
+                            .is_some_and(|provider| provider != "openai" && provider != "chatgpt")
+                            || (provider_from_catalog.is_none()
+                                && non_chatgpt_upstream_ids.contains(upstream_id))
+                        {
+                            continue;
+                        }
                         let reasoning_efforts = model
                             .get("supportedReasoningEfforts")
                             .and_then(|value| value.as_array())
