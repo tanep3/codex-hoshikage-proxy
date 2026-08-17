@@ -12,7 +12,12 @@ use codex_hoshikage_proxy::{
     store::ResponseStore,
 };
 use http_body_util::BodyExt;
-use std::{env, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    env,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tower::ServiceExt;
 
 async fn test_app(args: &[&str]) -> axum::Router {
@@ -29,7 +34,10 @@ async fn test_app(args: &[&str]) -> axum::Router {
     config.codex_home = PathBuf::from(format!(
         "/tmp/codex-hoshikage-proxy-http-test-{}-{}",
         std::process::id(),
-        args.len()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos()
     ));
     let runtime = CodexRuntime::launch(&config)
         .await
@@ -81,4 +89,62 @@ async fn non_interactive_stream_reports_approval_required_and_ends() {
     let body = response_text(response).await;
     assert!(body.contains("approval_required"), "SSE body: {body}");
     assert!(body.contains("[DONE]"), "SSE body: {body}");
+}
+
+#[tokio::test]
+async fn approval_api_rejects_second_http_decision() {
+    let app = test_app(&["--approval"]).await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"model":"hoshikage/unsloth-gemma4-12b-qat-thinking-off","messages":[{"role":"user","content":"run"}],"stream":true,"metadata":{"codex.approval_capability":"interactive"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    drop(response);
+
+    let approval_path = "/v1/codex/approvals/approval_1";
+    let mut approval_response = None;
+    for _ in 0..20 {
+        let response = app
+            .clone()
+            .oneshot(Request::get(approval_path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        if response.status() == StatusCode::OK {
+            approval_response = Some(response);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let response = approval_response.expect("approval request is registered");
+    assert_eq!(response.status(), StatusCode::OK);
+    let first = app
+        .clone()
+        .oneshot(
+            Request::post(approval_path)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"decision":"accept"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = app
+        .oneshot(
+            Request::post(approval_path)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"decision":"accept"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::CONFLICT);
 }
