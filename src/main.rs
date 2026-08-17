@@ -87,10 +87,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .get("modelProvider")
                             .or_else(|| model.get("model_provider"))
                             .and_then(|value| value.as_str());
-                        if provider_from_catalog
-                            .is_some_and(|provider| provider != "openai" && provider != "chatgpt")
-                            || (provider_from_catalog.is_none()
-                                && non_chatgpt_upstream_ids.contains(upstream_id))
+                        if non_chatgpt_upstream_ids.contains(upstream_id)
+                            || provider_from_catalog.is_some_and(|provider| {
+                                provider != "openai" && provider != "chatgpt"
+                            })
                         {
                             continue;
                         }
