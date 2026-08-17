@@ -45,6 +45,7 @@ ollama/gemma4:e4b
 
 Hoshikageは通常一覧と詳細な能力一覧を組み合わせます。詳細情報の `tools: false` のモデルはCodexエージェント実行に必要な
 ツール呼び出しに対応しないため、動的一覧へ公開しません。モデル名から推測はしません。
+HoshikageとOllamaのカタログ取得は5秒でタイムアウトします。どちらかのサービスが停止中でもProxyは起動を継続し、そのProviderの動的モデルだけを一覧から除外します。
 
 ## Responses API
 
@@ -114,4 +115,3 @@ curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
 - 作業ディレクトリの許可ルートは狭く設定し、事前に存在させる。
 - Event Journalはメタデータ中心で、ローテーションと保持期間を運用で設定。出力やファイル内容はサイズ制限／redaction対象。
 - 信頼できない利用者へCodex実行を公開しない。クライアントAPI Keyは承認やファイルシステム制御の代わりにはなりません。
-

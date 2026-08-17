@@ -1,5 +1,8 @@
 use crate::config::RawModelRegistryConfig;
 use serde::Deserialize;
+use std::time::Duration;
+
+const MODEL_CATALOG_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredModel {
@@ -48,7 +51,16 @@ struct OllamaModel {
 }
 
 pub async fn discover_http_models(config: &RawModelRegistryConfig) -> Vec<DiscoveredModel> {
-    let client = reqwest::Client::new();
+    let client = match reqwest::Client::builder()
+        .timeout(MODEL_CATALOG_TIMEOUT)
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::warn!(error = %error, "model catalog client could not be created");
+            return Vec::new();
+        }
+    };
     let mut discovered = Vec::new();
     for (provider_id, provider) in &config.providers {
         if !provider.enabled {

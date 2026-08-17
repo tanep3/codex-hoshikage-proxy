@@ -112,9 +112,10 @@ base_url = "http://127.0.0.1:3030/v1"
 For a Hoshikage endpoint on another host, set `auth_env_key` and export the token before starting the
 proxy. Hoshikage models are discovered from its model APIs. Models that do not advertise tool calling
 are not dynamically exposed for Codex tool use.
+Catalog discovery times out after five seconds, so the proxy still starts when Hoshikage is stopped.
 
-For Ollama, enable the provider and define the public model IDs. Ollama is expected to be available at
-its standard local endpoint.
+For Ollama, enable the provider. Its models are discovered from the standard local catalog. Catalog
+discovery times out after five seconds, so the proxy still starts when Ollama is stopped.
 
 ## 5. Authenticate and start the service
 

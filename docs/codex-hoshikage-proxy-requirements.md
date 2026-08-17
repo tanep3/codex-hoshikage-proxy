@@ -463,7 +463,7 @@ MVPでは、モデルカタログを以下の順に収集・統合する。
 
 Hoshikageの動的モデルは詳細能力カタログの`tools`を確認する。Codex Agent RuntimeはTool Callingを必須とするため、`tools=false`または詳細能力を取得できないHoshikageモデルはProxyの公開モデル一覧へ登録しない。モデル名から能力を推測してはならない。
 
-カタログ取得はProxy起動時に行う。Providerのカタログ取得に失敗しても、取得できた他Providerのモデルを返し、一覧API全体を失敗させない。失敗したProviderの動的モデルを推測して登録することはしない。失敗はEvent Journalまたは運用ログへ記録する。
+カタログ取得はProxy起動時に行う。HoshikageとOllamaのHTTPカタログ要求には5秒のタイムアウトを設ける。Providerのカタログ取得に失敗しても、取得できた他Providerのモデルを返し、一覧API全体を失敗させない。失敗したProviderの動的モデルを推測して登録することはしない。失敗はEvent Journalまたは運用ログへ記録する。
 
 外部へ公開するIDは必ず以下の形式とする。
 

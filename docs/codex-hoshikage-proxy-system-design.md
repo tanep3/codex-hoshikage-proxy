@@ -720,7 +720,7 @@ Model Registry
 GET /v1/models / Model Resolver
 ```
 
-動的取得失敗はProvider単位で隔離する。Hoshikageについては`/v1/models`のID一覧に加えて`/v1/hoshikage/models`の能力詳細を取得し、`tools=false`のBundleをCodex用Registryへ登録しない。詳細カタログを取得できない場合も安全側でHoshikageの動的モデル登録を行わない。Codex App Serverの`model/list`はProvider横断カタログとして扱い、他ProviderのHTTPカタログで既知のUpstream Model IDをChatGPTへ重複登録しない。既定モデルがカタログに現れない場合も起動は継続し、要求時に明示的なエラーを返す。MVPでは定期更新や専用Indexは設けない。
+動的取得失敗はProvider単位で隔離する。HoshikageとOllamaのHTTPカタログ要求には5秒のタイムアウトを設け、停止中のProviderがあってもProxyの起動を継続する。Hoshikageについては`/v1/models`のID一覧に加えて`/v1/hoshikage/models`の能力詳細を取得し、`tools=false`のBundleをCodex用Registryへ登録しない。詳細カタログを取得できない場合も安全側でHoshikageの動的モデル登録を行わない。Codex App Serverの`model/list`はProvider横断カタログとして扱い、他ProviderのHTTPカタログで既知のUpstream Model IDをChatGPTへ重複登録しない。既定モデルがカタログに現れない場合も起動は継続し、要求時に明示的なエラーを返す。MVPでは定期更新や専用Indexは設けない。
 
 ---
 

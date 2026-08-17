@@ -49,6 +49,8 @@ ollama/gemma4:e4b
 Hoshikage discovery combines its ordinary model list with detailed capability information. A model
 whose detailed metadata says `tools: false` is not exposed as a dynamic Codex model, because Codex
 agent turns require tool calling. The proxy does not guess tool support from a model name.
+Hoshikage and Ollama catalog requests time out after five seconds. If either service is stopped or
+unavailable, the proxy continues starting and omits that provider's dynamic models.
 
 ## Responses API
 
@@ -126,4 +128,3 @@ through the turn, including approval waiting, by design in the MVP. A client dis
   command output and file content are size-limited/redacted when recorded.
 - Do not expose Codex execution to untrusted users. The client API key is not a substitute for approval
   or filesystem policy.
-
