@@ -3,6 +3,7 @@ use crate::{
     journal::{EventJournal, JournalEntry, now_ms},
     model::{ModelError, ModelRegistry},
     runtime::{CodexRuntime, RuntimeError},
+    store::{ResponseMapping, ResponseStore},
     turn::{ResponseContentPart, ResponseOutputItem, ResponseRecord},
 };
 use axum::{
@@ -17,16 +18,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
-    sync::{Mutex, broadcast, mpsc},
+    sync::{broadcast, mpsc},
     time,
 };
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
@@ -38,14 +32,7 @@ pub struct AppState {
     pub cwd_policy: CwdPolicy,
     pub default_cwd: std::path::PathBuf,
     pub journal: Arc<EventJournal>,
-    responses: Arc<Mutex<HashMap<String, ThreadContext>>>,
-    pub next_response_id: Arc<AtomicU64>,
-}
-
-#[derive(Debug, Clone)]
-struct ThreadContext {
-    thread_id: String,
-    model_id: String,
+    responses: Arc<ResponseStore>,
 }
 
 struct StartedTurn {
@@ -62,6 +49,7 @@ impl AppState {
         cwd_policy: CwdPolicy,
         default_cwd: std::path::PathBuf,
         journal: Arc<EventJournal>,
+        responses: Arc<ResponseStore>,
     ) -> Self {
         Self {
             runtime,
@@ -69,8 +57,7 @@ impl AppState {
             cwd_policy,
             default_cwd,
             journal,
-            responses: Arc::new(Mutex::new(HashMap::new())),
-            next_response_id: Arc::new(AtomicU64::new(1)),
+            responses,
         }
     }
 }
@@ -173,7 +160,7 @@ async fn create_response(
     State(state): State<AppState>,
     Json(request): Json<ResponsesRequest>,
 ) -> Result<Response, ApiError> {
-    let response_id = next_response_id(&state);
+    let response_id = state.responses.next_response_id();
     let started = begin_turn(&state, &request).await?;
     if request.stream {
         return stream_response(state, response_id, started).await;
@@ -235,13 +222,21 @@ async fn create_response(
         }
     }
 
-    state.responses.lock().await.insert(
-        response_id.clone(),
-        ThreadContext {
+    state
+        .responses
+        .put(ResponseMapping {
+            response_id: response_id.clone(),
             thread_id,
             model_id: model.public_model_id.clone(),
-        },
-    );
+        })
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "persistence_error",
+                error.to_string(),
+            )
+        })?;
     let response = ResponseRecord {
         id: response_id,
         object: "response",
@@ -289,9 +284,9 @@ async fn begin_turn(state: &AppState, request: &ResponsesRequest) -> Result<Star
         .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, "invalid_cwd", error.to_string()))?
         .unwrap_or_else(|| state.default_cwd.clone());
     let input = normalize_input(&request.input)?;
+    let resuming = request.previous_response_id.is_some();
     let thread_id = if let Some(response_id) = request.previous_response_id.as_deref() {
-        let responses = state.responses.lock().await;
-        let context = responses.get(response_id).ok_or_else(|| {
+        let context = state.responses.get(response_id).await.ok_or_else(|| {
             ApiError::new(
                 StatusCode::NOT_FOUND,
                 "thread_not_found",
@@ -305,7 +300,7 @@ async fn begin_turn(state: &AppState, request: &ResponsesRequest) -> Result<Star
                 "a durable Responses thread cannot change model",
             ));
         }
-        context.thread_id.clone()
+        context.thread_id
     } else {
         let result = state
             .runtime
@@ -348,7 +343,13 @@ async fn begin_turn(state: &AppState, request: &ResponsesRequest) -> Result<Star
             }),
         )
         .await
-        .map_err(runtime_error)?;
+        .map_err(|error| {
+            if resuming && is_thread_not_found(&error) {
+                ApiError::new(StatusCode::NOT_FOUND, "thread_not_found", error.to_string())
+            } else {
+                runtime_error(error)
+            }
+        })?;
     let turn_id = string_at(&turn_result, &["turn", "id"])
         .or_else(|| turn_result.get("id").and_then(Value::as_str))
         .map(str::to_owned);
@@ -514,13 +515,31 @@ async fn run_stream(
                     .await;
                 break;
             }
-            state.responses.lock().await.insert(
-                response_id.clone(),
-                ThreadContext {
+            if state
+                .responses
+                .put(ResponseMapping {
+                    response_id: response_id.clone(),
                     thread_id,
                     model_id: model.public_model_id.clone(),
-                },
-            );
+                })
+                .await
+                .is_err()
+            {
+                let _ = sender
+                    .send(
+                        sse_json(
+                            "response.failed",
+                            &json!({
+                                "id": response_id,
+                                "status": "failed",
+                                "error": {"code": "persistence_error"}
+                            }),
+                        )
+                        .unwrap_or_else(|_| Event::default()),
+                    )
+                    .await;
+                break;
+            }
             let completed = json!({"id": response_id, "object": "response", "status": "completed", "model": model.public_model_id});
             let _ = sender
                 .send(
@@ -540,13 +559,6 @@ async fn run_stream(
             break;
         }
     }
-}
-
-fn next_response_id(state: &AppState) -> String {
-    format!(
-        "resp_{}",
-        state.next_response_id.fetch_add(1, Ordering::Relaxed)
-    )
 }
 
 fn sse_json<T: Serialize>(event: &str, value: &T) -> Result<Event, axum::Error> {
@@ -584,6 +596,12 @@ fn matches_thread_and_turn(params: &Value, thread_id: &str, turn_id: Option<&str
             params.get("turnId").and_then(Value::as_str) == Some(expected)
                 || params.pointer("/turn/id").and_then(Value::as_str) == Some(expected)
         })
+}
+
+fn is_thread_not_found(error: &RuntimeError) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("thread")
+        && (message.contains("not found") || message.contains("unknown thread"))
 }
 
 fn collect_text(value: &Value) -> String {

@@ -4,4 +4,5 @@ pub mod http;
 pub mod journal;
 pub mod model;
 pub mod runtime;
+pub mod store;
 pub mod turn;

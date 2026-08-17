@@ -4,6 +4,7 @@ use codex_hoshikage_proxy::{
     journal::EventJournal,
     model::ModelRegistry,
     runtime::CodexRuntime,
+    store::ResponseStore,
 };
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
@@ -24,6 +25,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?,
     );
+    let responses = std::sync::Arc::new(
+        ResponseStore::open(
+            config
+                .codex_home
+                .parent()
+                .unwrap_or(config.codex_home.as_path()),
+        )
+        .await?,
+    );
     let models = ModelRegistry::from_config(&config.models)?;
     let runtime = CodexRuntime::launch(&config).await?;
     let listener = tokio::net::TcpListener::bind(config.listen_addr).await?;
@@ -36,6 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.cwd_policy.clone(),
             config.default_cwd.clone(),
             journal,
+            responses,
         )),
     )
     .with_graceful_shutdown(async move {
