@@ -8,7 +8,7 @@ Phase 1からPhase 7までの主要な縦切り実装は完了している。Hos
 
 OpenWebUI v0.11.0におけるApprovalのAcceptラウンドトリップとtimeoutの実時間動作は実機確認済み。
 timeout時はProxy側のCleanupとCodexへの拒否を確認済みだが、標準Confirmation Dialogが画面に残る。
-これはOpenWebUI本体を改修しない前提で既知の運用制約とする。残るのは拒否系・切断系と、受入テスト全体の実機確認である。
+これはOpenWebUI本体を改修しない前提で既知の運用制約とする。キャンセル系・切断系は実機確認済みで、残るのは受入テスト全体の実機確認である。
 
 ## 次に進めるタスク
 
@@ -21,8 +21,8 @@ timeout時はProxy側のCleanupとCodexへの拒否を確認済みだが、標�
 - [x] Pipeの `__event_call__` がOpenWebUI画面に承認ダイアログを表示することを確認
 - [x] Codexの `availableDecisions` 省略時を含め、二択結果を正しいWire Decisionへ変換することを確認
 - [x] Accept後、同じTurnが継続して完了することを確認
-- [ ] Decline / Cancel後、TurnとApprovalが終端状態になり、Permitが解放されることを確認
-- [ ] Pipe切断時にTurn cancelが発行されることを確認
+- [x] Decline / Cancel後、TurnとApprovalが終端状態になり、Permitが解放されることを確認
+- [x] Pipe切断時にTurn cancelが発行されることを確認（ブラウザのリロードで確認）
 
 ### B. Approval境界の統合テスト
 
@@ -36,7 +36,7 @@ timeout時はProxy側のCleanupとCodexへの拒否を確認済みだが、標�
 
 - [ ] Proxy再起動後のCodex App Server子プロセス残存がないことを確認
 - [ ] Codex App Server異常終了時のpending request処理を確認
-- [ ] Proxy再起動後のResponses `previous_response_id` 継続・`thread_not_found`を確認
+- [x] Proxy再起動後のResponses `previous_response_id` 継続・`thread_not_found`を確認
 - [ ] graceful shutdownの実機確認
 
 ### D. 受入テストと文書状態更新
