@@ -396,7 +396,7 @@ upstream_model = "actual-upstream-model-name"
 display_name = "Example Model"
 ```
 
-通常のモデルは起動時にProviderのカタログから発見するため、静的なモデル定義は必須ではない。必要な場合だけ、公開名の別名や表示名、能力の固定値を設定ファイルで上書きする。
+通常のモデルは、モデル一覧要求またはモデルを使用する要求の直前にProviderのカタログから発見するため、静的なモデル定義は必須ではない。必要な場合だけ、公開名の別名や表示名、能力の固定値を設定ファイルで上書きする。
 
 ### 12.2.1 Model Selection と Reasoning Effort
 
@@ -428,7 +428,7 @@ model = "chatgpt/gpt-5.6-luna"
 
 ChatGPTの既定モデルは、Codexが対応値を広告している場合、推論レベル `low` を既定値として使用する。
 
-既定モデルが起動時のカタログに現れなくても起動は継続する。そのモデルを指定した要求には `model_not_found` または `provider_unavailable` を返す。
+既定モデルがカタログに現れなくても起動は継続する。要求時の再取得後もそのモデルを利用できない場合、Provider停止中なら `provider_unavailable`、Providerが応答しているがモデルを返さない場合は `model_not_found` を返す。
 
 ### 12.4 モデル省略
 
@@ -463,7 +463,7 @@ MVPでは、モデルカタログを以下の順に収集・統合する。
 
 Hoshikageの動的モデルは詳細能力カタログの`tools`を確認する。Codex Agent RuntimeはTool Callingを必須とするため、`tools=false`または詳細能力を取得できないHoshikageモデルはProxyの公開モデル一覧へ登録しない。モデル名から能力を推測してはならない。
 
-カタログ取得はProxy起動時に行う。HoshikageとOllamaのHTTPカタログ要求には5秒のタイムアウトを設ける。Providerのカタログ取得に失敗しても、取得できた他Providerのモデルを返し、一覧API全体を失敗させない。失敗したProviderの動的モデルを推測して登録することはしない。失敗はEvent Journalまたは運用ログへ記録する。
+カタログ取得は `GET /v1/models` およびモデルを使用する要求の直前に行う。HoshikageとOllamaのHTTPカタログ要求には5秒のタイムアウトを設ける。Providerのカタログ取得に失敗しても、取得できた他Providerのモデルを返し、一覧API全体を失敗させない。失敗したProviderの動的モデルを推測して登録することはしない。失敗したProviderの動的モデルは最新Registryから除外し、要求時には `provider_unavailable` を返す。失敗はEvent Journalまたは運用ログへ記録する。
 
 外部へ公開するIDは必ず以下の形式とする。
 
@@ -471,7 +471,7 @@ Hoshikageの動的モデルは詳細能力カタログの`tools`を確認する�
 <public_provider_id>/<upstream_model_id>
 ```
 
-動的カタログは起動時に取得したスナップショットとして扱い、MVPでは自動更新・専用カタログDB・Provider間の重複解決は行わない。
+動的カタログは要求ごとに取得する最新スナップショットとして扱う。MVPでは専用カタログDB・バックグラウンド更新・Provider間の高度な重複解決は行わない。
 
 ---
 
@@ -1432,7 +1432,7 @@ MVP は以下をすべて満たした場合に受入可能とする。
 
 ## 31. Phase 2 候補
 
-1. カタログの定期更新
+1. カタログのバックグラウンド先読み（要求時更新を補完する任意機能）
 2. 専用カタログDB
 3. Provider間の高度な重複解決
 4. Chat Completions と Codex Thread の継続連携
@@ -1460,7 +1460,7 @@ MVP の主要決定事項は以下とする。
 5. Provider は `chatgpt`、`hoshikage`、`ollama`
 6. Public Model ID は `provider/model`
 7. モデル一覧は設定ファイルとProviderカタログを統合して管理する
-8. Providerカタログ取得は起動時に行い、静的モデル定義は任意の上書き・別名として適用する
+8. Providerカタログ取得はモデル一覧要求またはモデル使用要求の直前に行い、静的モデル定義は任意の上書き・別名として適用する
 9. `model` は省略可能
 10. `default` は設定された既定モデルへ解決する
 11. Responses の継続中モデル変更は禁止する

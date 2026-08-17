@@ -32,7 +32,8 @@ codex_id = "hoshikage"
 enabled = true
 max_concurrent_turns = 1
 base_url = "http://127.0.0.1:3030/v1"
-# Models are discovered from Hoshikage at startup. Static model entries are optional.
+# Models are discovered from Hoshikage when /v1/models or a request needs a catalog.
+# Static model entries are optional.
 # If Hoshikage is stopped or unavailable, discovery gives up after 5 seconds
 # and the Proxy continues without Hoshikage's dynamic models.
 

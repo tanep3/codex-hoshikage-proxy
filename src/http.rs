@@ -1,8 +1,9 @@
 use crate::{
     approval_manager::{ApprovalCapability, ApprovalDecisionRequest, ApprovalManager},
+    catalog::ModelCatalogManager,
     config::CwdPolicy,
     journal::{EventJournal, JournalEntry, now_ms},
-    model::{ModelError, ModelRegistry},
+    model::ModelError,
     permit::ProviderPermitPool,
     runtime::{CodexRuntime, RuntimeError},
     store::{ResponseMapping, ResponseStore},
@@ -38,7 +39,7 @@ use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 #[derive(Clone)]
 pub struct AppState {
     pub runtime: Arc<CodexRuntime>,
-    pub models: Arc<ModelRegistry>,
+    pub catalog: Arc<ModelCatalogManager>,
     pub cwd_policy: CwdPolicy,
     pub default_cwd: std::path::PathBuf,
     pub api_key: Option<String>,
@@ -61,7 +62,7 @@ impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         runtime: Arc<CodexRuntime>,
-        models: ModelRegistry,
+        catalog: ModelCatalogManager,
         cwd_policy: CwdPolicy,
         default_cwd: std::path::PathBuf,
         api_key: Option<String>,
@@ -69,12 +70,12 @@ impl AppState {
         journal: Arc<EventJournal>,
         responses: Arc<ResponseStore>,
     ) -> Self {
-        let provider_limits = models.provider_limits();
+        let provider_limits = catalog.provider_limits();
         let approvals = ApprovalManager::new(Arc::clone(&runtime), approval_timeout);
         approvals.start();
         Self {
             runtime,
-            models: Arc::new(models),
+            catalog: Arc::new(catalog),
             cwd_policy,
             default_cwd,
             api_key,
@@ -225,7 +226,7 @@ async fn authenticate(
 async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
     Json(json!({
         "object": "list",
-        "data": state.models.list_public_models(),
+        "data": state.catalog.list_public_models().await,
     }))
 }
 
@@ -733,8 +734,9 @@ async fn begin_turn_with_mode(
         .as_ref()
         .and_then(|value| value.effort.as_deref());
     let model = state
-        .models
+        .catalog
         .resolve(request.model.as_deref(), reasoning)
+        .await
         .map_err(model_error)?;
     let permit = state
         .permits

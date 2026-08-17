@@ -51,6 +51,8 @@ whose detailed metadata says `tools: false` is not exposed as a dynamic Codex mo
 agent turns require tool calling. The proxy does not guess tool support from a model name.
 Hoshikage and Ollama catalog requests time out after five seconds. If either service is stopped or
 unavailable, the proxy continues starting and omits that provider's dynamic models.
+The catalog is refreshed whenever `/v1/models` is requested or a model is used, so a provider that
+comes back online is detected automatically on the next request.
 
 ## Responses API
 

@@ -666,7 +666,7 @@ Application ServiceはRuleの内部条件を知らず、Transitionを適用し�
 
 ### 9.1 Registry
 
-MVP の Model Registry は起動時にProviderカタログから構築する。設定ファイルの静的モデル定義は必須ではなく、必要な場合だけ動的定義の上書き・別名として適用する。
+MVP の Model Registry はモデル一覧要求またはモデル使用要求の直前にProviderカタログから再構築する。設定ファイルの静的モデル定義は必須ではなく、必要な場合だけ動的定義の上書き・別名として適用する。
 
 ```rust
 pub struct ModelRegistry {
@@ -704,7 +704,7 @@ Resolved Model
 
 ### 9.4 Model Catalog Aggregator
 
-MVPでは、Provider別のモデルカタログを起動時に統合してRegistryを構築する。静的モデル定義は任意であり、同じPublic Model IDの動的定義を上書きする。
+MVPでは、Provider別のモデルカタログを要求ごとに統合してRegistryを再構築する。静的モデル定義は任意であり、同じPublic Model IDの動的定義を上書きする。
 
 ```text
 Hoshikage /v1/models + /v1/hoshikage/models
@@ -720,7 +720,7 @@ Model Registry
 GET /v1/models / Model Resolver
 ```
 
-動的取得失敗はProvider単位で隔離する。HoshikageとOllamaのHTTPカタログ要求には5秒のタイムアウトを設け、停止中のProviderがあってもProxyの起動を継続する。Hoshikageについては`/v1/models`のID一覧に加えて`/v1/hoshikage/models`の能力詳細を取得し、`tools=false`のBundleをCodex用Registryへ登録しない。詳細カタログを取得できない場合も安全側でHoshikageの動的モデル登録を行わない。Codex App Serverの`model/list`はProvider横断カタログとして扱い、他ProviderのHTTPカタログで既知のUpstream Model IDをChatGPTへ重複登録しない。既定モデルがカタログに現れない場合も起動は継続し、要求時に明示的なエラーを返す。MVPでは定期更新や専用Indexは設けない。
+動的取得失敗はProvider単位で隔離する。HoshikageとOllamaのHTTPカタログ要求には5秒のタイムアウトを設け、停止中のProviderがあってもProxyの起動を継続する。Hoshikageについては`/v1/models`のID一覧に加えて`/v1/hoshikage/models`の能力詳細を取得し、`tools=false`のBundleをCodex用Registryへ登録しない。詳細カタログを取得できない場合も安全側でHoshikageの動的モデル登録を行わない。Codex App Serverの`model/list`はProvider横断カタログとして扱い、他ProviderのHTTPカタログで既知のUpstream Model IDをChatGPTへ重複登録しない。要求ごとに動的Registryを置き換えるため、停止したProviderの古いモデルは残らず、復旧後の要求では再び一覧へ現れる。MVPでは専用Indexやバックグラウンド更新は設けない。
 
 ---
 

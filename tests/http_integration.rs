@@ -4,10 +4,9 @@ use axum::{
     response::Response,
 };
 use codex_hoshikage_proxy::{
-    config::{RawConfig, ValidatedConfig},
+    config::{RawConfig, RawModelConfig, ValidatedConfig},
     http::{AppState, router},
     journal::EventJournal,
-    model::ModelRegistry,
     runtime::CodexRuntime,
     store::ResponseStore,
 };
@@ -22,6 +21,12 @@ use tower::ServiceExt;
 
 async fn test_app(args: &[&str]) -> axum::Router {
     let mut raw = RawConfig::default();
+    raw.providers.get_mut("chatgpt").unwrap().enabled = false;
+    raw.providers.get_mut("hoshikage").unwrap().base_url = None;
+    raw.models.insert(
+        "hoshikage/unsloth-gemma4-12b-qat-thinking-off".into(),
+        RawModelConfig::default(),
+    );
     raw.security.allowed_cwds = vec![
         env::current_dir()
             .expect("current directory")
@@ -44,17 +49,14 @@ async fn test_app(args: &[&str]) -> axum::Router {
         .expect("fake runtime launches");
     let journal = Arc::new(EventJournal::open(&config.codex_home).await.unwrap());
     let responses = Arc::new(ResponseStore::open(&config.codex_home).await.unwrap());
-    let mut models = ModelRegistry::from_config(&config.models).unwrap();
-    models
-        .add_discovered_model(
-            "hoshikage".into(),
-            "unsloth-gemma4-12b-qat-thinking-off".into(),
-            vec![],
-        )
-        .unwrap();
+    let catalog = codex_hoshikage_proxy::catalog::ModelCatalogManager::new(
+        config.models.clone(),
+        runtime.clone(),
+    )
+    .unwrap();
     router(AppState::new(
         runtime,
-        models,
+        catalog,
         config.cwd_policy.clone(),
         config.default_cwd.clone(),
         None,
