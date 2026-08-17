@@ -1,4 +1,5 @@
-# Copy this file to the path selected by CODEX_HOSHIKAGE_PROXY_CONFIG.
+# Install as $HOME/.config/codex-hoshikage-proxy/config.toml.
+# CODEX_HOSHIKAGE_PROXY_CONFIG may override that path when needed.
 
 [server]
 host = "127.0.0.1"
