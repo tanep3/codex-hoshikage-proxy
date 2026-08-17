@@ -147,9 +147,9 @@ systemctl --user status codex-hoshikage-proxy.service
 journalctl --user -u codex-hoshikage-proxy.service -f
 ```
 
-The included unit expects the binary at `~/.cargo/bin/codex-hoshikage-proxy`. If `codex` is installed
-outside the standard user PATH, edit the unit's `Environment=PATH=...` line. To keep the service alive
-after logging out, enable lingering once:
+The included unit expects the proxy binary at `~/.cargo/bin/codex-hoshikage-proxy` and includes the
+usual Volta path (`~/.volta/bin`) for Codex CLI. If Codex is installed elsewhere, edit the unit's
+`Environment=PATH=...` line. To keep the service alive after logging out, enable lingering once:
 
 ```sh
 loginctl enable-linger "$USER"

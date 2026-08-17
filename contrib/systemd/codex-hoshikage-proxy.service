@@ -9,10 +9,10 @@ ExecStart=%h/.cargo/bin/codex-hoshikage-proxy
 Restart=on-failure
 RestartSec=5
 Environment=CODEX_HOSHIKAGE_PROXY_HOME=%h/.config/codex-hoshikage-proxy
-Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=VOLTA_HOME=%h/.volta
+Environment=PATH=%h/.volta/bin:%h/bin:%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 # Uncomment and edit if a remote Hoshikage token is needed.
 # EnvironmentFile=-%h/.config/codex-hoshikage-proxy/environment
 
 [Install]
 WantedBy=default.target
-

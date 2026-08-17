@@ -138,7 +138,8 @@ systemctl --user status codex-hoshikage-proxy.service
 journalctl --user -u codex-hoshikage-proxy.service -f
 ```
 
-付属ユニットは `~/.cargo/bin/codex-hoshikage-proxy` を使います。`codex` が標準以外の場所にある場合は、ユニットの `Environment=PATH=...` を編集してください。
+付属ユニットは `~/.cargo/bin/codex-hoshikage-proxy` を使い、Codex CLI用に通常のVoltaパス（`~/.volta/bin`）も含めています。
+`codex` がそれ以外の場所にある場合は、ユニットの `Environment=PATH=...` を編集してください。
 ログアウト後も常駐させるには、次を一度実行します。
 
 ```sh
