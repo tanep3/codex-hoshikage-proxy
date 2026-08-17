@@ -137,6 +137,7 @@ impl ApprovalManager {
             "kind": "approval_resolved",
             "approval_id": approval_id,
             "threadId": view.details.get("threadId"),
+            "turnId": view.details.get("turnId"),
             "state": view.state,
         }));
         tracing::info!(approval_id, decision = ?decision, state = view.state, "approval resolved");
@@ -259,6 +260,7 @@ impl ApprovalManager {
             "kind": "approval_resolved",
             "approval_id": approval_id,
             "threadId": view.details.get("threadId"),
+            "turnId": view.details.get("turnId"),
             "state": view.state,
         }));
         tracing::warn!(approval_id, state = view.state, "approval expired");

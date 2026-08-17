@@ -149,6 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.cwd_policy.clone(),
             config.default_cwd.clone(),
             config.api_key.clone(),
+            std::time::Duration::from_secs(config.approval_timeout_seconds),
             journal,
             responses,
         )),
