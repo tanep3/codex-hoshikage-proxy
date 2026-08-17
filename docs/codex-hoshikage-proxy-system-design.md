@@ -1648,6 +1648,8 @@ Pagination:
 GET /v1/codex/turns/{turn_id}/events/stream
 ```
 
+MVPでは、Codex Runtimeが受信したTurn関連イベントとApprovalイベントを、対象`turn_id`でフィルタしてSSE配信する。PipeはこのStreamを監視し、`approval_requested`を検出した場合にApproval APIへDecisionを送信する。
+
 JSONL Journal の過去分を replay 後、live event を配信可能とする。
 
 ### 23.4 認証

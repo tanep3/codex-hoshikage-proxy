@@ -174,7 +174,7 @@ impl ApprovalManager {
             approval_id: approval_id.clone(),
             rpc_id,
             thread_id: thread_id.clone(),
-            turn_id,
+            turn_id: turn_id.clone(),
             available_decisions,
             details: params.clone(),
         };
@@ -208,6 +208,7 @@ impl ApprovalManager {
                 "kind": "approval_requested",
                 "approval_id": approval_id,
                 "threadId": thread_id,
+                "turnId": turn_id,
             }));
         } else {
             self.runtime
@@ -217,6 +218,7 @@ impl ApprovalManager {
                 "kind": "approval_required",
                 "approval_id": approval_id,
                 "threadId": thread_id,
+                "turnId": turn_id,
             }));
         }
         Ok(())

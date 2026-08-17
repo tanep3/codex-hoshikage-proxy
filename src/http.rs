@@ -181,6 +181,10 @@ pub fn router(state: AppState) -> Router {
             "/v1/codex/approvals/{approval_id}",
             get(get_approval).post(decide_approval),
         )
+        .route(
+            "/v1/codex/turns/{turn_id}/events/stream",
+            get(turn_events_stream),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), authenticate))
         .with_state(state)
 }
@@ -246,6 +250,45 @@ async fn decide_approval(
         .await
         .map(|view| (StatusCode::OK, Json(view)))
         .map_err(approval_error)
+}
+
+async fn turn_events_stream(
+    State(state): State<AppState>,
+    Path(turn_id): Path<String>,
+) -> Response {
+    let mut notifications = state.runtime.subscribe();
+    let (sender, receiver) = mpsc::channel::<Event>(32);
+    tokio::spawn(async move {
+        loop {
+            let event = match notifications.recv().await {
+                Ok(event) => event,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            };
+            if !matches_turn_event(&event, &turn_id) {
+                continue;
+            }
+            let event_name = event
+                .get("kind")
+                .and_then(Value::as_str)
+                .or_else(|| event.get("method").and_then(Value::as_str))
+                .unwrap_or("codex.event");
+            if sender
+                .send(
+                    Event::default()
+                        .event(event_name)
+                        .json_data(&event)
+                        .unwrap_or_default(),
+                )
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    Sse::new(ReceiverStream::new(receiver).map(Ok::<Event, std::convert::Infallible>))
+        .into_response()
 }
 
 async fn healthz() -> impl IntoResponse {
@@ -1065,6 +1108,15 @@ fn is_thread_not_found(error: &RuntimeError) -> bool {
 fn is_approval_required(event: &Value, thread_id: &str) -> bool {
     event.get("kind").and_then(Value::as_str) == Some("approval_required")
         && event.get("threadId").and_then(Value::as_str) == Some(thread_id)
+}
+
+fn matches_turn_event(event: &Value, turn_id: &str) -> bool {
+    if event.get("turnId").and_then(Value::as_str) == Some(turn_id) {
+        return true;
+    }
+    event
+        .get("params")
+        .is_some_and(|params| params.get("turnId").and_then(Value::as_str) == Some(turn_id))
 }
 
 fn collect_text(value: &Value) -> String {
