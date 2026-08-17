@@ -666,7 +666,7 @@ Application ServiceはRuleの内部条件を知らず、Transitionを適用し�
 
 ### 9.1 Registry
 
-MVP の Model Registry は設定ファイルから構築する静的 Registry とする。
+MVP の Model Registry は設定ファイルから構築した静的 Registry を基礎とし、起動時にProviderカタログで拡張する。
 
 ```rust
 pub struct ModelRegistry {
@@ -702,11 +702,24 @@ Resolved Model
 - 非対応Reasoning Effort: `unsupported_parameter`
 - 非ChatGPT ProviderへのReasoning Effort指定: `unsupported_parameter`
 
-### 9.4 Phase 2 拡張点
+### 9.4 Model Catalog Aggregator
 
-Phase 2 では `ModelCatalogSource` を導入可能とする。
+MVPでは、静的Registryを基礎にProvider別のモデルカタログを起動時に統合する。
 
-ただし MVP で先回りして Trait を設けない。
+```text
+Static Config
+Hoshikage /v1/models
+Ollama /api/tags
+ChatGPT Codex model/list
+        ↓
+Model Catalog Aggregator
+        ↓
+Model Registry
+        ↓
+GET /v1/models / Model Resolver
+```
+
+静的定義を優先し、動的取得失敗はProvider単位で隔離する。MVPでは定期更新や専用Indexは設けない。
 
 ---
 
@@ -2051,6 +2064,8 @@ pub struct CodexScenario {
 - Ollama
 - Provider Permit Pool
 - Codex Config Generator
+- Provider Model Catalog Aggregator
+- `GET /v1/models`
 
 ### Phase 6: Approval
 

@@ -170,6 +170,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
+        .route("/v1/models", get(list_models))
         .route("/v1/responses", post(create_response))
         .route("/v1/chat/completions", post(create_chat_completion))
         .route(
@@ -177,6 +178,13 @@ pub fn router(state: AppState) -> Router {
             get(get_approval).post(decide_approval),
         )
         .with_state(state)
+}
+
+async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
+    Json(json!({
+        "object": "list",
+        "data": state.models.list_public_models(),
+    }))
 }
 
 async fn get_approval(

@@ -1,4 +1,5 @@
 use codex_hoshikage_proxy::{
+    catalog::discover_http_models,
     config::{ValidatedConfig, default_config_path},
     http::{AppState, router},
     journal::EventJournal,
@@ -6,6 +7,7 @@ use codex_hoshikage_proxy::{
     runtime::CodexRuntime,
     store::ResponseStore,
 };
+use serde_json::json;
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 #[tokio::main]
@@ -34,8 +36,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?,
     );
-    let models = ModelRegistry::from_config(&config.models)?;
+    let discovered = discover_http_models(&config.models).await;
+    let mut models = ModelRegistry::from_config(&config.models)?;
+    for model in discovered {
+        models.add_discovered_model(
+            model.provider_id,
+            model.upstream_id,
+            model.reasoning_efforts,
+        )?;
+    }
     let runtime = CodexRuntime::launch(&config).await?;
+    if config
+        .models
+        .providers
+        .get("chatgpt")
+        .is_some_and(|provider| provider.enabled)
+    {
+        match runtime
+            .request("model/list", json!({"limit": 1000, "includeHidden": false}))
+            .await
+        {
+            Ok(result) => {
+                if let Some(data) = result.get("data").and_then(|value| value.as_array()) {
+                    for model in data {
+                        let Some(upstream_id) = model.get("id").and_then(|value| value.as_str())
+                        else {
+                            continue;
+                        };
+                        let reasoning_efforts = model
+                            .get("supportedReasoningEfforts")
+                            .and_then(|value| value.as_array())
+                            .map(|values| {
+                                values
+                                    .iter()
+                                    .filter_map(|value| {
+                                        value
+                                            .get("reasoningEffort")
+                                            .and_then(|effort| effort.as_str())
+                                    })
+                                    .map(str::to_owned)
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        models.add_discovered_model(
+                            "chatgpt".into(),
+                            upstream_id.into(),
+                            reasoning_efforts,
+                        )?;
+                    }
+                }
+            }
+            Err(error) => tracing::warn!(error = %error, "ChatGPT model catalog unavailable"),
+        }
+    }
     let listener = tokio::net::TcpListener::bind(config.listen_addr).await?;
     tracing::info!(address = %config.listen_addr, "Codex Hoshikage Proxy listening");
     axum::serve(

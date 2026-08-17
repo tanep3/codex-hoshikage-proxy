@@ -1,4 +1,5 @@
 use crate::config::RawModelRegistryConfig;
+use serde::Serialize;
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -34,6 +35,14 @@ pub struct ResolvedModel {
     pub upstream_model_id: String,
     pub reasoning_effort: Option<ReasoningEffort>,
     pub supported_reasoning_efforts: Vec<ReasoningEffort>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicModel {
+    pub id: String,
+    pub object: &'static str,
+    pub created: u64,
+    pub owned_by: String,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -163,6 +172,52 @@ impl ModelRegistry {
         })
     }
 
+    pub fn add_discovered_model(
+        &mut self,
+        provider_id: String,
+        upstream_id: String,
+        reasoning_efforts: Vec<String>,
+    ) -> Result<(), ModelError> {
+        if !self.providers.contains_key(&provider_id) {
+            return Err(ModelError::InvalidRegistry(format!(
+                "unknown provider: {provider_id}"
+            )));
+        }
+        let public_id = format!("{provider_id}/{upstream_id}");
+        if self.models.contains_key(&public_id) {
+            return Ok(());
+        }
+        let supported_reasoning_efforts = reasoning_efforts
+            .into_iter()
+            .filter_map(|value| ReasoningEffort::parse(&value))
+            .collect();
+        self.models.insert(
+            public_id,
+            ModelDefinition {
+                provider_id,
+                upstream_id,
+                supported_reasoning_efforts,
+                default_reasoning_effort: None,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn list_public_models(&self) -> Vec<PublicModel> {
+        let mut models = self
+            .models
+            .iter()
+            .map(|(id, model)| PublicModel {
+                id: id.clone(),
+                object: "model",
+                created: 0,
+                owned_by: model.provider_id.clone(),
+            })
+            .collect::<Vec<_>>();
+        models.sort_by(|left, right| left.id.cmp(&right.id));
+        models
+    }
+
     pub fn resolve(
         &self,
         requested_model: Option<&str>,
@@ -264,5 +319,44 @@ mod tests {
             .unwrap();
         assert_eq!(model.codex_provider_id, "openai");
         assert_eq!(model.reasoning_effort, Some(ReasoningEffort::High));
+    }
+
+    #[test]
+    fn merges_discovered_models_and_keeps_static_definition() {
+        let mut registry = ModelRegistry::from_config(&RawModelRegistryConfig::default()).unwrap();
+        registry
+            .add_discovered_model(
+                "hoshikage".into(),
+                "new-model".into(),
+                vec!["medium".into()],
+            )
+            .unwrap();
+        registry
+            .add_discovered_model(
+                "hoshikage".into(),
+                "unsloth-gemma4-12b-qat-thinking-off".into(),
+                vec!["high".into()],
+            )
+            .unwrap();
+
+        let ids = registry
+            .list_public_models()
+            .into_iter()
+            .map(|model| model.id)
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&"hoshikage/new-model".into()));
+        assert_eq!(
+            ids.iter()
+                .filter(|id| *id == "hoshikage/unsloth-gemma4-12b-qat-thinking-off")
+                .count(),
+            1
+        );
+        assert_eq!(
+            registry
+                .resolve(Some("hoshikage/unsloth-gemma4-12b-qat-thinking-off"), None)
+                .unwrap()
+                .supported_reasoning_efforts,
+            Vec::<ReasoningEffort>::new()
+        );
     }
 }

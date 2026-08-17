@@ -66,13 +66,11 @@ Codex App Server は、Codex の内部機能を JSON-RPC ベースで利用す�
 MVP では以下を対象外とする。
 
 1. 旧 OpenAI Completions API `/v1/completions`
-2. Provider からの動的モデル自動検出
-3. Hoshikage の動的モデル一覧取得
-4. Chat Completions における Codex Thread の永続的継続
-5. 継続中の Responses Thread におけるモデル変更
-6. Codex App Server 実行中 Turn の自動再送
-7. 標準 OpenAI API ストリームへの Codex 独自イベント混入
-8. 複数 Codex App Server のクラスタリング
+2. Chat Completions における Codex Thread の永続的継続
+3. 継続中の Responses Thread におけるモデル変更
+4. Codex App Server 実行中 Turn の自動再送
+5. 標準 OpenAI API ストリームへの Codex 独自イベント混入
+6. 複数 Codex App Server のクラスタリング
 9. 分散 Queue
 10. マルチユーザー認証・権限管理
 
@@ -444,21 +442,28 @@ model = "hoshikage/unsloth-gemma4-12b-qat-thinking-off"
 
 優先順位は上記の順とする。
 
-### 12.6 モデル一覧
+### 12.6 モデル一覧とカタログ統合
 
-MVP ではモデル一覧を設定ファイルで静的管理する。
+`GET /v1/models` は、Proxyが利用可能なモデルをOpenAI互換形式で返す。
 
-`GET /v1/models` は静的モデル定義を OpenAI 互換形式で返す。
+MVPでは、モデルカタログを以下の優先順位で統合する。
 
-### 12.7 Phase 2
+1. Proxy設定ファイルの静的モデル定義
+2. Hoshikage `/v1/models`
+3. Ollama `/api/tags`
+4. ChatGPT/Codex App Server `model/list`
 
-Phase 2 では以下を追加する。
+静的定義と動的取得結果が同じPublic Model IDになる場合は、静的定義を優先する。動的に発見したモデルもModel Resolverへ登録し、`model` へ指定して利用できるようにする。
 
-- Hoshikage の `/v1/models`
-- Ollama の動的モデル検出
-- ChatGPT/Codex モデルカタログの取得
-- 静的設定と動的検出の統合
-- 静的定義優先のモデル解決
+カタログ取得はProxy起動時に行う。Providerのカタログ取得に失敗しても、静的モデルおよび他Providerのモデルを返し、一覧API全体を失敗させない。失敗はEvent Journalまたは運用ログへ記録する。
+
+外部へ公開するIDは必ず以下の形式とする。
+
+```text
+<public_provider_id>/<upstream_model_id>
+```
+
+動的カタログは起動時に取得したスナップショットとして扱い、MVPでは自動更新・専用カタログDB・Provider間の重複解決は行わない。
 
 ---
 
@@ -1396,18 +1401,17 @@ MVP は以下をすべて満たした場合に受入可能とする。
 
 ## 31. Phase 2 候補
 
-1. Provider からの動的モデル検出
-2. Hoshikage `/v1/models`
-3. Ollama モデル自動検出
-4. Codex モデルカタログ統合
-5. Chat Completions と Codex Thread の継続連携
-6. Thread Fork によるモデル切り替え
-7. 複数 Codex App Server
-8. Multi-user
-9. 複数API Key・権限管理
-10. Web 管理 UI
-11. Metrics
-12. OpenTelemetry
+1. カタログの定期更新
+2. 専用カタログDB
+3. Provider間の高度な重複解決
+4. Chat Completions と Codex Thread の継続連携
+5. Thread Fork によるモデル切り替え
+6. 複数 Codex App Server
+7. Multi-user
+8. 複数API Key・権限管理
+9. Web 管理 UI
+10. Metrics
+11. OpenTelemetry
 13. Approval 履歴 UI
 14. Provider Failover
 15. Model Routing
@@ -1424,8 +1428,8 @@ MVP の主要決定事項は以下とする。
 4. OpenWebUI 上で対話承認を可能にする
 5. Provider は `chatgpt`、`hoshikage`、`ollama`
 6. Public Model ID は `provider/model`
-7. モデル一覧は設定ファイルで静的管理する
-8. 動的モデル検出は Phase 2
+7. モデル一覧は設定ファイルとProviderカタログを統合して管理する
+8. Providerカタログ取得は起動時に行い、静的設定を優先する
 9. `model` は省略可能
 10. `default` は設定された既定モデルへ解決する
 11. Responses の継続中モデル変更は禁止する
