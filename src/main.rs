@@ -11,6 +11,10 @@ use serde_json::json;
 use std::collections::HashSet;
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
+fn model_id_variants(model_id: &str) -> impl Iterator<Item = &str> {
+    std::iter::once(model_id).chain(model_id.rsplit_once('/').map(|(_, id)| id))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -43,13 +47,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .models
         .values()
         .filter(|model| model.provider_id != "chatgpt")
-        .map(|model| model.upstream_id.clone())
+        .flat_map(|model| model_id_variants(&model.upstream_id).map(str::to_owned))
         .collect::<HashSet<_>>();
     non_chatgpt_upstream_ids.extend(
         discovered
             .iter()
             .filter(|model| model.provider_id != "chatgpt")
-            .map(|model| model.upstream_id.clone()),
+            .flat_map(|model| model_id_variants(&model.upstream_id).map(str::to_owned)),
+    );
+    tracing::info!(
+        external_model_count = non_chatgpt_upstream_ids.len(),
+        "prepared provider-aware model catalog"
     );
     let mut models = ModelRegistry::from_config(&config.models)?;
     for model in discovered {
@@ -87,7 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .get("modelProvider")
                             .or_else(|| model.get("model_provider"))
                             .and_then(|value| value.as_str());
-                        if non_chatgpt_upstream_ids.contains(upstream_id)
+                        if model_id_variants(upstream_id)
+                            .any(|id| non_chatgpt_upstream_ids.contains(id))
                             || provider_from_catalog.is_some_and(|provider| {
                                 provider != "openai" && provider != "chatgpt"
                             })
