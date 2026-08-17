@@ -317,9 +317,10 @@ impl CodexRuntime {
             let mut state = self.state.write().await;
             *state = reduce_runtime(&state, RuntimeEvent::ShutdownRequested).next;
         }
-        let mut child = self.child.lock().await;
-        if let Some(process) = child.as_mut() {
+        let process = self.child.lock().await.take();
+        if let Some(mut process) = process {
             process.kill().await?;
+            process.wait().await?;
         }
         let mut state = self.state.write().await;
         *state = reduce_runtime(&state, RuntimeEvent::ShutdownCompleted).next;
