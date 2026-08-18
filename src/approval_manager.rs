@@ -349,11 +349,8 @@ fn request_is_in_workspace(params: &Value, cwd: &Path) -> bool {
     params
         .get("cwd")
         .and_then(Value::as_str)
-        .is_some_and(|request_cwd| Path::new(request_cwd) == cwd)
-        || params
-            .get("command")
-            .and_then(Value::as_str)
-            .is_some_and(|command| command.contains(cwd.to_string_lossy().as_ref()))
+        .and_then(|request_cwd| Path::new(request_cwd).canonicalize().ok())
+        .is_some_and(|request_cwd| request_cwd == cwd)
 }
 
 fn timeout_ms(timeout: Duration) -> u128 {
@@ -468,6 +465,13 @@ mod tests {
         ));
         assert!(!request_is_in_workspace(
             &json!({"cwd": "/tmp", "command": "python3 script.py"}),
+            cwd
+        ));
+        assert!(!request_is_in_workspace(
+            &json!({
+                "cwd": "/tmp",
+                "command": "python3 --output /home/tane/work/result.txt"
+            }),
             cwd
         ));
     }

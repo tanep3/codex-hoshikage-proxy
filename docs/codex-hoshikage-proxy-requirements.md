@@ -1037,7 +1037,7 @@ model = "hoshikage/unsloth-gemma4-12b-qat-thinking-off"
 
 [approval]
 policy = "interactive"
-auto_approve_workspace_write = true
+auto_approve_workspace = true
 timeout_seconds = 300
 
 [providers.chatgpt]
