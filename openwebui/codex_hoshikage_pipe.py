@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -56,6 +56,10 @@ class Pipe:
                 "Logical Codex conversation ID shared by OpenWebUI threads "
                 "for the context-continuation PoC"
             ),
+        )
+        REASONING_EFFORT: Literal["low", "medium", "high"] = Field(
+            default="low",
+            description="ChatGPT reasoning effort; applies only to chatgpt/* models",
         )
 
     def __init__(self) -> None:
@@ -136,6 +140,11 @@ class Pipe:
         if isinstance(requested_model, str):
             proxy_model = self._proxy_model_id(requested_model)
             payload["model"] = proxy_model
+
+        if isinstance(proxy_model, str) and proxy_model.startswith("chatgpt/"):
+            payload["reasoning"] = {"effort": self.valves.REASONING_EFFORT}
+        else:
+            payload.pop("reasoning", None)
 
         source_metadata = __metadata__ or payload.get("metadata") or {}
         # The proxy's metadata contract is string-to-string.  OpenWebUI's

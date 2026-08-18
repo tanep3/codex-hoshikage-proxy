@@ -39,9 +39,12 @@ api_key = "tane-codex-proxy-local-key"
    PROXY_API_KEY = tane-codex-proxy-local-key
    REQUEST_TIMEOUT_SECONDS = 120
    HEALTHCHECK_TIMEOUT_SECONDS = 2
+   REASONING_EFFORT = low
    ```
 
    アドレスとキーは自分の値へ置き換えます。
+   ChatGPTモデルの推論レベルを変える場合は、`REASONING_EFFORT` を `low`、`medium`、`high` のいずれかに変更します。
+   HoshikageとOllamaモデルでは、各プロバイダのデフォルト設定を使います。
 5. 保存し、PipeのManifoldモデルを有効化します。
 
 通常のリクエスト前に、PipeはProxyの`/readyz`を確認します。Proxy停止中、またはCodexの準備ができていない場合は、

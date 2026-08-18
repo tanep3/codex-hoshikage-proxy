@@ -39,9 +39,12 @@ valves as `PROXY_API_KEY`. If you use `api_key_env`, export the value in the pro
    PROXY_API_KEY = tane-codex-proxy-local-key
    REQUEST_TIMEOUT_SECONDS = 120
    HEALTHCHECK_TIMEOUT_SECONDS = 2
+   REASONING_EFFORT = low
    ```
 
    Replace the address and key with your values.
+   Set `REASONING_EFFORT` to `low`, `medium`, or `high` to change reasoning for ChatGPT models.
+   Hoshikage and Ollama models use their provider default.
 5. Save the Pipe and enable its manifold models.
 
 Before every normal request, the Pipe checks the Proxy's `/readyz` endpoint. If the Proxy is stopped
