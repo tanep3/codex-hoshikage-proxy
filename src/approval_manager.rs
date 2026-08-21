@@ -57,6 +57,7 @@ pub struct ApprovalManager {
     next_id: Mutex<u64>,
     turn_contexts: Mutex<HashMap<String, TurnApprovalContext>>,
     records: Mutex<HashMap<String, ApprovalRecord>>,
+    file_change_paths: Mutex<HashMap<String, Vec<String>>>,
     timeout: Duration,
     auto_approve_workspace: bool,
 }
@@ -72,6 +73,7 @@ impl ApprovalManager {
             next_id: Mutex::new(1),
             turn_contexts: Mutex::new(HashMap::new()),
             records: Mutex::new(HashMap::new()),
+            file_change_paths: Mutex::new(HashMap::new()),
             timeout,
             auto_approve_workspace,
         })
@@ -83,6 +85,7 @@ impl ApprovalManager {
             let mut notifications = manager.runtime.subscribe();
             while let Ok(event) = notifications.recv().await {
                 if event.get("kind").and_then(Value::as_str) != Some("server_request") {
+                    manager.observe_file_change_notification(&event).await;
                     continue;
                 }
                 let Some(method) = event.get("method").and_then(Value::as_str) else {
@@ -94,10 +97,49 @@ impl ApprovalManager {
                 let Some(rpc_id) = event.get("rpc_id").and_then(Value::as_u64) else {
                     continue;
                 };
-                let params = event.get("params").cloned().unwrap_or_else(|| json!({}));
+                let mut params = event.get("params").cloned().unwrap_or_else(|| json!({}));
+                manager.attach_known_file_change_paths(&mut params).await;
                 let _ = manager.handle_request(rpc_id, method, params).await;
             }
         });
+    }
+
+    async fn observe_file_change_notification(&self, event: &Value) {
+        if event.get("method").and_then(Value::as_str) != Some("item/fileChange/patchUpdated") {
+            return;
+        }
+        let Some(params) = event.get("params") else {
+            return;
+        };
+        let Some(item_id) = params.get("itemId").and_then(Value::as_str) else {
+            return;
+        };
+        let paths = params
+            .get("changes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flat_map(|changes| changes.iter())
+            .filter_map(|change| change.get("path").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if !paths.is_empty() {
+            self.file_change_paths
+                .lock()
+                .await
+                .insert(item_id.to_owned(), paths);
+        }
+    }
+
+    async fn attach_known_file_change_paths(&self, params: &mut Value) {
+        let Some(item_id) = params.get("itemId").and_then(Value::as_str) else {
+            return;
+        };
+        let Some(paths) = self.file_change_paths.lock().await.get(item_id).cloned() else {
+            return;
+        };
+        if let Some(object) = params.as_object_mut() {
+            object.insert("paths".into(), json!(paths));
+        }
     }
 
     pub async fn register_turn(&self, thread_id: &str, capability: ApprovalCapability, cwd: &Path) {
@@ -359,6 +401,7 @@ fn request_is_in_workspace(params: &Value, cwd: &Path) -> bool {
         "targetPath",
         "target_path",
         "grantRoot",
+        "paths",
     ]
     .iter()
     .any(|key| structured_path_values(params.get(*key)).any(|path| path_is_within(path, cwd)));
