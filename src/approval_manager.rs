@@ -269,6 +269,11 @@ impl ApprovalManager {
             }));
             tracing::info!(approval_id, "workspace approval automatically accepted");
         } else if capability == ApprovalCapability::Interactive {
+            tracing::warn!(
+                approval_id,
+                method,
+                "approval request is waiting for interactive decision"
+            );
             let manager = Arc::clone(self);
             let timeout_id = approval_id.clone();
             tokio::spawn(async move {
@@ -346,16 +351,37 @@ fn request_is_in_workspace(params: &Value, cwd: &Path) -> bool {
     if cwd.as_os_str().is_empty() {
         return false;
     }
-    [
+    let direct_paths = [
         "cwd",
         "path",
         "filePath",
         "file_path",
         "targetPath",
         "target_path",
+        "grantRoot",
     ]
     .iter()
-    .any(|key| structured_path_values(params.get(*key)).any(|path| path_is_within(path, cwd)))
+    .any(|key| structured_path_values(params.get(*key)).any(|path| path_is_within(path, cwd)));
+    if direct_paths {
+        return true;
+    }
+
+    let mut file_change_paths = params
+        .get("fileChanges")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|changes| changes.keys().map(String::as_str));
+    if file_change_paths.any(|path| path_is_within(path, cwd)) {
+        return true;
+    }
+
+    params
+        .get("commandActions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flat_map(|actions| actions.iter())
+        .filter_map(|action| action.get("path").and_then(Value::as_str))
+        .any(|path| path_is_within(path, cwd))
 }
 
 fn structured_path_values(value: Option<&Value>) -> Box<dyn Iterator<Item = &str> + '_> {
@@ -523,6 +549,18 @@ mod tests {
         ));
         assert!(!request_is_in_workspace(
             &json!({"targetPath": "/var/tmp/outside.txt"}),
+            &root
+        ));
+        assert!(request_is_in_workspace(
+            &json!({
+                "fileChanges": {
+                    "/tmp/.agents/skills/foo/SKILL.md": {"type": "add"}
+                }
+            }),
+            &root
+        ));
+        assert!(request_is_in_workspace(
+            &json!({"grantRoot": "/tmp/.agents"}),
             &root
         ));
     }
