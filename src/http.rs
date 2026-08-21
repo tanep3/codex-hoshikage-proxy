@@ -46,6 +46,7 @@ pub struct AppState {
     pub turn_idle_timeout: Duration,
     pub turn_stall_detection: Duration,
     pub turn_stall_confirmation_count: u32,
+    pub turn_heartbeat: Duration,
     tracked_turns: Arc<RwLock<HashMap<String, TrackedTurn>>>,
     pub journal: Arc<EventJournal>,
     responses: Arc<ResponseStore>,
@@ -82,6 +83,7 @@ impl AppState {
         turn_idle_timeout: Duration,
         turn_stall_detection: Duration,
         turn_stall_confirmation_count: u32,
+        turn_heartbeat: Duration,
         approval_timeout: Duration,
         auto_approve_workspace: bool,
         journal: Arc<EventJournal>,
@@ -103,6 +105,7 @@ impl AppState {
             turn_idle_timeout,
             turn_stall_detection,
             turn_stall_confirmation_count,
+            turn_heartbeat,
             tracked_turns: Arc::new(RwLock::new(HashMap::new())),
             journal,
             responses,
@@ -1058,7 +1061,7 @@ async fn run_stream(
             .turn_idle_timeout
             .checked_sub(silent_since.elapsed())
             .unwrap_or_default();
-        let probe_after = remaining.min(state.turn_stall_detection);
+        let probe_after = remaining.min(state.turn_heartbeat);
         let event = time::timeout(probe_after, notifications.recv()).await;
         let event = match event {
             Ok(Ok(event)) => {
@@ -1068,8 +1071,32 @@ async fn run_stream(
             }
             Err(_) => {
                 if silent_since.elapsed() < state.turn_idle_timeout {
+                    if silent_since.elapsed() < state.turn_stall_detection {
+                        send_turn_heartbeat(
+                            &sender,
+                            &response_id,
+                            turn_id.as_deref(),
+                            "Codex turn is still running",
+                        )
+                        .await;
+                        continue;
+                    }
+                    send_turn_heartbeat(
+                        &sender,
+                        &response_id,
+                        turn_id.as_deref(),
+                        "Checking Codex turn status for stalled progress",
+                    )
+                    .await;
                     match probe_turn(&state, &thread_id, turn_id.as_deref()).await {
                         Ok(probe) if probe.waiting_for_user => {
+                            send_turn_heartbeat(
+                                &sender,
+                                &response_id,
+                                turn_id.as_deref(),
+                                "Codex turn is waiting for approval or user input",
+                            )
+                            .await;
                             tracing::info!(
                                 response_id = %response_id,
                                 thread_id = %thread_id,
@@ -1110,6 +1137,13 @@ async fn run_stream(
                             }
                         }
                         Ok(probe) => {
+                            send_turn_heartbeat(
+                                &sender,
+                                &response_id,
+                                turn_id.as_deref(),
+                                &format!("Codex turn status: {}", probe.status),
+                            )
+                            .await;
                             tracing::warn!(
                                 response_id = %response_id,
                                 thread_id = %thread_id,
@@ -1348,6 +1382,28 @@ async fn run_stream(
             break;
         }
     }
+}
+
+async fn send_turn_heartbeat(
+    sender: &mpsc::Sender<Event>,
+    response_id: &str,
+    turn_id: Option<&str>,
+    message: &str,
+) {
+    let _ = sender
+        .send(
+            sse_json(
+                "codex.turn.status",
+                &json!({
+                    "id": response_id,
+                    "turn_id": turn_id,
+                    "status": "inProgress",
+                    "message": message
+                }),
+            )
+            .unwrap_or_else(|_| Event::default()),
+        )
+        .await;
 }
 
 struct TurnProbe {

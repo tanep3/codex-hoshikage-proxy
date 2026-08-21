@@ -70,6 +70,7 @@ pub struct RawServerConfig {
     pub default_cwd: Option<String>,
     pub turn_stall_detection_seconds: u64,
     pub turn_stall_confirmation_count: u32,
+    pub turn_heartbeat_seconds: u64,
     pub turn_idle_timeout_seconds: u64,
 }
 
@@ -81,6 +82,7 @@ impl Default for RawServerConfig {
             default_cwd: None,
             turn_stall_detection_seconds: 180,
             turn_stall_confirmation_count: 3,
+            turn_heartbeat_seconds: 30,
             turn_idle_timeout_seconds: 600,
         }
     }
@@ -247,6 +249,7 @@ pub struct ValidatedConfig {
     pub turn_idle_timeout_seconds: u64,
     pub turn_stall_detection_seconds: u64,
     pub turn_stall_confirmation_count: u32,
+    pub turn_heartbeat_seconds: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -293,6 +296,11 @@ impl ValidatedConfig {
         if raw.server.turn_stall_confirmation_count == 0 {
             return Err(ConfigError::Invalid(
                 "server.turn_stall_confirmation_count must be greater than zero".into(),
+            ));
+        }
+        if raw.server.turn_heartbeat_seconds == 0 {
+            return Err(ConfigError::Invalid(
+                "server.turn_heartbeat_seconds must be greater than zero".into(),
             ));
         }
         if raw.server.turn_idle_timeout_seconds == 0 {
@@ -381,6 +389,7 @@ impl ValidatedConfig {
             turn_idle_timeout_seconds: raw.server.turn_idle_timeout_seconds,
             turn_stall_detection_seconds: raw.server.turn_stall_detection_seconds,
             turn_stall_confirmation_count: raw.server.turn_stall_confirmation_count,
+            turn_heartbeat_seconds: raw.server.turn_heartbeat_seconds,
         })
     }
 

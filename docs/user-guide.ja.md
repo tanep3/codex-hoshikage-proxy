@@ -20,6 +20,7 @@
 | `server.turn_idle_timeout_seconds` | 1つのTurnでCodex App Serverからイベントが届かない最大時間。デフォルトは`600`秒。タスク全体の制限時間ではありません |
 | `server.turn_stall_detection_seconds` | イベントが届かないときに、異常な停止の可能性をCodexへ確認するまでの時間。デフォルトは`180`秒 |
 | `server.turn_stall_confirmation_count` | `turn_stalled`と判定する連続無進捗確認回数。デフォルトは`3`回 |
+| `server.turn_heartbeat_seconds` | Turn実行中にSSE heartbeatを送る間隔。デフォルトは`30`秒 |
 | `security.allowed_cwds` | Codexが使える実在する正規化済みディレクトリのルート |
 | `security.api_key` / `api_key_env` | クライアント認証。非loopbackでは必須 |
 | `defaults.model` | リクエストにmodelがない場合のモデル |

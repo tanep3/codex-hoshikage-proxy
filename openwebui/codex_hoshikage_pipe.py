@@ -1,7 +1,7 @@
 """
 title: Codex Hoshikage Proxy
 author: Codex Hoshikage Proxy
-version: 0.3.0
+version: 0.5.0
 requirements: httpx
 
 OpenWebUI Manifold Pipe for Codex Hoshikage Proxy.
@@ -214,6 +214,7 @@ class Pipe:
                     conversation_id,
                     proxy_model if isinstance(proxy_model, str) else "",
                     __event_call__,
+                    __event_emitter__,
                 ):
                     yield delta
             except _ProxyThreadNotFound:
@@ -234,6 +235,7 @@ class Pipe:
                         conversation_id,
                         proxy_model if isinstance(proxy_model, str) else "",
                         __event_call__,
+                        __event_emitter__,
                     ):
                         yield delta
                 except Exception as error:
@@ -300,6 +302,7 @@ class Pipe:
         conversation_id: str,
         model_id: str,
         event_call: Any,
+        event_emitter: Any,
     ) -> AsyncGenerator[str, None]:
         async with client.stream(
             "POST",
@@ -343,6 +346,23 @@ class Pipe:
                         candidate = event.get("id")
                         if isinstance(candidate, str):
                             response_id = candidate
+                    elif event_type == "codex.turn.status":
+                        if event_emitter is not None:
+                            try:
+                                await event_emitter(
+                                    {
+                                        "type": "status",
+                                        "data": {
+                                            "status": "in_progress",
+                                            "description": event.get(
+                                                "message", "Codex turn is still running"
+                                            ),
+                                            "done": False,
+                                        },
+                                    }
+                                )
+                            except Exception:
+                                log.debug("failed to report Codex heartbeat", exc_info=True)
                     elif event_type == "response.output_text.delta":
                         delta = event.get("delta")
                         if isinstance(delta, str) and delta:

@@ -12,6 +12,8 @@ turn_idle_timeout_seconds = 600
 turn_stall_detection_seconds = 180
 # Number of consecutive no-progress probes before reporting turn_stalled.
 turn_stall_confirmation_count = 3
+# SSE heartbeat interval while a Turn is active.
+turn_heartbeat_seconds = 30
 
 [codex]
 command = "codex"
