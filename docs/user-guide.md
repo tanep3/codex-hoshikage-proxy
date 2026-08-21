@@ -19,6 +19,7 @@ Important settings:
 | --- | --- |
 | `server.host`, `server.port` | Listener address |
 | `server.default_cwd` | Existing default working directory |
+| `server.turn_idle_timeout_seconds` | Maximum silence between Codex App Server events for one Turn; default `600`. This is not a total task limit. |
 | `security.allowed_cwds` | Existing canonical directory roots Codex may use |
 | `security.api_key` / `api_key_env` | Client authentication; required for non-loopback |
 | `defaults.model` | Public model ID used when a request omits `model` |
@@ -46,6 +47,26 @@ chatgpt/gpt-5.6-luna
 hoshikage/unsloth-gemma4-12b-qat-thinking-off
 ollama/gemma4:e4b
 ```
+
+## Turn status diagnostics
+
+The Proxy exposes a diagnostic endpoint for an active Codex Turn:
+
+```sh
+curl -H "Authorization: Bearer $PROXY_API_KEY" \
+  http://127.0.0.1:4040/v1/codex/turns/{turn_id}/status
+```
+
+The endpoint asks Codex App Server's standard `thread/read` method for the current
+thread and Turn state. It reports `inProgress`, `completed`, `interrupted`, or
+`failed`, together with the latest Codex error when available. It also includes the
+last event observed by the Proxy, which helps distinguish a live long-running Turn
+from a Turn whose event stream has stopped.
+
+`server.turn_idle_timeout_seconds` is an inactivity timeout: it limits how long the
+Proxy waits without receiving any Codex App Server event. It is not a total task
+duration limit. When it expires, the Proxy interrupts the Codex Turn and returns
+`runtime_idle_timeout`. The default is 600 seconds.
 
 Hoshikage discovery combines its ordinary model list with detailed capability information. A model
 whose detailed metadata says `tools: false` is not exposed as a dynamic Codex model, because Codex

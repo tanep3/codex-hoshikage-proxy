@@ -31,7 +31,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{broadcast, mpsc},
+    sync::{RwLock, broadcast, mpsc},
     time,
 };
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
@@ -43,11 +43,22 @@ pub struct AppState {
     pub cwd_policy: CwdPolicy,
     pub default_cwd: std::path::PathBuf,
     pub api_key: Option<String>,
+    pub turn_idle_timeout: Duration,
+    tracked_turns: Arc<RwLock<HashMap<String, TrackedTurn>>>,
     pub journal: Arc<EventJournal>,
     responses: Arc<ResponseStore>,
     permits: Arc<ProviderPermitPool>,
     pub approvals: Arc<ApprovalManager>,
     next_chat_id: Arc<AtomicU64>,
+}
+
+#[derive(Debug, Clone)]
+struct TrackedTurn {
+    thread_id: String,
+    model_id: String,
+    started_at_ms: u128,
+    last_event_at_ms: u128,
+    last_status: String,
 }
 
 struct StartedTurn {
@@ -66,6 +77,7 @@ impl AppState {
         cwd_policy: CwdPolicy,
         default_cwd: std::path::PathBuf,
         api_key: Option<String>,
+        turn_idle_timeout: Duration,
         approval_timeout: Duration,
         auto_approve_workspace: bool,
         journal: Arc<EventJournal>,
@@ -84,11 +96,37 @@ impl AppState {
             cwd_policy,
             default_cwd,
             api_key,
+            turn_idle_timeout,
+            tracked_turns: Arc::new(RwLock::new(HashMap::new())),
             journal,
             responses,
             permits: Arc::new(ProviderPermitPool::new(provider_limits)),
             approvals,
             next_chat_id: Arc::new(AtomicU64::new(1)),
+        }
+    }
+
+    async fn track_turn(&self, turn_id: &str, thread_id: &str, model_id: &str) {
+        let now = now_ms();
+        self.tracked_turns.write().await.insert(
+            turn_id.to_owned(),
+            TrackedTurn {
+                thread_id: thread_id.to_owned(),
+                model_id: model_id.to_owned(),
+                started_at_ms: now,
+                last_event_at_ms: now,
+                last_status: "inProgress".into(),
+            },
+        );
+    }
+
+    async fn touch_turn(&self, turn_id: &str, status: Option<&str>) {
+        let mut turns = self.tracked_turns.write().await;
+        if let Some(turn) = turns.get_mut(turn_id) {
+            turn.last_event_at_ms = now_ms();
+            if let Some(status) = status {
+                turn.last_status = status.to_owned();
+            }
         }
     }
 }
@@ -185,6 +223,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/models", get(list_models))
         .route("/v1/responses", post(create_response))
         .route("/v1/chat/completions", post(create_chat_completion))
+        .route("/v1/codex/turns/{turn_id}/status", get(get_turn_status))
         .route(
             "/v1/codex/approvals/{approval_id}",
             get(get_approval).post(decide_approval),
@@ -233,6 +272,67 @@ async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
         "object": "list",
         "data": state.catalog.list_public_models().await,
     }))
+}
+
+async fn get_turn_status(
+    State(state): State<AppState>,
+    Path(turn_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let tracked = state
+        .tracked_turns
+        .read()
+        .await
+        .get(&turn_id)
+        .cloned()
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "turn_not_found",
+                format!("turn not found: {turn_id}"),
+            )
+        })?;
+    let runtime_status = state
+        .runtime
+        .request(
+            "thread/read",
+            json!({"threadId": tracked.thread_id, "includeTurns": true}),
+        )
+        .await;
+    let turn = runtime_status.as_ref().ok().and_then(|value| {
+        value
+            .pointer("/thread/turns")
+            .or_else(|| value.get("turns"))
+            .and_then(Value::as_array)
+            .and_then(|turns| {
+                turns
+                    .iter()
+                    .find(|turn| turn.get("id").and_then(Value::as_str) == Some(turn_id.as_str()))
+            })
+            .cloned()
+    });
+    let codex_thread_status = runtime_status.as_ref().ok().and_then(|value| {
+        value
+            .pointer("/thread/status")
+            .or_else(|| value.get("status"))
+            .cloned()
+    });
+    let status = turn
+        .as_ref()
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or(&tracked.last_status);
+    Ok(Json(json!({
+        "object": "codex.turn_status",
+        "turn_id": turn_id,
+        "thread_id": tracked.thread_id,
+        "model": tracked.model_id,
+        "status": status,
+        "started_at_ms": tracked.started_at_ms,
+        "last_event_at_ms": tracked.last_event_at_ms,
+        "thread_status": codex_thread_status,
+        "turn": turn,
+        "runtime_query_error": runtime_status.err().map(|error| error.to_string()),
+    })))
 }
 
 async fn get_approval(
@@ -349,7 +449,7 @@ async fn create_response(
     } = started;
     let mut text = String::new();
     loop {
-        let event = tokio::time::timeout(Duration::from_secs(120), notifications.recv())
+        let event = tokio::time::timeout(state.turn_idle_timeout, notifications.recv())
             .await
             .map_err(|_| {
                 ApiError::new(
@@ -473,7 +573,13 @@ async fn create_chat_completion(
         mut notifications,
         _permit,
     } = started;
-    let text = collect_turn_text(&mut notifications, &thread_id, turn_id.as_deref()).await?;
+    let text = collect_turn_text(
+        &mut notifications,
+        &thread_id,
+        turn_id.as_deref(),
+        state.turn_idle_timeout,
+    )
+    .await?;
     let response_id = format!(
         "chatcmpl_{}",
         state.next_chat_id.fetch_add(1, Ordering::Relaxed)
@@ -506,10 +612,11 @@ async fn collect_turn_text(
     notifications: &mut broadcast::Receiver<Value>,
     thread_id: &str,
     turn_id: Option<&str>,
+    idle_timeout: Duration,
 ) -> Result<String, ApiError> {
     let mut text = String::new();
     loop {
-        let event = tokio::time::timeout(Duration::from_secs(120), notifications.recv())
+        let event = tokio::time::timeout(idle_timeout, notifications.recv())
             .await
             .map_err(|_| {
                 ApiError::new(
@@ -622,7 +729,7 @@ async fn run_chat_stream(
         })
         .await;
     loop {
-        let event = time::timeout(Duration::from_secs(120), notifications.recv()).await;
+        let event = time::timeout(state.turn_idle_timeout, notifications.recv()).await;
         let Ok(Ok(event)) = event else {
             let _ = sender
                 .send(sse_data(&json!({"error": "Codex turn timed out"})))
@@ -644,6 +751,12 @@ async fn run_chat_stream(
         let params = event.get("params").cloned().unwrap_or_else(|| json!({}));
         if !matches_thread_and_turn(&params, &thread_id, turn_id.as_deref()) {
             continue;
+        }
+        if let Some(turn_id) = turn_id.as_deref() {
+            let status = (method == "turn/completed")
+                .then(|| params.pointer("/turn/status").and_then(Value::as_str))
+                .flatten();
+            state.touch_turn(turn_id, status).await;
         }
         if method == "item/agentMessage/delta" {
             let Some(delta) = params.get("delta").and_then(Value::as_str) else {
@@ -861,6 +974,11 @@ async fn begin_turn_with_mode(
     let turn_id = string_at(&turn_result, &["turn", "id"])
         .or_else(|| turn_result.get("id").and_then(Value::as_str))
         .map(str::to_owned);
+    if let Some(turn_id) = turn_id.as_deref() {
+        state
+            .track_turn(turn_id, &thread_id, &model.public_model_id)
+            .await;
+    }
     Ok(StartedTurn {
         model,
         thread_id,
@@ -928,28 +1046,86 @@ async fn run_stream(
         _permit,
     } = started;
     loop {
-        let event = time::timeout(Duration::from_secs(120), notifications.recv()).await;
-        let Ok(Ok(event)) = event else {
-            let _ = sender
-                .send(
-                    sse_json(
-                        "response.failed",
-                        &json!({"id": response_id, "status": "failed"}),
+        let event = time::timeout(state.turn_idle_timeout, notifications.recv()).await;
+        let event = match event {
+            Ok(Ok(event)) => event,
+            Err(_) => {
+                let code = "runtime_idle_timeout";
+                let message = format!(
+                    "Codex produced no event for {} seconds",
+                    state.turn_idle_timeout.as_secs()
+                );
+                tracing::warn!(
+                    response_id = %response_id,
+                    thread_id = %thread_id,
+                    turn_id = ?turn_id,
+                    error_code = code,
+                    error_message = %message,
+                    idle_timeout_seconds = state.turn_idle_timeout.as_secs(),
+                    "Codex turn stream failed"
+                );
+                if let Some(turn_id) = turn_id.as_deref() {
+                    let _ = state
+                        .runtime
+                        .request(
+                            "turn/interrupt",
+                            json!({"threadId": thread_id, "turnId": turn_id}),
+                        )
+                        .await;
+                }
+                let _ = sender
+                    .send(
+                        sse_json(
+                            "response.failed",
+                            &json!({"id": response_id, "status": "failed", "error": {"code": code, "message": message}}),
+                        )
+                        .unwrap_or_else(|_| Event::default()),
                     )
-                    .unwrap_or_else(|_| Event::default()),
-                )
-                .await;
-            let _ = state
-                .journal
-                .append(&JournalEntry {
-                    timestamp_ms: now_ms(),
-                    event: "response.failed",
-                    response_id: &response_id,
-                    model: &model.public_model_id,
-                    status: "failed",
-                })
-                .await;
-            break;
+                    .await;
+                let _ = state
+                    .journal
+                    .append(&JournalEntry {
+                        timestamp_ms: now_ms(),
+                        event: "response.failed",
+                        response_id: &response_id,
+                        model: &model.public_model_id,
+                        status: "failed",
+                    })
+                    .await;
+                break;
+            }
+            Ok(Err(error)) => {
+                let code = "runtime_disconnected";
+                let message = format!("Codex event stream closed: {error}");
+                tracing::warn!(
+                    response_id = %response_id,
+                    thread_id = %thread_id,
+                    turn_id = ?turn_id,
+                    error_code = code,
+                    error_message = %message,
+                    "Codex turn stream failed"
+                );
+                let _ = sender
+                    .send(
+                        sse_json(
+                            "response.failed",
+                            &json!({"id": response_id, "status": "failed", "error": {"code": code, "message": message}}),
+                        )
+                        .unwrap_or_else(|_| Event::default()),
+                    )
+                    .await;
+                let _ = state
+                    .journal
+                    .append(&JournalEntry {
+                        timestamp_ms: now_ms(),
+                        event: "response.failed",
+                        response_id: &response_id,
+                        model: &model.public_model_id,
+                        status: "failed",
+                    })
+                    .await;
+                break;
+            }
         };
         if is_approval_required(&event, &thread_id) {
             let _ = sender
@@ -974,6 +1150,12 @@ async fn run_stream(
         let params = event.get("params").cloned().unwrap_or_else(|| json!({}));
         if !matches_thread_and_turn(&params, &thread_id, turn_id.as_deref()) {
             continue;
+        }
+        if let Some(turn_id) = turn_id.as_deref() {
+            let status = (method == "turn/completed")
+                .then(|| params.pointer("/turn/status").and_then(Value::as_str))
+                .flatten();
+            state.touch_turn(turn_id, status).await;
         }
         if method == "item/agentMessage/delta" {
             let Some(delta) = params.get("delta").and_then(Value::as_str) else {

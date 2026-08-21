@@ -5,6 +5,9 @@
 host = "127.0.0.1"
 port = 4040
 default_cwd = "${HOME}/work"
+# Maximum time without any Codex App Server event for one Turn.
+# This is an inactivity timeout, not a total task duration.
+turn_idle_timeout_seconds = 600
 
 [codex]
 command = "codex"

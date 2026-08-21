@@ -68,6 +68,7 @@ pub struct RawServerConfig {
     pub host: String,
     pub port: u16,
     pub default_cwd: Option<String>,
+    pub turn_idle_timeout_seconds: u64,
 }
 
 impl Default for RawServerConfig {
@@ -76,6 +77,7 @@ impl Default for RawServerConfig {
             host: "127.0.0.1".into(),
             port: 4040,
             default_cwd: None,
+            turn_idle_timeout_seconds: 600,
         }
     }
 }
@@ -238,6 +240,7 @@ pub struct ValidatedConfig {
     pub api_key: Option<String>,
     pub approval_timeout_seconds: u64,
     pub auto_approve_workspace: bool,
+    pub turn_idle_timeout_seconds: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -354,6 +357,7 @@ impl ValidatedConfig {
             api_key,
             approval_timeout_seconds: raw.approval.timeout_seconds,
             auto_approve_workspace: raw.approval.auto_approve_workspace,
+            turn_idle_timeout_seconds: raw.server.turn_idle_timeout_seconds,
         })
     }
 
