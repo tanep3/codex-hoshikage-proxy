@@ -1,7 +1,7 @@
 """
 title: Codex Hoshikage Proxy
 author: Codex Hoshikage Proxy
-version: 0.2.0
+version: 0.3.0
 requirements: httpx
 
 OpenWebUI Manifold Pipe for Codex Hoshikage Proxy.
