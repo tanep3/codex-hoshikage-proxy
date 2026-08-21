@@ -45,6 +45,7 @@ pub struct AppState {
     pub api_key: Option<String>,
     pub turn_idle_timeout: Duration,
     pub turn_stall_detection: Duration,
+    pub turn_stall_confirmation_count: u32,
     tracked_turns: Arc<RwLock<HashMap<String, TrackedTurn>>>,
     pub journal: Arc<EventJournal>,
     responses: Arc<ResponseStore>,
@@ -80,6 +81,7 @@ impl AppState {
         api_key: Option<String>,
         turn_idle_timeout: Duration,
         turn_stall_detection: Duration,
+        turn_stall_confirmation_count: u32,
         approval_timeout: Duration,
         auto_approve_workspace: bool,
         journal: Arc<EventJournal>,
@@ -100,6 +102,7 @@ impl AppState {
             api_key,
             turn_idle_timeout,
             turn_stall_detection,
+            turn_stall_confirmation_count,
             tracked_turns: Arc::new(RwLock::new(HashMap::new())),
             journal,
             responses,
@@ -1049,6 +1052,7 @@ async fn run_stream(
         _permit,
     } = started;
     let mut silent_since = Instant::now();
+    let mut stalled_probe_count = 0_u32;
     loop {
         let remaining = state
             .turn_idle_timeout
@@ -1059,6 +1063,7 @@ async fn run_stream(
         let event = match event {
             Ok(Ok(event)) => {
                 silent_since = Instant::now();
+                stalled_probe_count = 0;
                 event
             }
             Err(_) => {
@@ -1074,22 +1079,35 @@ async fn run_stream(
                             continue;
                         }
                         Ok(probe) if probe.status == "inProgress" => {
-                            let message = format!(
-                                "Codex Turn remained inProgress without events for {} seconds",
-                                silent_since.elapsed().as_secs()
+                            stalled_probe_count += 1;
+                            tracing::warn!(
+                                response_id = %response_id,
+                                thread_id = %thread_id,
+                                turn_id = ?turn_id,
+                                probe = stalled_probe_count,
+                                required = state.turn_stall_confirmation_count,
+                                silent_seconds = silent_since.elapsed().as_secs(),
+                                "Codex Turn has no progress event"
                             );
-                            fail_response_stream(
-                                &state,
-                                &sender,
-                                &response_id,
-                                &model.public_model_id,
-                                &thread_id,
-                                turn_id.as_deref(),
-                                "turn_stalled",
-                                message,
-                            )
-                            .await;
-                            break;
+                            if stalled_probe_count >= state.turn_stall_confirmation_count {
+                                let message = format!(
+                                    "Codex Turn remained inProgress without events for {} seconds across {} checks",
+                                    silent_since.elapsed().as_secs(),
+                                    stalled_probe_count
+                                );
+                                fail_response_stream(
+                                    &state,
+                                    &sender,
+                                    &response_id,
+                                    &model.public_model_id,
+                                    &thread_id,
+                                    turn_id.as_deref(),
+                                    "turn_stalled",
+                                    message,
+                                )
+                                .await;
+                                break;
+                            }
                         }
                         Ok(probe) => {
                             tracing::warn!(

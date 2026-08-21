@@ -62,6 +62,7 @@ async fn test_app(args: &[&str]) -> axum::Router {
         None,
         Duration::from_secs(600),
         Duration::from_secs(180),
+        3,
         Duration::from_secs(5),
         true,
         journal,

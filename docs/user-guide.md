@@ -21,6 +21,7 @@ Important settings:
 | `server.default_cwd` | Existing default working directory |
 | `server.turn_idle_timeout_seconds` | Maximum silence between Codex App Server events for one Turn; default `600`. This is not a total task limit. |
 | `server.turn_stall_detection_seconds` | Silence interval before the Proxy probes Codex for a possible stalled Turn; default `180`. |
+| `server.turn_stall_confirmation_count` | Consecutive no-progress probes required before `turn_stalled`; default `3`. |
 | `security.allowed_cwds` | Existing canonical directory roots Codex may use |
 | `security.api_key` / `api_key_env` | Client authentication; required for non-loopback |
 | `defaults.model` | Public model ID used when a request omits `model` |

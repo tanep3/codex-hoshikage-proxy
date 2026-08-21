@@ -309,6 +309,7 @@ class Pipe:
             turn_id = response.headers.get("x-codex-turn-id")
             approval_task = None
             event_name: Optional[str] = None
+            terminal_event = False
             if turn_id and event_call is not None:
                 approval_task = asyncio.create_task(
                     self._watch_approvals(client, turn_id, event_call)
@@ -338,14 +339,33 @@ class Pipe:
                         if isinstance(delta, str) and delta:
                             yield delta
                     elif event_type == "response.failed":
-                        raise RuntimeError(str(event.get("error") or event))
+                        terminal_event = True
+                        error = event.get("error")
+                        if isinstance(error, dict):
+                            code = error.get("code") or "unknown_error"
+                            message = error.get("message") or "no error message supplied"
+                            detail = f"{code}: {message}"
+                        elif isinstance(error, str) and error.strip():
+                            detail = error
+                        else:
+                            detail = "Proxy reported response.failed without error details"
+                        response_label = event.get("id") or response_id or "unknown"
+                        raise RuntimeError(
+                            f"{detail} (response_id={response_label}, turn_id={turn_id or 'unknown'})"
+                        )
                     elif event_type == "response.completed":
+                        terminal_event = True
                         if response_id is None:
                             candidate = event.get("id")
                             if isinstance(candidate, str):
                                 response_id = candidate
                         if response_id is not None:
                             self._response_ids[conversation_id] = (model_id, response_id)
+                if not terminal_event:
+                    raise RuntimeError(
+                        "Proxy response stream ended before a terminal event "
+                        f"(response_id={response_id or 'unknown'}, turn_id={turn_id or 'unknown'})"
+                    )
             finally:
                 if approval_task is not None:
                     approval_task.cancel()

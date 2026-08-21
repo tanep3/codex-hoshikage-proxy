@@ -10,6 +10,8 @@ default_cwd = "${HOME}/work"
 turn_idle_timeout_seconds = 600
 # Probe Codex for a stalled Turn after this much silence.
 turn_stall_detection_seconds = 180
+# Number of consecutive no-progress probes before reporting turn_stalled.
+turn_stall_confirmation_count = 3
 
 [codex]
 command = "codex"
