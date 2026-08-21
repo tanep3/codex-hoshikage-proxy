@@ -1,5 +1,8 @@
 use serde_json::{Value, json};
-use std::io::{self, BufRead, Write};
+use std::{
+    io::{self, BufRead, Write},
+    time::Duration,
+};
 
 fn main() {
     let stdin = io::stdin();
@@ -33,6 +36,9 @@ fn main() {
                 let response = json!({"jsonrpc":"2.0","id":id,"result":{}});
                 write_json(&response);
                 if exit_after_initialize {
+                    // Give the runtime a chance to send the required
+                    // `initialized` notification before simulating a crash.
+                    std::thread::sleep(Duration::from_millis(50));
                     return;
                 }
                 continue;

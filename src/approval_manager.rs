@@ -280,7 +280,7 @@ impl ApprovalManager {
             });
         let capability = context.capability;
         let auto_approved =
-            self.auto_approve_workspace && request_is_in_workspace(&params, &context.cwd);
+            self.auto_approve_workspace && request_is_in_workspace(method, &params, &context.cwd);
         let automatic_decision = auto_approved.then(|| preferred_accept(&available_decisions));
         let state = if let Some(decision) = automatic_decision.clone() {
             ApprovalState::Approved { decision }
@@ -389,11 +389,20 @@ fn preferred_accept(decisions: &[ApprovalDecision]) -> ApprovalDecision {
     }
 }
 
-fn request_is_in_workspace(params: &Value, cwd: &Path) -> bool {
-    if cwd.as_os_str().is_empty() {
+fn request_is_in_workspace(method: &str, params: &Value, cwd: &Path) -> bool {
+    if cwd.as_os_str().is_empty()
+        || !matches!(
+            method,
+            "item/commandExecution/requestApproval"
+                | "item/fileChange/requestApproval"
+                | "execCommandApproval"
+                | "applyPatchApproval"
+        )
+    {
         return false;
     }
-    let direct_paths = [
+    let mut saw_direct_path = false;
+    for key in [
         "cwd",
         "path",
         "filePath",
@@ -402,29 +411,53 @@ fn request_is_in_workspace(params: &Value, cwd: &Path) -> bool {
         "target_path",
         "grantRoot",
         "paths",
-    ]
-    .iter()
-    .any(|key| structured_path_values(params.get(*key)).any(|path| path_is_within(path, cwd)));
-    if direct_paths {
-        return true;
+    ] {
+        for path in structured_path_values(params.get(key)) {
+            saw_direct_path = true;
+            if path_is_within(path, cwd) {
+                return true;
+            }
+        }
+    }
+    if saw_direct_path {
+        return false;
     }
 
-    let mut file_change_paths = params
+    let file_change_paths = params
         .get("fileChanges")
         .and_then(Value::as_object)
         .into_iter()
         .flat_map(|changes| changes.keys().map(String::as_str));
-    if file_change_paths.any(|path| path_is_within(path, cwd)) {
-        return true;
+    let mut saw_file_change_path = false;
+    for path in file_change_paths {
+        saw_file_change_path = true;
+        if path_is_within(path, cwd) {
+            return true;
+        }
+    }
+    if saw_file_change_path {
+        return false;
     }
 
-    params
+    let command_action_paths = params
         .get("commandActions")
         .and_then(Value::as_array)
         .into_iter()
         .flat_map(|actions| actions.iter())
         .filter_map(|action| action.get("path").and_then(Value::as_str))
-        .any(|path| path_is_within(path, cwd))
+        .collect::<Vec<_>>();
+    if !command_action_paths.is_empty() {
+        return command_action_paths
+            .iter()
+            .all(|path| path_is_within(path, cwd));
+    }
+
+    // Codex 0.147.0's item/fileChange/requestApproval request does not
+    // include the changed paths. When grantRoot is absent, Codex is asking
+    // for approval of a file change in the current thread workspace. A
+    // non-empty grantRoot is checked above and must itself be inside cwd.
+    method == "item/fileChange/requestApproval"
+        && params.get("grantRoot").map(Value::is_null).unwrap_or(true)
 }
 
 fn structured_path_values(value: Option<&Value>) -> Box<dyn Iterator<Item = &str> + '_> {
@@ -563,14 +596,17 @@ mod tests {
     fn workspace_request_is_detected_by_cwd() {
         let cwd = Path::new("/home/tane/work");
         assert!(request_is_in_workspace(
+            "item/commandExecution/requestApproval",
             &json!({"cwd": "/home/tane/work", "command": "python3 script.py"}),
             cwd
         ));
         assert!(!request_is_in_workspace(
+            "item/commandExecution/requestApproval",
             &json!({"cwd": "/tmp", "command": "python3 script.py"}),
             cwd
         ));
         assert!(!request_is_in_workspace(
+            "item/commandExecution/requestApproval",
             &json!({
                 "cwd": "/tmp",
                 "command": "python3 --output /home/tane/work/result.txt"
@@ -583,18 +619,22 @@ mod tests {
     fn workspace_request_is_detected_by_structured_file_path() {
         let root = Path::new("/tmp").canonicalize().unwrap();
         assert!(request_is_in_workspace(
+            "item/fileChange/requestApproval",
             &json!({"file_path": root.join(".agents/skills/foo/SKILL.md")}),
             &root
         ));
         assert!(request_is_in_workspace(
+            "item/fileChange/requestApproval",
             &json!({"path": root.join("new-file.txt")}),
             &root
         ));
         assert!(!request_is_in_workspace(
+            "item/fileChange/requestApproval",
             &json!({"targetPath": "/var/tmp/outside.txt"}),
             &root
         ));
         assert!(request_is_in_workspace(
+            "item/fileChange/requestApproval",
             &json!({
                 "fileChanges": {
                     "/tmp/.agents/skills/foo/SKILL.md": {"type": "add"}
@@ -603,7 +643,18 @@ mod tests {
             &root
         ));
         assert!(request_is_in_workspace(
+            "item/fileChange/requestApproval",
             &json!({"grantRoot": "/tmp/.agents"}),
+            &root
+        ));
+        assert!(request_is_in_workspace(
+            "item/fileChange/requestApproval",
+            &json!({}),
+            &root
+        ));
+        assert!(!request_is_in_workspace(
+            "item/permissions/requestApproval",
+            &json!({"cwd": "/tmp"}),
             &root
         ));
     }
@@ -612,6 +663,7 @@ mod tests {
     fn command_text_does_not_grant_workspace_auto_approval() {
         let cwd = Path::new("/home/tane/work");
         assert!(!request_is_in_workspace(
+            "item/commandExecution/requestApproval",
             &json!({"command": "printf /home/tane/work > /tmp/outside"}),
             cwd
         ));
