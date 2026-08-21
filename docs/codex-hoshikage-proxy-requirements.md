@@ -654,7 +654,7 @@ timeout_seconds = 300
 
 ### 17.2 自動承認
 
-Codexがリクエストされたcwd内の操作として報告したものは、自動承認可能とする。これには、cwd配下に置いた `.codex/skills` のスキル実行も含む。許可ルート外の操作は自動承認しない。
+Codexが構造化された `cwd`、`path`、`file_path`、`filePath`、`target_path`、`targetPath` のいずれかで、リクエストされたcwd内の操作として報告したものは、自動承認可能とする。これには、cwd配下に置いた `.codex/skills` や `.agents/skills` の操作も含む。コマンド文字列にcwdの文字列が含まれているだけでは自動承認しない。許可ルート外の操作は自動承認しない。
 
 ### 17.3 対話承認
 
@@ -893,8 +893,9 @@ ${HOME}/projects/example
 ```text
 read-only
 workspace-write
-danger-full-access
 ```
+
+Proxyは安全境界を維持するため `read-only` と `workspace-write` のみを設定可能とする。`danger-full-access` はProxy設定から指定できない。
 
 ### 20.2 既定値
 
@@ -1020,7 +1021,6 @@ Proxy は `config.toml` の Provider 定義から、専用 `CODEX_HOME/config.to
 host = "127.0.0.1"
 port = 4040
 default_cwd = "${HOME}/projects"
-sandbox = "workspace-write"
 
 [security]
 allowed_cwds = [
@@ -1031,6 +1031,11 @@ allowed_cwds = [
 [codex]
 command = "codex"
 args = ["app-server", "--listen", "stdio://"]
+
+[codex.sandbox]
+mode = "workspace-write"
+writable_roots = []
+network_access = false
 
 [defaults]
 model = "hoshikage/unsloth-gemma4-12b-qat-thinking-off"

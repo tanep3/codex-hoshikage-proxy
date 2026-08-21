@@ -47,6 +47,7 @@ pub struct AppState {
     pub turn_stall_detection: Duration,
     pub turn_stall_confirmation_count: u32,
     pub turn_heartbeat: Duration,
+    pub sandbox_mode: String,
     tracked_turns: Arc<RwLock<HashMap<String, TrackedTurn>>>,
     pub journal: Arc<EventJournal>,
     responses: Arc<ResponseStore>,
@@ -84,6 +85,7 @@ impl AppState {
         turn_stall_detection: Duration,
         turn_stall_confirmation_count: u32,
         turn_heartbeat: Duration,
+        sandbox_mode: String,
         approval_timeout: Duration,
         auto_approve_workspace: bool,
         journal: Arc<EventJournal>,
@@ -106,6 +108,7 @@ impl AppState {
             turn_stall_detection,
             turn_stall_confirmation_count,
             turn_heartbeat,
+            sandbox_mode,
             tracked_turns: Arc::new(RwLock::new(HashMap::new())),
             journal,
             responses,
@@ -928,7 +931,7 @@ async fn begin_turn_with_mode(
                     "cwd": cwd,
                     "ephemeral": ephemeral,
                     "approvalPolicy": "on-request",
-                    "sandbox": "workspace-write"
+                    "sandbox": state.sandbox_mode
                 }),
             )
             .await

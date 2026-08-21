@@ -28,6 +28,9 @@ Important settings:
 | `defaults.model` | Public model ID used when a request omits `model` |
 | `approval.timeout_seconds` | Approval expiry interval |
 | `approval.auto_approve_workspace` | Automatically accepts operations Codex reports inside the requested workspace; default `true` |
+| `codex.sandbox.mode` | Codex sandbox mode used for new threads; `workspace-write` is the default |
+| `codex.sandbox.writable_roots` | Additional existing absolute directories Codex may write in workspace-write mode |
+| `codex.sandbox.network_access` | Allows outbound network access from workspace-write commands; default `false` |
 | provider `enabled` | Enables a provider |
 | provider `max_concurrent_turns` | Provider concurrency limit |
 | `models."provider/model"` | Public-to-upstream model mapping |
@@ -153,6 +156,12 @@ When `approval.auto_approve_workspace = true`, operations reported by Codex as r
 workspace are accepted automatically. This is intended for trusted local work and does not make the
 Proxy safe for untrusted users; keep the cwd allowlist narrow. Operations outside the workspace still
 use the interactive approval flow.
+
+The sandbox settings are separate from Proxy approval. `codex.sandbox.writable_roots` is written into
+the generated Codex configuration; it must contain existing absolute paths. Workspace auto-approval
+uses only structured paths supplied by Codex (`cwd`, `path`, `file_path`, `filePath`, `target_path`,
+or `targetPath`). It never trusts a workspace path merely because it appears inside a shell command.
+Set `network_access = true` only for trusted local skills that need outbound network access.
 
 ## Security and operations
 

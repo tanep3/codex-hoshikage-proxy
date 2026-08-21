@@ -26,6 +26,9 @@
 | `defaults.model` | リクエストにmodelがない場合のモデル |
 | `approval.timeout_seconds` | 承認の有効期限 |
 | `approval.auto_approve_workspace` | 指定ワークスペース内のCodex操作を自動承認するか。デフォルトは `true` |
+| `codex.sandbox.mode` | 新しいThreadで使うCodexのsandboxモード。デフォルトは `workspace-write` |
+| `codex.sandbox.writable_roots` | workspace-writeで追加して書き込み可能にする、実在する絶対パスの一覧 |
+| `codex.sandbox.network_access` | workspace-write中のコマンドから外部ネットワークへ接続するか。デフォルトは `false` |
 | プロバイダの `enabled` | プロバイダの有効化 |
 | プロバイダの `max_concurrent_turns` | 同時実行数 |
 | `models."provider/model"` | 公開IDと上流モデルの対応 |
@@ -136,6 +139,10 @@ curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
 `approval.auto_approve_workspace = true` の場合、Codexが指定ワークスペース内の操作として報告した承認要求は自動承認します。
 信頼したローカル作業向けの設定であり、信頼できない利用者へProxyを公開してよいという意味ではありません。許可するcwdは狭く保ってください。
 ワークスペース外の操作は、これまでどおり対話承認の対象です。
+
+Sandbox設定とProxyの自動承認設定は別物です。`codex.sandbox.writable_roots` はProxyが生成するCodex設定へ反映されるため、実在する絶対パスを指定してください。
+ワークスペース内判定では、Codexが構造化して渡す `cwd`、`path`、`file_path`、`filePath`、`target_path`、`targetPath` だけを使用します。コマンド文字列にワークスペースのパスが含まれているだけでは、自動承認しません。
+外部ネットワークを必要とする信頼済みのローカルSkillを使う場合だけ、`network_access = true` にしてください。
 
 ## セキュリティと運用
 

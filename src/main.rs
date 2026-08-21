@@ -50,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::time::Duration::from_secs(config.turn_stall_detection_seconds),
             config.turn_stall_confirmation_count,
             std::time::Duration::from_secs(config.turn_heartbeat_seconds),
+            config.sandbox_mode.clone(),
             std::time::Duration::from_secs(config.approval_timeout_seconds),
             config.auto_approve_workspace,
             journal,

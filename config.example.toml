@@ -19,6 +19,15 @@ turn_heartbeat_seconds = 30
 command = "codex"
 args = ["app-server", "--listen", "stdio://"]
 
+[codex.sandbox]
+# Codex filesystem policy used for each thread.
+mode = "workspace-write"
+# Additional writable roots. The requested cwd is already writable in
+# workspace-write mode; list only existing paths that need separate access.
+writable_roots = []
+# Enable this only when local skills need outbound network access.
+network_access = false
+
 [codex.compatibility]
 minimum_version = "0.147.0"
 tested_version = "0.147.0"

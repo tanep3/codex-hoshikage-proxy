@@ -346,11 +346,45 @@ fn request_is_in_workspace(params: &Value, cwd: &Path) -> bool {
     if cwd.as_os_str().is_empty() {
         return false;
     }
-    params
-        .get("cwd")
-        .and_then(Value::as_str)
-        .and_then(|request_cwd| Path::new(request_cwd).canonicalize().ok())
-        .is_some_and(|request_cwd| request_cwd == cwd)
+    [
+        "cwd",
+        "path",
+        "filePath",
+        "file_path",
+        "targetPath",
+        "target_path",
+    ]
+    .iter()
+    .any(|key| structured_path_values(params.get(*key)).any(|path| path_is_within(path, cwd)))
+}
+
+fn structured_path_values(value: Option<&Value>) -> Box<dyn Iterator<Item = &str> + '_> {
+    match value {
+        Some(Value::String(path)) => Box::new(std::iter::once(path.as_str())),
+        Some(Value::Array(paths)) => Box::new(paths.iter().filter_map(Value::as_str)),
+        _ => Box::new(std::iter::empty()),
+    }
+}
+
+fn path_is_within(path: &str, cwd: &Path) -> bool {
+    let candidate = Path::new(path);
+    let candidate = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        cwd.join(candidate)
+    };
+    canonicalize_for_comparison(&candidate)
+        .map(|canonical| canonical.starts_with(cwd))
+        .unwrap_or(false)
+}
+
+fn canonicalize_for_comparison(path: &Path) -> Option<std::path::PathBuf> {
+    if let Ok(canonical) = path.canonicalize() {
+        return Some(canonical);
+    }
+    let file_name = path.file_name()?.to_owned();
+    let parent = path.parent()?;
+    canonicalize_for_comparison(parent).map(|canonical_parent| canonical_parent.join(file_name))
 }
 
 fn timeout_ms(timeout: Duration) -> u128 {
@@ -472,6 +506,32 @@ mod tests {
                 "cwd": "/tmp",
                 "command": "python3 --output /home/tane/work/result.txt"
             }),
+            cwd
+        ));
+    }
+
+    #[test]
+    fn workspace_request_is_detected_by_structured_file_path() {
+        let root = Path::new("/tmp").canonicalize().unwrap();
+        assert!(request_is_in_workspace(
+            &json!({"file_path": root.join(".agents/skills/foo/SKILL.md")}),
+            &root
+        ));
+        assert!(request_is_in_workspace(
+            &json!({"path": root.join("new-file.txt")}),
+            &root
+        ));
+        assert!(!request_is_in_workspace(
+            &json!({"targetPath": "/var/tmp/outside.txt"}),
+            &root
+        ));
+    }
+
+    #[test]
+    fn command_text_does_not_grant_workspace_auto_approval() {
+        let cwd = Path::new("/home/tane/work");
+        assert!(!request_is_in_workspace(
+            &json!({"command": "printf /home/tane/work > /tmp/outside"}),
             cwd
         ));
     }
