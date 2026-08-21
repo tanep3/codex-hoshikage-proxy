@@ -238,18 +238,27 @@ class Pipe:
                         yield delta
                 except Exception as error:
                     await self._report_stream_error(error, __event_emitter__)
-                    yield f"Codex turn failed: {error}"
+                    detail = str(error).strip()
+                    if not detail:
+                        detail = f"{type(error).__name__} (no error message supplied)"
+                    yield f"Codex turn failed: {detail}"
             except Exception as error:
                 # Do not let OpenWebUI collapse every Proxy/Codex failure into
                 # the unhelpful generic "Error submitting message" message.
                 # Preserve the structured failure text for diagnosis and show
                 # the same detail in the Pipe status area when available.
                 await self._report_stream_error(error, __event_emitter__)
-                yield f"Codex turn failed: {error}"
+                detail = str(error).strip()
+                if not detail:
+                    detail = f"{type(error).__name__} (no error message supplied)"
+                yield f"Codex turn failed: {detail}"
 
     async def _report_stream_error(self, error: Exception, event_emitter: Any) -> None:
-        message = f"Codex turn failed: {error}"
-        log.exception("Codex turn failed: %s", error)
+        detail = str(error).strip()
+        if not detail:
+            detail = f"{type(error).__name__} (no error message supplied)"
+        message = f"Codex turn failed: {detail}"
+        log.exception("Codex turn failed [%s]: %s", type(error).__name__, detail)
         if event_emitter is None:
             return
         try:
