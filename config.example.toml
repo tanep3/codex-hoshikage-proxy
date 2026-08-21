@@ -8,6 +8,8 @@ default_cwd = "${HOME}/work"
 # Maximum time without any Codex App Server event for one Turn.
 # This is an inactivity timeout, not a total task duration.
 turn_idle_timeout_seconds = 600
+# Probe Codex for a stalled Turn after this much silence.
+turn_stall_detection_seconds = 180
 
 [codex]
 command = "codex"

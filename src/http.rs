@@ -28,7 +28,7 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{
     sync::{RwLock, broadcast, mpsc},
@@ -44,6 +44,7 @@ pub struct AppState {
     pub default_cwd: std::path::PathBuf,
     pub api_key: Option<String>,
     pub turn_idle_timeout: Duration,
+    pub turn_stall_detection: Duration,
     tracked_turns: Arc<RwLock<HashMap<String, TrackedTurn>>>,
     pub journal: Arc<EventJournal>,
     responses: Arc<ResponseStore>,
@@ -78,6 +79,7 @@ impl AppState {
         default_cwd: std::path::PathBuf,
         api_key: Option<String>,
         turn_idle_timeout: Duration,
+        turn_stall_detection: Duration,
         approval_timeout: Duration,
         auto_approve_workspace: bool,
         journal: Arc<EventJournal>,
@@ -97,6 +99,7 @@ impl AppState {
             default_cwd,
             api_key,
             turn_idle_timeout,
+            turn_stall_detection,
             tracked_turns: Arc::new(RwLock::new(HashMap::new())),
             journal,
             responses,
@@ -1045,11 +1048,70 @@ async fn run_stream(
         mut notifications,
         _permit,
     } = started;
+    let mut silent_since = Instant::now();
     loop {
-        let event = time::timeout(state.turn_idle_timeout, notifications.recv()).await;
+        let remaining = state
+            .turn_idle_timeout
+            .checked_sub(silent_since.elapsed())
+            .unwrap_or_default();
+        let probe_after = remaining.min(state.turn_stall_detection);
+        let event = time::timeout(probe_after, notifications.recv()).await;
         let event = match event {
-            Ok(Ok(event)) => event,
+            Ok(Ok(event)) => {
+                silent_since = Instant::now();
+                event
+            }
             Err(_) => {
+                if silent_since.elapsed() < state.turn_idle_timeout {
+                    match probe_turn(&state, &thread_id, turn_id.as_deref()).await {
+                        Ok(probe) if probe.waiting_for_user => {
+                            tracing::info!(
+                                response_id = %response_id,
+                                thread_id = %thread_id,
+                                turn_id = ?turn_id,
+                                "Codex Turn is waiting for user input; watchdog remains active"
+                            );
+                            continue;
+                        }
+                        Ok(probe) if probe.status == "inProgress" => {
+                            let message = format!(
+                                "Codex Turn remained inProgress without events for {} seconds",
+                                silent_since.elapsed().as_secs()
+                            );
+                            fail_response_stream(
+                                &state,
+                                &sender,
+                                &response_id,
+                                &model.public_model_id,
+                                &thread_id,
+                                turn_id.as_deref(),
+                                "turn_stalled",
+                                message,
+                            )
+                            .await;
+                            break;
+                        }
+                        Ok(probe) => {
+                            tracing::warn!(
+                                response_id = %response_id,
+                                thread_id = %thread_id,
+                                turn_id = ?turn_id,
+                                status = %probe.status,
+                                "Codex Turn status changed while response had no events"
+                            );
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                response_id = %response_id,
+                                thread_id = %thread_id,
+                                turn_id = ?turn_id,
+                                error = %error,
+                                "Codex Turn watchdog probe failed; continuing until hard timeout"
+                            );
+                        }
+                    }
+                    continue;
+                }
                 let code = "runtime_idle_timeout";
                 let message = format!(
                     "Codex produced no event for {} seconds",
@@ -1268,6 +1330,105 @@ async fn run_stream(
             break;
         }
     }
+}
+
+struct TurnProbe {
+    status: String,
+    waiting_for_user: bool,
+}
+
+async fn probe_turn(
+    state: &AppState,
+    thread_id: &str,
+    turn_id: Option<&str>,
+) -> Result<TurnProbe, RuntimeError> {
+    let result = state
+        .runtime
+        .request(
+            "thread/read",
+            json!({"threadId": thread_id, "includeTurns": true}),
+        )
+        .await?;
+    let thread = result.get("thread").unwrap_or(&result);
+    let waiting_for_user = thread
+        .pointer("/status/activeFlags")
+        .and_then(Value::as_array)
+        .is_some_and(|flags| {
+            flags.iter().any(|flag| {
+                matches!(
+                    flag.as_str(),
+                    Some("waitingOnApproval") | Some("waitingOnUserInput")
+                )
+            })
+        });
+    let status = thread
+        .get("turns")
+        .and_then(Value::as_array)
+        .and_then(|turns| {
+            turns.iter().rev().find(|turn| {
+                turn_id.is_none_or(|id| turn.get("id").and_then(Value::as_str) == Some(id))
+            })
+        })
+        .and_then(|turn| turn.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_owned();
+    Ok(TurnProbe {
+        status,
+        waiting_for_user,
+    })
+}
+
+async fn fail_response_stream(
+    state: &AppState,
+    sender: &mpsc::Sender<Event>,
+    response_id: &str,
+    model: &str,
+    thread_id: &str,
+    turn_id: Option<&str>,
+    code: &str,
+    message: String,
+) {
+    tracing::warn!(
+        response_id,
+        thread_id,
+        turn_id,
+        error_code = code,
+        error_message = %message,
+        "Codex response failed"
+    );
+    if let Some(turn_id) = turn_id {
+        let _ = state
+            .runtime
+            .request(
+                "turn/interrupt",
+                json!({"threadId": thread_id, "turnId": turn_id}),
+            )
+            .await;
+    }
+    let _ = sender
+        .send(
+            sse_json(
+                "response.failed",
+                &json!({
+                    "id": response_id,
+                    "status": "failed",
+                    "error": {"code": code, "message": message}
+                }),
+            )
+            .unwrap_or_else(|_| Event::default()),
+        )
+        .await;
+    let _ = state
+        .journal
+        .append(&JournalEntry {
+            timestamp_ms: now_ms(),
+            event: "response.failed",
+            response_id,
+            model,
+            status: "failed",
+        })
+        .await;
 }
 
 fn sse_json<T: Serialize>(event: &str, value: &T) -> Result<Event, axum::Error> {

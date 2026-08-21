@@ -18,6 +18,7 @@
 | `server.host`, `server.port` | 待受アドレス |
 | `server.default_cwd` | 実在するデフォルト作業ディレクトリ |
 | `server.turn_idle_timeout_seconds` | 1つのTurnでCodex App Serverからイベントが届かない最大時間。デフォルトは`600`秒。タスク全体の制限時間ではありません |
+| `server.turn_stall_detection_seconds` | イベントが届かないときに、異常な停止の可能性をCodexへ確認するまでの時間。デフォルトは`180`秒 |
 | `security.allowed_cwds` | Codexが使える実在する正規化済みディレクトリのルート |
 | `security.api_key` / `api_key_env` | クライアント認証。非loopbackでは必須 |
 | `defaults.model` | リクエストにmodelがない場合のモデル |
@@ -61,6 +62,10 @@ ProxyはCodex App Serverの標準`thread/read`メソッドへ`includeTurns=true`
 `server.turn_idle_timeout_seconds`は、Codex App Serverからイベントが届かない時間の上限です。
 タスク全体の実行時間ではありません。期限を超えるとProxyはCodex Turnへinterruptを送り、
 `runtime_idle_timeout`を返します。デフォルトは600秒です。
+
+それより前に`server.turn_stall_detection_seconds`を超えると、Proxyは`thread/read`でCodexの状態を確認します。
+承認待ちは継続しますが、Codexが実行中のまま進捗イベントを返さない場合は、ProxyがTurnをinterruptし、
+`turn_stalled`を返します。
 
 Hoshikageは通常一覧と詳細な能力一覧を組み合わせます。詳細情報の `tools: false` のモデルはCodexエージェント実行に必要な
 ツール呼び出しに対応しないため、動的一覧へ公開しません。モデル名から推測はしません。

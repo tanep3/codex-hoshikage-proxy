@@ -68,6 +68,7 @@ pub struct RawServerConfig {
     pub host: String,
     pub port: u16,
     pub default_cwd: Option<String>,
+    pub turn_stall_detection_seconds: u64,
     pub turn_idle_timeout_seconds: u64,
 }
 
@@ -77,6 +78,7 @@ impl Default for RawServerConfig {
             host: "127.0.0.1".into(),
             port: 4040,
             default_cwd: None,
+            turn_stall_detection_seconds: 180,
             turn_idle_timeout_seconds: 600,
         }
     }
@@ -241,6 +243,7 @@ pub struct ValidatedConfig {
     pub approval_timeout_seconds: u64,
     pub auto_approve_workspace: bool,
     pub turn_idle_timeout_seconds: u64,
+    pub turn_stall_detection_seconds: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -279,6 +282,16 @@ impl ValidatedConfig {
             source,
         })?;
         let raw: RawConfig = toml::from_str(&content)?;
+        if raw.server.turn_stall_detection_seconds == 0 {
+            return Err(ConfigError::Invalid(
+                "server.turn_stall_detection_seconds must be greater than zero".into(),
+            ));
+        }
+        if raw.server.turn_idle_timeout_seconds == 0 {
+            return Err(ConfigError::Invalid(
+                "server.turn_idle_timeout_seconds must be greater than zero".into(),
+            ));
+        }
         Self::from_raw(raw)
     }
 
@@ -358,6 +371,7 @@ impl ValidatedConfig {
             approval_timeout_seconds: raw.approval.timeout_seconds,
             auto_approve_workspace: raw.approval.auto_approve_workspace,
             turn_idle_timeout_seconds: raw.server.turn_idle_timeout_seconds,
+            turn_stall_detection_seconds: raw.server.turn_stall_detection_seconds,
         })
     }
 

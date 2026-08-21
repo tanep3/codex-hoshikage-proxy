@@ -20,6 +20,7 @@ Important settings:
 | `server.host`, `server.port` | Listener address |
 | `server.default_cwd` | Existing default working directory |
 | `server.turn_idle_timeout_seconds` | Maximum silence between Codex App Server events for one Turn; default `600`. This is not a total task limit. |
+| `server.turn_stall_detection_seconds` | Silence interval before the Proxy probes Codex for a possible stalled Turn; default `180`. |
 | `security.allowed_cwds` | Existing canonical directory roots Codex may use |
 | `security.api_key` / `api_key_env` | Client authentication; required for non-loopback |
 | `defaults.model` | Public model ID used when a request omits `model` |
@@ -67,6 +68,11 @@ from a Turn whose event stream has stopped.
 Proxy waits without receiving any Codex App Server event. It is not a total task
 duration limit. When it expires, the Proxy interrupts the Codex Turn and returns
 `runtime_idle_timeout`. The default is 600 seconds.
+
+Before that hard limit, `server.turn_stall_detection_seconds` makes the Proxy query
+Codex with `thread/read`. Approval waits are kept alive. If Codex still reports an
+active Turn without progress events, the Proxy interrupts it and returns
+`turn_stalled`.
 
 Hoshikage discovery combines its ordinary model list with detailed capability information. A model
 whose detailed metadata says `tools: false` is not exposed as a dynamic Codex model, because Codex
