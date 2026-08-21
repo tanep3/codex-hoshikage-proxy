@@ -227,14 +227,44 @@ class Pipe:
                     conversation_id,
                     proxy_model if isinstance(proxy_model, str) else "",
                 )
-                async for delta in self._stream_responses(
-                    client,
-                    payload,
-                    conversation_id,
-                    proxy_model if isinstance(proxy_model, str) else "",
-                    __event_call__,
-                ):
-                    yield delta
+                try:
+                    async for delta in self._stream_responses(
+                        client,
+                        payload,
+                        conversation_id,
+                        proxy_model if isinstance(proxy_model, str) else "",
+                        __event_call__,
+                    ):
+                        yield delta
+                except Exception as error:
+                    await self._report_stream_error(error, __event_emitter__)
+                    yield f"Codex turn failed: {error}"
+            except Exception as error:
+                # Do not let OpenWebUI collapse every Proxy/Codex failure into
+                # the unhelpful generic "Error submitting message" message.
+                # Preserve the structured failure text for diagnosis and show
+                # the same detail in the Pipe status area when available.
+                await self._report_stream_error(error, __event_emitter__)
+                yield f"Codex turn failed: {error}"
+
+    async def _report_stream_error(self, error: Exception, event_emitter: Any) -> None:
+        message = f"Codex turn failed: {error}"
+        log.exception("Codex turn failed: %s", error)
+        if event_emitter is None:
+            return
+        try:
+            await event_emitter(
+                {
+                    "type": "status",
+                    "data": {
+                        "status": "error",
+                        "description": message,
+                        "done": True,
+                    },
+                }
+            )
+        except Exception:
+            log.debug("failed to report Pipe error status", exc_info=True)
 
     async def _refresh_openwebui_model_cache(self, request: Any) -> None:
         """Refresh OpenWebUI's manifold model cache before a user turn.
