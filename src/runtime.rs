@@ -9,7 +9,7 @@ use std::{
     process::Stdio,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -42,11 +42,19 @@ struct JsonRpcRequest<'a> {
 
 #[derive(Debug, Deserialize)]
 struct JsonRpcResponse {
-    id: Option<u64>,
+    id: Option<Value>,
+    #[serde(default, deserialize_with = "present_result")]
     result: Option<Value>,
     error: Option<JsonRpcError>,
     method: Option<String>,
     params: Option<Value>,
+}
+
+// Preserve an explicit JSON null result as a successful response.
+fn present_result<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,6 +77,7 @@ pub struct CodexRuntime {
     stdin: Arc<Mutex<ChildStdin>>,
     pending: Pending,
     next_id: AtomicU64,
+    transport_closed: Arc<AtomicBool>,
     notifications: broadcast::Sender<Value>,
     child: Arc<Mutex<Option<Child>>>,
 }
@@ -97,6 +106,7 @@ impl CodexRuntime {
             stdin: Arc::new(Mutex::new(stdin)),
             pending: Arc::new(Mutex::new(HashMap::new())),
             next_id: AtomicU64::new(1),
+            transport_closed: Arc::new(AtomicBool::new(false)),
             notifications,
             child: Arc::new(Mutex::new(Some(child))),
         });
@@ -148,7 +158,13 @@ impl CodexRuntime {
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, RuntimeError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = oneshot::channel();
-        self.pending.lock().await.insert(id, sender);
+        {
+            let mut pending = self.pending.lock().await;
+            if self.transport_closed.load(Ordering::Acquire) {
+                return Err(RuntimeError::NotReady);
+            }
+            pending.insert(id, sender);
+        }
         let message = serde_json::to_vec(&JsonRpcRequest {
             jsonrpc: "2.0",
             id,
@@ -194,6 +210,7 @@ impl CodexRuntime {
     fn spawn_reader(self: &Arc<Self>, stdout: tokio::process::ChildStdout) {
         let pending = Arc::clone(&self.pending);
         let pending_for_exit = Arc::clone(&pending);
+        let transport_closed = Arc::clone(&self.transport_closed);
         let notifications = self.notifications.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
@@ -206,6 +223,18 @@ impl CodexRuntime {
                     }
                 };
                 if let Some(id) = parsed.id {
+                    // Server requests have their own ID namespace. Dispatch by
+                    // method first, even if a client request has the same ID.
+                    if let Some(method) = parsed.method {
+                        let _ = notifications.send(json!({
+                            "kind": "server_request",
+                            "rpc_id": id,
+                            "method": method,
+                            "params": parsed.params.unwrap_or_else(|| json!({})),
+                        }));
+                        continue;
+                    }
+                    let Some(id) = id.as_u64() else { continue };
                     if let Some(sender) = pending.lock().await.remove(&id) {
                         let result = match (parsed.result, parsed.error) {
                             (Some(value), _) => Ok(value),
@@ -218,13 +247,6 @@ impl CodexRuntime {
                             )),
                         };
                         let _ = sender.send(result);
-                    } else if let Some(method) = parsed.method {
-                        let _ = notifications.send(json!({
-                            "kind": "server_request",
-                            "rpc_id": id,
-                            "method": method,
-                            "params": parsed.params.unwrap_or_else(|| json!({})),
-                        }));
                     }
                 } else {
                     let _ = notifications.send(json!({
@@ -233,6 +255,8 @@ impl CodexRuntime {
                     }));
                 }
             }
+            transport_closed.store(true, Ordering::Release);
+            let _ = notifications.send(json!({"kind": "transport_closed"}));
             let mut pending = pending_for_exit.lock().await;
             for (_, sender) in pending.drain() {
                 let _ = sender.send(Err(RuntimeError::Protocol(
@@ -244,12 +268,12 @@ impl CodexRuntime {
 
     pub async fn respond_to_server_request(
         &self,
-        rpc_id: u64,
+        rpc_id: impl Into<Value>,
         result: Value,
     ) -> Result<(), RuntimeError> {
         let message = json!({
             "jsonrpc": "2.0",
-            "id": rpc_id,
+            "id": rpc_id.into(),
             "result": result,
         });
         let bytes = serde_json::to_vec(&message)

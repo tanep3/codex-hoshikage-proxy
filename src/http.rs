@@ -459,63 +459,20 @@ async fn create_response(
         mut notifications,
         _permit,
     } = started;
-    let mut text = String::new();
-    loop {
-        let event = tokio::time::timeout(state.turn_idle_timeout, notifications.recv())
-            .await
-            .map_err(|_| {
-                ApiError::new(
-                    StatusCode::GATEWAY_TIMEOUT,
-                    "runtime_timeout",
-                    "Codex turn timed out",
-                )
-            })?
-            .map_err(|error| runtime_error(RuntimeError::Protocol(error.to_string())))?;
-        if is_approval_required(&event, &thread_id) {
-            return Err(ApiError::new(
-                StatusCode::CONFLICT,
-                "approval_required",
-                "client does not provide interactive approval capability",
-            ));
+    let text = match collect_turn_text(
+        &mut notifications,
+        &thread_id,
+        turn_id.as_deref(),
+        state.turn_idle_timeout,
+    )
+    .await
+    {
+        Ok(text) => text,
+        Err(error) => {
+            interrupt_turn(&state.runtime, &thread_id, turn_id.as_deref()).await;
+            return Err(error);
         }
-        let method = event
-            .get("method")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let params = event.get("params").cloned().unwrap_or_else(|| json!({}));
-        if !matches_thread_and_turn(&params, &thread_id, turn_id.as_deref()) {
-            continue;
-        }
-        match method {
-            "item/agentMessage/delta" => {
-                if let Some(delta) = params.get("delta").and_then(Value::as_str) {
-                    text.push_str(delta);
-                }
-            }
-            "turn/completed" => {
-                let status = params
-                    .pointer("/turn/status")
-                    .and_then(Value::as_str)
-                    .unwrap_or("completed");
-                if status != "completed" {
-                    let detail = params
-                        .pointer("/turn/error")
-                        .cloned()
-                        .unwrap_or_else(|| params.clone());
-                    return Err(ApiError::new(
-                        StatusCode::BAD_GATEWAY,
-                        "turn_failed",
-                        format!("Codex turn ended with status {status}: {detail}"),
-                    ));
-                }
-                if text.is_empty() {
-                    text = collect_text(&params);
-                }
-                break;
-            }
-            _ => {}
-        }
-    }
+    };
 
     state
         .responses
@@ -585,13 +542,20 @@ async fn create_chat_completion(
         mut notifications,
         _permit,
     } = started;
-    let text = collect_turn_text(
+    let text = match collect_turn_text(
         &mut notifications,
         &thread_id,
         turn_id.as_deref(),
         state.turn_idle_timeout,
     )
-    .await?;
+    .await
+    {
+        Ok(text) => text,
+        Err(error) => {
+            interrupt_turn(&state.runtime, &thread_id, turn_id.as_deref()).await;
+            return Err(error);
+        }
+    };
     let response_id = format!(
         "chatcmpl_{}",
         state.next_chat_id.fetch_add(1, Ordering::Relaxed)
@@ -628,16 +592,19 @@ async fn collect_turn_text(
 ) -> Result<String, ApiError> {
     let mut text = String::new();
     loop {
-        let event = tokio::time::timeout(idle_timeout, notifications.recv())
-            .await
-            .map_err(|_| {
-                ApiError::new(
-                    StatusCode::GATEWAY_TIMEOUT,
-                    "runtime_timeout",
-                    "Codex turn timed out",
-                )
-            })?
-            .map_err(|error| runtime_error(RuntimeError::Protocol(error.to_string())))?;
+        let event = tokio::time::timeout(
+            idle_timeout,
+            recv_turn_event(notifications, thread_id, turn_id),
+        )
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::GATEWAY_TIMEOUT,
+                "runtime_timeout",
+                "Codex turn timed out",
+            )
+        })?
+        .map_err(|error| runtime_error(RuntimeError::Protocol(error.to_string())))?;
         if is_approval_required(&event, thread_id) {
             return Err(ApiError::new(
                 StatusCode::CONFLICT,
@@ -728,6 +695,7 @@ async fn run_chat_stream(
         "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]
     });
     if sender.send(sse_data(&role_chunk)).await.is_err() {
+        interrupt_turn(&state.runtime, &thread_id, turn_id.as_deref()).await;
         return;
     }
     let _ = state
@@ -741,13 +709,26 @@ async fn run_chat_stream(
         })
         .await;
     loop {
-        let event = time::timeout(state.turn_idle_timeout, notifications.recv()).await;
-        let Ok(Ok(event)) = event else {
-            let _ = sender
-                .send(sse_data(&json!({"error": "Codex turn timed out"})))
-                .await;
-            let _ = sender.send(sse_done()).await;
-            return;
+        let event = tokio::select! {
+            _ = sender.closed() => {
+                interrupt_turn(&state.runtime, &thread_id, turn_id.as_deref()).await;
+                return;
+            }
+            event = time::timeout(state.turn_idle_timeout, recv_turn_event(&mut notifications, &thread_id, turn_id.as_deref())) => event,
+        };
+        let event = match event {
+            Ok(Ok(event)) => event,
+            error => {
+                interrupt_turn(&state.runtime, &thread_id, turn_id.as_deref()).await;
+                let message = match error {
+                    Err(_) => "Codex turn timed out".to_owned(),
+                    Ok(Err(error)) => format!("Codex event stream unavailable: {error}"),
+                    Ok(Ok(_)) => unreachable!(),
+                };
+                let _ = sender.send(sse_data(&json!({"error": message}))).await;
+                let _ = sender.send(sse_done()).await;
+                return;
+            }
         };
         if is_approval_required(&event, &thread_id) {
             let _ = sender
@@ -1065,7 +1046,13 @@ async fn run_stream(
             .checked_sub(silent_since.elapsed())
             .unwrap_or_default();
         let probe_after = remaining.min(state.turn_heartbeat);
-        let event = time::timeout(probe_after, notifications.recv()).await;
+        let event = tokio::select! {
+            _ = sender.closed() => {
+                interrupt_turn(&state.runtime, &thread_id, turn_id.as_deref()).await;
+                return;
+            }
+            event = time::timeout(probe_after, recv_turn_event(&mut notifications, &thread_id, turn_id.as_deref())) => event,
+        };
         let event = match event {
             Ok(Ok(event)) => {
                 silent_since = Instant::now();
@@ -1130,8 +1117,7 @@ async fn run_stream(
                                     &sender,
                                     &response_id,
                                     &model.public_model_id,
-                                    &thread_id,
-                                    turn_id.as_deref(),
+                                    (&thread_id, turn_id.as_deref()),
                                     "turn_stalled",
                                     message,
                                 )
@@ -1461,11 +1447,11 @@ async fn fail_response_stream(
     sender: &mpsc::Sender<Event>,
     response_id: &str,
     model: &str,
-    thread_id: &str,
-    turn_id: Option<&str>,
+    turn: (&str, Option<&str>),
     code: &str,
     message: String,
 ) {
+    let (thread_id, turn_id) = turn;
     tracing::warn!(
         response_id,
         thread_id,
@@ -1545,6 +1531,39 @@ fn normalize_input(input: &Value) -> Result<Vec<Value>, ApiError> {
             }
         })
         .collect()
+}
+
+async fn interrupt_turn(runtime: &CodexRuntime, thread_id: &str, turn_id: Option<&str>) {
+    if let Some(turn_id) = turn_id {
+        let _ = runtime
+            .request(
+                "turn/interrupt",
+                json!({"threadId": thread_id, "turnId": turn_id}),
+            )
+            .await;
+    }
+}
+
+// Filter before the caller's timeout is reset: traffic from other turns
+// must not keep an unresponsive turn alive.
+async fn recv_turn_event(
+    notifications: &mut broadcast::Receiver<Value>,
+    thread_id: &str,
+    turn_id: Option<&str>,
+) -> Result<Value, broadcast::error::RecvError> {
+    loop {
+        let event = notifications.recv().await?;
+        if event.get("kind").and_then(Value::as_str) == Some("transport_closed") {
+            return Err(broadcast::error::RecvError::Closed);
+        }
+        if matches_thread_and_turn(&event, thread_id, turn_id)
+            || event
+                .get("params")
+                .is_some_and(|params| matches_thread_and_turn(params, thread_id, turn_id))
+        {
+            return Ok(event);
+        }
+    }
 }
 
 fn matches_thread_and_turn(params: &Value, thread_id: &str, turn_id: Option<&str>) -> bool {

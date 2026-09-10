@@ -138,10 +138,10 @@ curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
 承認は承認、拒否、キャンセル、期限切れのいずれかまでPendingです。MVPでは承認待ち中もTurn全体のProvider permitを保持します。クライアント切断時はTurnをキャンセルします。
 `approval.auto_approve_workspace = true` の場合、Codexが指定ワークスペース内の操作として報告した承認要求は自動承認します。
 信頼したローカル作業向けの設定であり、信頼できない利用者へProxyを公開してよいという意味ではありません。許可するcwdは狭く保ってください。
-ワークスペース外の操作は、これまでどおり対話承認の対象です。
+ワークスペース外の操作は、これまでどおり対話承認の対象です。複数のパスが報告された場合はすべてを確認し、1つでも外部のパスがある場合や対象パスが不明な場合は自動承認しません。
 
 Sandbox設定とProxyの自動承認設定は別物です。`codex.sandbox.writable_roots` はProxyが生成するCodex設定へ反映されるため、実在する絶対パスを指定してください。
-ワークスペース内判定では、Codexが構造化して渡す `cwd`、`path`、`file_path`、`filePath`、`target_path`、`targetPath` だけを使用します。コマンド文字列にワークスペースのパスが含まれているだけでは、自動承認しません。
+ワークスペース内判定では、Codexが構造化して渡す `cwd`、`path`、`file_path`、`filePath`、`target_path`、`targetPath`、`grantRoot`、`paths`、`fileChanges`、`commandActions`内のパスと、`item/started`等で通知された変更対象を使用します。コマンド文字列にワークスペースのパスが含まれているだけでは、自動承認しません。
 外部ネットワークを必要とする信頼済みのローカルSkillを使う場合だけ、`network_access = true` にしてください。
 
 ## セキュリティと運用

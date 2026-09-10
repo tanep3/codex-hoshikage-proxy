@@ -81,9 +81,17 @@ impl ApprovalManager {
 
     pub fn start(self: &Arc<Self>) {
         let manager = Arc::clone(self);
+        let mut notifications = manager.runtime.subscribe();
         tokio::spawn(async move {
-            let mut notifications = manager.runtime.subscribe();
-            while let Ok(event) = notifications.recv().await {
+            loop {
+                let event = match notifications.recv().await {
+                    Ok(event) => event,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!(skipped, "approval listener missed runtime events");
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
                 if event.get("kind").and_then(Value::as_str) != Some("server_request") {
                     manager.observe_file_change_notification(&event).await;
                     continue;
@@ -94,7 +102,11 @@ impl ApprovalManager {
                 if !method.contains("requestApproval") {
                     continue;
                 }
-                let Some(rpc_id) = event.get("rpc_id").and_then(Value::as_u64) else {
+                let Some(rpc_id) = event
+                    .get("rpc_id")
+                    .filter(|id| id.is_string() || id.is_i64() || id.is_u64())
+                    .cloned()
+                else {
                     continue;
                 };
                 let mut params = event.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -105,21 +117,31 @@ impl ApprovalManager {
     }
 
     async fn observe_file_change_notification(&self, event: &Value) {
-        if event.get("method").and_then(Value::as_str) != Some("item/fileChange/patchUpdated") {
-            return;
-        }
         let Some(params) = event.get("params") else {
             return;
         };
-        let Some(item_id) = params.get("itemId").and_then(Value::as_str) else {
+        let (item_id, changes) = match event.get("method").and_then(Value::as_str) {
+            Some("item/started" | "item/completed")
+                if params.pointer("/item/type").and_then(Value::as_str) == Some("fileChange") =>
+            {
+                (params.pointer("/item/id"), params.pointer("/item/changes"))
+            }
+            Some("item/fileChange/patchUpdated") => (params.get("itemId"), params.get("changes")),
+            _ => return,
+        };
+        let Some(item_id) = item_id.and_then(Value::as_str) else {
             return;
         };
-        let paths = params
-            .get("changes")
+        let paths = changes
             .and_then(Value::as_array)
             .into_iter()
-            .flat_map(|changes| changes.iter())
-            .filter_map(|change| change.get("path").and_then(Value::as_str))
+            .flatten()
+            .flat_map(|change| {
+                [change.get("path"), change.pointer("/kind/move_path")]
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+            })
             .map(str::to_owned)
             .collect::<Vec<_>>();
         if !paths.is_empty() {
@@ -204,13 +226,13 @@ impl ApprovalManager {
             let effects = transition.effects.clone();
             record.state = transition.next;
             let view = view_of(approval_id, record);
-            (record.request.rpc_id, effects, view)
+            (record.request.rpc_id.clone(), effects, view)
         };
         for effect in transition {
             if let ApprovalEffect::ReplyToCodex(decision) = effect {
                 self.runtime
                     .respond_to_server_request(
-                        rpc_id,
+                        rpc_id.clone(),
                         json!({"decision": codex_decision(&decision)}),
                     )
                     .await?;
@@ -229,7 +251,7 @@ impl ApprovalManager {
 
     async fn handle_request(
         self: &Arc<Self>,
-        rpc_id: u64,
+        rpc_id: Value,
         method: &str,
         params: Value,
     ) -> Result<(), ApprovalManagerError> {
@@ -261,7 +283,7 @@ impl ApprovalManager {
         };
         let request = ApprovalRequest {
             approval_id: approval_id.clone(),
-            rpc_id,
+            rpc_id: rpc_id.clone(),
             thread_id: thread_id.clone(),
             turn_id: turn_id.clone(),
             available_decisions,
@@ -355,13 +377,17 @@ impl ApprovalManager {
             }
             let effects = transition.effects.clone();
             record.state = transition.next;
-            (record.request.rpc_id, effects, view_of(approval_id, record))
+            (
+                record.request.rpc_id.clone(),
+                effects,
+                view_of(approval_id, record),
+            )
         };
         for effect in effects {
             if let ApprovalEffect::ReplyToCodex(decision) = effect {
                 self.runtime
                     .respond_to_server_request(
-                        rpc_id,
+                        rpc_id.clone(),
                         json!({"decision": codex_decision(&decision)}),
                     )
                     .await?;
@@ -401,7 +427,7 @@ fn request_is_in_workspace(method: &str, params: &Value, cwd: &Path) -> bool {
     {
         return false;
     }
-    let mut saw_direct_path = false;
+    let mut paths = Vec::new();
     for key in [
         "cwd",
         "path",
@@ -412,52 +438,26 @@ fn request_is_in_workspace(method: &str, params: &Value, cwd: &Path) -> bool {
         "grantRoot",
         "paths",
     ] {
-        for path in structured_path_values(params.get(key)) {
-            saw_direct_path = true;
-            if path_is_within(path, cwd) {
-                return true;
-            }
-        }
+        paths.extend(structured_path_values(params.get(key)));
     }
-    if saw_direct_path {
-        return false;
-    }
-
-    let file_change_paths = params
-        .get("fileChanges")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(|changes| changes.keys().map(String::as_str));
-    let mut saw_file_change_path = false;
-    for path in file_change_paths {
-        saw_file_change_path = true;
-        if path_is_within(path, cwd) {
-            return true;
-        }
-    }
-    if saw_file_change_path {
-        return false;
-    }
-
-    let command_action_paths = params
-        .get("commandActions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flat_map(|actions| actions.iter())
-        .filter_map(|action| action.get("path").and_then(Value::as_str))
-        .collect::<Vec<_>>();
-    if !command_action_paths.is_empty() {
-        return command_action_paths
-            .iter()
-            .all(|path| path_is_within(path, cwd));
-    }
-
-    // Codex 0.147.0's item/fileChange/requestApproval request does not
-    // include the changed paths. When grantRoot is absent, Codex is asking
-    // for approval of a file change in the current thread workspace. A
-    // non-empty grantRoot is checked above and must itself be inside cwd.
-    method == "item/fileChange/requestApproval"
-        && params.get("grantRoot").map(Value::is_null).unwrap_or(true)
+    paths.extend(
+        params
+            .get("fileChanges")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|changes| changes.keys().map(String::as_str)),
+    );
+    paths.extend(
+        params
+            .get("commandActions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|action| action.get("path").and_then(Value::as_str)),
+    );
+    // Every reported target must be inside the workspace. Missing targets
+    // provide no evidence that a file approval is safe to automate.
+    !paths.is_empty() && paths.iter().all(|path| path_is_within(path, cwd))
 }
 
 fn structured_path_values(value: Option<&Value>) -> Box<dyn Iterator<Item = &str> + '_> {
@@ -647,7 +647,7 @@ mod tests {
             &json!({"grantRoot": "/tmp/.agents"}),
             &root
         ));
-        assert!(request_is_in_workspace(
+        assert!(!request_is_in_workspace(
             "item/fileChange/requestApproval",
             &json!({}),
             &root
@@ -656,6 +656,27 @@ mod tests {
             "item/permissions/requestApproval",
             &json!({"cwd": "/tmp"}),
             &root
+        ));
+    }
+
+    #[test]
+    fn workspace_auto_approval_requires_all_reported_paths_to_be_inside() {
+        let cwd = Path::new("/tmp").canonicalize().unwrap();
+        for params in [
+            json!({"paths": ["/tmp/inside", "/var/outside"]}),
+            json!({"fileChanges": {"/tmp/inside": {}, "/var/outside": {}}}),
+            json!({"cwd": "/tmp", "commandActions": [{"path": "/var/outside"}]}),
+            json!({"grantRoot": "/tmp", "paths": ["/var/outside"]}),
+        ] {
+            assert!(
+                !request_is_in_workspace("item/fileChange/requestApproval", &params, &cwd),
+                "{params}"
+            );
+        }
+        assert!(request_is_in_workspace(
+            "item/fileChange/requestApproval",
+            &json!({"paths": ["/tmp/one", "/tmp/two"]}),
+            &cwd
         ));
     }
 

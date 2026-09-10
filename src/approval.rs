@@ -16,7 +16,7 @@ pub enum ApprovalDecision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalRequest {
     pub approval_id: String,
-    pub rpc_id: u64,
+    pub rpc_id: Value,
     pub thread_id: String,
     pub turn_id: Option<String>,
     pub available_decisions: Vec<ApprovalDecision>,
@@ -140,7 +140,7 @@ mod tests {
         ApprovalState::Pending {
             request: ApprovalRequest {
                 approval_id: "approval_1".into(),
-                rpc_id: 7,
+                rpc_id: Value::from(7),
                 thread_id: "thread_1".into(),
                 turn_id: Some("turn_1".into()),
                 available_decisions: vec![ApprovalDecision::Accept, ApprovalDecision::Decline],

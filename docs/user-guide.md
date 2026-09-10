@@ -155,12 +155,14 @@ through the turn, including approval waiting, by design in the MVP. A client dis
 When `approval.auto_approve_workspace = true`, operations reported by Codex as running in the requested
 workspace are accepted automatically. This is intended for trusted local work and does not make the
 Proxy safe for untrusted users; keep the cwd allowlist narrow. Operations outside the workspace still
-use the interactive approval flow.
+use the interactive approval flow. All reported paths must be inside the workspace; requests with
+any outside path or no known target paths are not automatically accepted.
 
 The sandbox settings are separate from Proxy approval. `codex.sandbox.writable_roots` is written into
 the generated Codex configuration; it must contain existing absolute paths. Workspace auto-approval
 uses only structured paths supplied by Codex (`cwd`, `path`, `file_path`, `filePath`, `target_path`,
-or `targetPath`). It never trusts a workspace path merely because it appears inside a shell command.
+`targetPath`, `grantRoot`, `paths`, `fileChanges`, and paths in `commandActions`), including file
+change targets reported by `item/started`. It never trusts a workspace path merely because it appears inside a shell command.
 Set `network_access = true` only for trusted local skills that need outbound network access.
 
 ## Security and operations
