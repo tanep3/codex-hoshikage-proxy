@@ -1,10 +1,10 @@
 use crate::{
     config::RawModelRegistryConfig,
     model::{ModelError, ModelRegistry, PublicModel, ResolvedModel},
-    runtime::CodexRuntime,
+    runtime::{CodexRuntime, RuntimeError},
 };
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -102,13 +102,7 @@ impl ModelCatalogManager {
             .get("chatgpt")
             .is_some_and(|provider| provider.enabled)
         {
-            match tokio::time::timeout(
-                MODEL_CATALOG_TIMEOUT,
-                self.runtime
-                    .request("model/list", json!({"limit": 1000, "includeHidden": false})),
-            )
-            .await
-            {
+            match tokio::time::timeout(MODEL_CATALOG_TIMEOUT, self.list_codex_models()).await {
                 Ok(Ok(result)) => {
                     let mut imported = 0;
                     if let Some(data) = result.get("data").and_then(|value| value.as_array()) {
@@ -166,6 +160,45 @@ impl ModelCatalogManager {
         }
         *self.registry.write().await = registry;
         *self.available.write().await = available;
+    }
+
+    async fn list_codex_models(&self) -> Result<Value, RuntimeError> {
+        let mut data = Vec::new();
+        let mut cursor = Value::Null;
+        let mut cursors = HashSet::new();
+        for _ in 0..100 {
+            let page = self
+                .runtime
+                .request(
+                    "model/list",
+                    json!({
+                        "limit":100, "includeHidden":false, "cursor":cursor
+                    }),
+                )
+                .await?;
+            let models = page.get("data").and_then(Value::as_array).ok_or_else(|| {
+                RuntimeError::Protocol("model/list returned no data array".into())
+            })?;
+            data.extend(models.iter().cloned());
+            cursor = page.get("nextCursor").cloned().unwrap_or(Value::Null);
+            if cursor.is_null() {
+                return Ok(json!({"data":data}));
+            }
+            let next = cursor
+                .as_str()
+                .filter(|cursor| !cursor.is_empty())
+                .ok_or_else(|| {
+                    RuntimeError::Protocol("model/list returned an invalid cursor".into())
+                })?;
+            if !cursors.insert(next.to_owned()) {
+                return Err(RuntimeError::Protocol(
+                    "model/list repeated a pagination cursor".into(),
+                ));
+            }
+        }
+        Err(RuntimeError::Protocol(
+            "model/list exceeded pagination limit".into(),
+        ))
     }
 
     pub fn provider_limits(&self) -> HashMap<String, usize> {

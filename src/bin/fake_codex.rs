@@ -65,6 +65,23 @@ fn main() {
             "test/error" => {
                 json!({"id": id, "error": {"code": -32602, "message": "invalid params"}})
             }
+            "model/list" => {
+                let second =
+                    request.pointer("/params/cursor").and_then(Value::as_str) == Some("page_2");
+                let model = if second {
+                    "gpt-test-second"
+                } else {
+                    "gpt-test-first"
+                };
+                let next = if !second || std::env::args().any(|arg| arg == "--repeat-model-cursor")
+                {
+                    json!("page_2")
+                } else {
+                    Value::Null
+                };
+                json!({"id":id, "result":{"data":[{"id":model, "model":model, "modelProvider":"openai",
+                    "supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"high"}]}], "nextCursor":next}})
+            }
             "thread/start" => {
                 json!({"jsonrpc":"2.0","id":id,"result":{"thread":{"id":"thread_fake_1"}}})
             }
@@ -104,8 +121,13 @@ fn main() {
                     }
                     continue;
                 }
+                let text = if std::env::args().any(|arg| arg == "--echo-turn") {
+                    request["params"].to_string()
+                } else {
+                    "fake response".into()
+                };
                 write_json(
-                    &json!({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"thread_fake_1","turnId":"turn_fake_1","itemId":"item_fake_1","delta":"fake response"}}),
+                    &json!({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"thread_fake_1","turnId":"turn_fake_1","itemId":"item_fake_1","delta":text}}),
                 );
                 write_json(
                     &json!({"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread_fake_1","turnId":"turn_fake_1","turn":{"id":"turn_fake_1","status":"completed"}}}),

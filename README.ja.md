@@ -33,7 +33,8 @@ ollama/gemma4:e4b
 - OpenAI互換のモデル一覧 `GET /v1/models`
 - Responses API `POST /v1/responses`
 - Chat Completions API `POST /v1/chat/completions`
-- テキスト、ツール呼び出し、usage、完了状態、エラー、キャンセルのストリーミング
+- テキスト差分と完了・失敗イベントのストリーミング、切断時のTurn中断
+- 画像入力（URL／data URL）とJSON Schemaによる出力指定
 - Codexによるファイル操作・シェル実行、承認処理、作業ディレクトリの許可リスト
 - ChatGPTモデルだけに適用できる推論レベル指定
 
@@ -53,7 +54,19 @@ ollama/gemma4:e4b
 - [ユーザー／APIガイド](docs/user-guide.ja.md)
 - [OpenWebUI登録ガイド](docs/openwebui.ja.md)
 
-Codex CLI/App Server `0.147.0`以降、OpenWebUI `v0.11.0`を対象としています。
+Codex CLI/App Server `0.147.0`以降を対象とし、今回の実接続検証は`0.153.4`＋`gpt-5.6-luna`で実施しました。
+OpenWebUI `v0.11.0`の過去の受入記録はありますが、今回の画像・構造化出力はProxy APIへの直接接続で検証しています。
+
+## 動作確認と残る制約
+
+通常応答、会話継続、画像入力（`detail=high`）、JSON Schema、ストリーミング、切断時の中断、承認キャンセル／期限切れ、App Server異常終了時のエラー通知を実環境で確認しました。
+
+- `detail=low`で画像の色を誤認する現象が、このモデルではApp Serverへの直接接続でも再現しています。画像には当面`high`を使用してください。
+- ツール呼び出し／結果・usageの完全なOpenAI形式変換、ユーザーへの質問やMCP elicitationの対話中継は未対応です。
+- App Server異常終了後の自動再起動は未実装です。復旧にはProxyを再起動してください。
+- 長時間・高負荷運転や、全モデル／全クライアントの互換性は未検証です。
+
+詳細は[対応表](docs/app-server-coverage.md)、[実接続テスト結果](docs/live-codex-validation.md)、[開発時の検証手順](docs/development.md)を参照してください。
 
 ## ライセンス
 

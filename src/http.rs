@@ -155,6 +155,8 @@ pub struct ResponsesRequest {
     pub metadata: HashMap<String, String>,
     #[serde(default)]
     pub reasoning: Option<ReasoningRequest>,
+    #[serde(default)]
+    pub text: Option<TextRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,12 +167,21 @@ pub struct ChatCompletionsRequest {
     pub stream: bool,
     #[serde(default)]
     pub metadata: HashMap<String, String>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub response_format: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TextRequest {
+    pub format: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -529,7 +540,22 @@ async fn create_chat_completion(
         previous_response_id: None,
         stream: request.stream,
         metadata: request.metadata,
-        reasoning: None,
+        reasoning: request.reasoning_effort.map(|effort| ReasoningRequest {
+            effort: Some(effort),
+        }),
+        text: request.response_format.as_ref().map(|format| {
+            let mut format = format.clone();
+            if format.get("type").and_then(Value::as_str) == Some("json_schema") {
+                let schema = format
+                    .pointer("/json_schema/schema")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                format = json!({"type": "json_schema", "schema": schema});
+            }
+            TextRequest {
+                format: Some(format),
+            }
+        }),
     };
     let started = begin_turn_with_mode(&state, &internal, true).await?;
     if request.stream {
@@ -831,19 +857,11 @@ fn chat_messages_to_input(messages: &[ChatMessage]) -> Result<Vec<Value>, ApiErr
             "messages must not be empty",
         ));
     }
-    messages
-        .iter()
-        .map(|message| {
-            let content = message.content.as_str().ok_or_else(|| {
-                ApiError::new(
-                    StatusCode::BAD_REQUEST,
-                    "unsupported_parameter",
-                    "only string message content is supported",
-                )
-            })?;
-            Ok(json!({"type": "text", "text": format!("[{}]\n{}", message.role, content)}))
-        })
-        .collect()
+    let mut input = Vec::new();
+    for message in messages {
+        input.extend(normalize_message(&message.role, &message.content)?);
+    }
+    Ok(input)
 }
 
 async fn begin_turn(state: &AppState, request: &ResponsesRequest) -> Result<StartedTurn, ApiError> {
@@ -884,6 +902,8 @@ async fn begin_turn_with_mode(
         .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, "invalid_cwd", error.to_string()))?
         .unwrap_or_else(|| state.default_cwd.clone());
     let input = normalize_input(&request.input)?;
+    let output_schema =
+        parse_output_schema(request.text.as_ref().and_then(|text| text.format.as_ref()))?;
     let resuming = request.previous_response_id.is_some();
     let thread_id = if let Some(response_id) = request.previous_response_id.as_deref() {
         let context = state.responses.get(response_id).await.ok_or_else(|| {
@@ -953,6 +973,7 @@ async fn begin_turn_with_mode(
                 "model": model.upstream_model_id,
                 "cwd": cwd,
                 "effort": model.reasoning_effort.map(reasoning_name),
+                "outputSchema": output_schema,
                 "approvalPolicy": "on-request"
             }),
         )
@@ -1508,29 +1529,122 @@ fn sse_done() -> Event {
     Event::default().data("[DONE]")
 }
 
+fn invalid_input(message: &str) -> ApiError {
+    ApiError::new(StatusCode::BAD_REQUEST, "invalid_request_error", message)
+}
+
+fn unsupported_input(message: &str) -> ApiError {
+    ApiError::new(StatusCode::BAD_REQUEST, "unsupported_parameter", message)
+}
+
+fn normalize_message(role: &str, content: &Value) -> Result<Vec<Value>, ApiError> {
+    if !matches!(role, "system" | "developer" | "user" | "assistant") {
+        return Err(unsupported_input(
+            "only system, developer, user and assistant messages are supported",
+        ));
+    }
+    if let Some(text) = content.as_str() {
+        return Ok(vec![
+            json!({"type":"text", "text":format!("[{role}]\n{text}")}),
+        ]);
+    }
+    let parts = content
+        .as_array()
+        .ok_or_else(|| invalid_input("message content must be a string or array"))?;
+    let mut input = vec![json!({"type":"text", "text":format!("[{role}]\n")})];
+    for part in parts {
+        input.push(normalize_content_part(part)?);
+    }
+    Ok(input)
+}
+
+fn normalize_content_part(part: &Value) -> Result<Value, ApiError> {
+    match part.get("type").and_then(Value::as_str) {
+        Some("text" | "input_text" | "output_text") => {
+            let text = part
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or_else(|| invalid_input("text content must have a string text field"))?;
+            if part["type"] == "text" {
+                return Ok(part.clone());
+            }
+            Ok(json!({"type":"text", "text":text}))
+        }
+        Some("image" | "input_image" | "image_url") => {
+            let url = match part["type"].as_str() {
+                Some("input_image") => part.get("image_url"),
+                Some("image_url") => part.pointer("/image_url/url"),
+                _ => part.get("url"),
+            }
+            .and_then(Value::as_str)
+            .ok_or_else(|| invalid_input("image content requires an image URL"))?;
+            let parsed =
+                reqwest::Url::parse(url).map_err(|_| invalid_input("invalid image URL"))?;
+            if !matches!(parsed.scheme(), "http" | "https")
+                && !(parsed.scheme() == "data" && url.starts_with("data:image/"))
+            {
+                return Err(unsupported_input(
+                    "images require HTTP(S) URLs or image data URLs",
+                ));
+            }
+            let detail = if part["type"] == "image_url" {
+                part.pointer("/image_url/detail")
+            } else {
+                part.get("detail")
+            };
+            let mut image = json!({"type":"image", "url":url});
+            if let Some(detail) = detail.filter(|value| !value.is_null()) {
+                if !matches!(detail.as_str(), Some("auto" | "low" | "high" | "original")) {
+                    return Err(invalid_input("invalid image detail"));
+                }
+                image["detail"] = detail.clone();
+            }
+            Ok(image)
+        }
+        _ => Err(unsupported_input(
+            "only text and image content is supported",
+        )),
+    }
+}
+
 fn normalize_input(input: &Value) -> Result<Vec<Value>, ApiError> {
     if let Some(text) = input.as_str() {
-        return Ok(vec![json!({ "type": "text", "text": text })]);
+        return Ok(vec![json!({"type":"text", "text":text})]);
     }
-    let items = input.as_array().ok_or_else(|| {
-        ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "invalid_request_error",
-            "input must be a string or array",
-        )
-    })?;
-    items
-        .iter()
-        .map(|item| {
-            if item.get("type").and_then(Value::as_str) == Some("input_text") {
-                Ok(json!({ "type": "text", "text": item.get("text").and_then(Value::as_str).unwrap_or_default() }))
-            } else if item.get("type").and_then(Value::as_str) == Some("text") {
-                Ok(item.clone())
-            } else {
-                Err(ApiError::new(StatusCode::BAD_REQUEST, "unsupported_parameter", "only text input is supported in Phase 2"))
+    let items = input
+        .as_array()
+        .ok_or_else(|| invalid_input("input must be a string or array"))?;
+    let mut result = Vec::new();
+    for item in items {
+        if let Some(role) = item.get("role").and_then(Value::as_str) {
+            if item.get("type").is_some_and(|kind| kind != "message") {
+                return Err(unsupported_input("unsupported message type"));
             }
-        })
-        .collect()
+            result.extend(normalize_message(role, &item["content"])?);
+        } else {
+            result.push(normalize_content_part(item)?);
+        }
+    }
+    Ok(result)
+}
+
+fn parse_output_schema(format: Option<&Value>) -> Result<Option<Value>, ApiError> {
+    let Some(format) = format else {
+        return Ok(None);
+    };
+    match format.get("type").and_then(Value::as_str) {
+        Some("text") => Ok(None),
+        Some("json_schema") => {
+            let schema = format
+                .get("schema")
+                .filter(|schema| schema.is_object())
+                .ok_or_else(|| invalid_input("json_schema format requires a schema object"))?;
+            Ok(Some(schema.clone()))
+        }
+        _ => Err(unsupported_input(
+            "supported output formats are text and json_schema",
+        )),
+    }
 }
 
 async fn interrupt_turn(runtime: &CodexRuntime, thread_id: &str, turn_id: Option<&str>) {
@@ -1753,10 +1867,10 @@ mod tests {
     }
 
     #[test]
-    fn chat_messages_reject_non_string_content() {
+    fn chat_messages_reject_unsupported_content() {
         let messages = vec![ChatMessage {
             role: "user".into(),
-            content: json!([{ "type": "text", "text": "Hello" }]),
+            content: json!([{ "type": "input_audio", "data": "unsupported" }]),
         }];
         assert_eq!(
             chat_messages_to_input(&messages).unwrap_err().code,

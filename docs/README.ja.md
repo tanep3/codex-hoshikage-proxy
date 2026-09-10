@@ -13,6 +13,9 @@
 - [要件定義](codex-hoshikage-proxy-requirements.md)
 - [システム設計](codex-hoshikage-proxy-system-design.md)
 - [タスクと受入メモ](TASKS.md)
+- [App Server対応表](app-server-coverage.md)
+- [実Codex接続テスト結果](live-codex-validation.md)
+- [開発時の検証手順](development.md)
 
 上の運用ガイドは英語版と日本語版を対で管理します。要件・設計・タスク記録は現時点では日本語中心の内部資料です。
 

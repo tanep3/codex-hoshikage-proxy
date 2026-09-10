@@ -107,9 +107,10 @@ curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
   http://127.0.0.1:4040/v1/responses
 ```
 
-The MVP supports `model`, `input`, `previous_response_id`, `stream`, `metadata`, and ChatGPT-only
-`reasoning`. Standard events include response creation, text deltas, tool calls/results where present,
-usage, completion, cancellation, and errors. Codex-specific events are not forced into standard fields.
+The proxy supports `model`, `input`, `previous_response_id`, `stream`, `metadata`, `text.format`, and
+ChatGPT-only `reasoning`. Standard output currently focuses on response creation, text deltas, and
+completion/failure. Full OpenAI tool-call/result and usage conversion remains incomplete. Approvals
+use the Codex extension API.
 
 Use the returned response ID to continue a durable Responses conversation:
 
@@ -136,9 +137,9 @@ curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
 ```
 
 This is an OpenAI-compatible subset, not a promise to implement every OpenAI field. The supported MVP
-surface is text messages, `model`, `stream`, and `metadata` plus the proxy's tool/approval flow. Check
-the configured model capability before relying on tools, multimodal input, `tool_choice`, or other
-advanced fields.
+surface includes text/image messages, `model`, `stream`, `metadata`, `response_format`, ChatGPT-only
+`reasoning_effort`, and the proxy approval flow. This does not provide full compatibility with
+client-defined tool calling or every advanced OpenAI field.
 
 ## Errors and approvals
 
@@ -175,3 +176,28 @@ Set `network_access = true` only for trusted local skills that need outbound net
   command output and file content are size-limited/redacted when recorded.
 - Do not expose Codex execution to untrusted users. The client API key is not a substitute for approval
   or filesystem policy.
+
+## Images, structured output, and model pagination
+
+Responses accepts string input, arrays of text/image items, and messages with `role` and `content`.
+Chat Completions accepts string content or arrays of text and image parts. Message roles retain the
+existing `[role]` text projection; this does not create separate App Server system instructions.
+
+- Responses image: `{"type":"input_image","image_url":"https://example.com/image.png","detail":"high"}`.
+- Chat image: `{"type":"image_url","image_url":{"url":"https://example.com/image.png","detail":"high"}}`.
+- Image URLs may use HTTP(S) or `data:image/...`. Local paths, `file://`, and Files API IDs are unsupported.
+  `detail` accepts `auto`, `low`, `high`, or `original`. Actual image support depends on the model and Codex environment.
+- Responses structured output: `text.format: {"type":"json_schema","name":"answer","schema":{...},"strict":true}`.
+- Chat structured output: `response_format: {"type":"json_schema","json_schema":{"name":"answer","schema":{...},"strict":true}}`.
+  The schema is forwarded as `turn/start.outputSchema`; the final answer remains a JSON string. The proxy does
+  not independently validate generated JSON. `name` and `strict` are not separate Codex options.
+  Output formats other than `text` and `json_schema` return HTTP 400.
+- ChatGPT Chat Completions accepts `reasoning_effort`, validated against the model's advertised choices.
+- ChatGPT catalogs follow `nextCursor` until exhausted. Repeated cursors, more than 100 pages, and the
+  five-second total deadline fail catalog discovery.
+
+See the [App Server coverage notes](app-server-coverage.md) for remaining gaps.
+
+Live validation with Codex 0.153.4 and gpt-5.6-luna reproduced a color error with `detail=low`,
+including when bypassing this proxy. The same image was recognized correctly with `detail=high`.
+See the [live validation report](live-codex-validation.md).

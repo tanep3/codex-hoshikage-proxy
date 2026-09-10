@@ -30,7 +30,7 @@ network_access = false
 
 [codex.compatibility]
 minimum_version = "0.147.0"
-tested_version = "0.147.0"
+tested_version = "0.153.4"
 
 [security]
 allowed_cwds = [

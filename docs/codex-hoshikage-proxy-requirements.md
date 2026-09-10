@@ -15,6 +15,15 @@
 
 本書は、最終的に全機能を実装する前提の段階開発用Draftである。現時点で合意済みの項目は各節の要件および「現時点での決定事項」に記載する。
 
+### 実装・検証状況（2026-09-11）
+
+本書には未実装の要求・設計を含むため、全体の状態はDraftのままとする。現在の提供範囲は
+[App Server対応表](app-server-coverage.md)、実機で確認した範囲は[実接続テスト結果](live-codex-validation.md)を参照する。
+Codex 0.153.4＋gpt-5.6-lunaで主要APIと切断・承認キャンセル／期限切れ・異常終了を確認済み。
+画像入力とoutputSchema、Chatの推論強度、モデル一覧のページ送りを追加した。
+完全なtool call／usage変換、App Server自動復旧、長時間・高負荷検証などは未完了である。
+
+
 ---
 
 ## 2. 背景
@@ -1269,8 +1278,8 @@ OpenAI-compatible subsetとして提供する。MVPの主要対応範囲は以�
 
 | API | 対応フィールド |
 |---|---|
-| Chat Completions | `messages`, `model`, `stream`, `metadata`、標準的なtext/tool call/tool result/usage/finish reason/error/cancellation |
-| Responses | `input`, `previous_response_id`, `model`, `stream`, `metadata`, `reasoning`（ChatGPTのみ）、標準的なtext/tool call/tool result/usage/finish reason/error/cancellation |
+| Chat Completions | テキスト／画像`messages`, `model`, `stream`, `metadata`, `response_format`, `reasoning_effort`（ChatGPTのみ）、テキスト差分・完了／失敗、切断時の中断 |
+| Responses | テキスト／画像／メッセージ形式`input`, `previous_response_id`, `model`, `stream`, `metadata`, `text.format`, `reasoning`（ChatGPTのみ）、テキスト差分・完了／失敗、切断時の中断 |
 
 `tools`、`tool_choice`、Function Call、multimodal contentなどの詳細対応は、各Wire Adapterの対応表で明示する。未対応または意味を安全に無視できないフィールドは、黙って無視せず `unsupported_parameter` とする。
 

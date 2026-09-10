@@ -30,7 +30,7 @@ async fn test_app_with_runtime(
     idle_timeout: Duration,
 ) -> (axum::Router, Arc<CodexRuntime>) {
     let mut raw = RawConfig::default();
-    raw.providers.get_mut("chatgpt").unwrap().enabled = false;
+    raw.providers.get_mut("chatgpt").unwrap().enabled = args.contains(&"--model-pages");
     raw.providers.get_mut("hoshikage").unwrap().base_url = None;
     raw.models.insert(
         "hoshikage/unsloth-gemma4-12b-qat-thinking-off".into(),
@@ -296,5 +296,127 @@ async fn disconnected_stream_interrupts_a_silent_codex_turn() {
         .await;
         runtime.shutdown().await.unwrap();
         result.expect("disconnect must interrupt even if Codex produces no more events");
+    }
+}
+
+#[tokio::test]
+async fn codex_receives_multimodal_input_schema_and_chat_reasoning() {
+    let schema = serde_json::json!({"type":"object", "properties":{"answer":{"type":"string"}}, "required":["answer"], "additionalProperties":false});
+    let url = "data:image/png;base64,iVBORw0KGgo=";
+    for endpoint in ["/v1/responses", "/v1/chat/completions"] {
+        let (app, runtime) =
+            test_app_with_runtime(&["--model-pages", "--echo-turn"], Duration::from_secs(5)).await;
+        let mut request = serde_json::json!({"model":"chatgpt/gpt-test-second"});
+        if endpoint == "/v1/responses" {
+            request["input"] = serde_json::json!([{"role":"user", "content":[
+                {"type":"input_text", "text":"describe"}, {"type":"input_image", "image_url":url, "detail":"high"}
+            ]}]);
+            request["text"] = serde_json::json!({"format":{"type":"json_schema", "name":"answer", "schema":schema, "strict":true}});
+            request["reasoning"] = serde_json::json!({"effort":"high"});
+        } else {
+            request["messages"] = serde_json::json!([{"role":"user", "content":[
+                {"type":"text", "text":"describe"}, {"type":"image_url", "image_url":{"url":url, "detail":"high"}}
+            ]}]);
+            request["response_format"] = serde_json::json!({"type":"json_schema", "json_schema":{"name":"answer", "schema":schema, "strict":true}});
+            request["reasoning_effort"] = serde_json::json!("high");
+        }
+        let response = app
+            .oneshot(
+                Request::post(endpoint)
+                    .header("content-type", "application/json")
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_str(&response_text(response).await).unwrap();
+        let text = if endpoint == "/v1/responses" {
+            &body["output"][0]["content"][0]["text"]
+        } else {
+            &body["choices"][0]["message"]["content"]
+        };
+        let turn: serde_json::Value = serde_json::from_str(text.as_str().unwrap()).unwrap();
+        assert_eq!(
+            turn["input"],
+            serde_json::json!([
+                {"type":"text", "text":"[user]\n"}, {"type":"text", "text":"describe"}, {"type":"image", "url":url, "detail":"high"}
+            ])
+        );
+        assert_eq!(turn["outputSchema"], schema);
+        assert_eq!(turn["effort"], "high");
+        assert_eq!(turn["model"], "gpt-test-second");
+        runtime.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn invalid_input_and_output_formats_are_rejected() {
+    for (endpoint, fields) in [
+        (
+            "/v1/responses",
+            serde_json::json!({"input":[{"type":"input_text"}]}),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"input":[{"type":"input_image", "image_url":"file:///etc/passwd"}]}),
+        ),
+        (
+            "/v1/responses",
+            serde_json::json!({"input":"hi", "text":{"format":{"type":"json_schema"}}}),
+        ),
+        (
+            "/v1/chat/completions",
+            serde_json::json!({"messages":[{"role":"user", "content":"hi"}], "response_format":{"type":"json_object"}}),
+        ),
+    ] {
+        let (app, runtime) = test_app_with_runtime(&[], Duration::from_secs(5)).await;
+        let mut body = fields;
+        body["model"] = serde_json::json!("hoshikage/unsloth-gemma4-12b-qat-thinking-off");
+        let response = app
+            .oneshot(
+                Request::post(endpoint)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "{}",
+            response_text(response).await
+        );
+        runtime.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn model_catalog_follows_pages_and_rejects_cursor_loops() {
+    for repeat in [false, true] {
+        let args = if repeat {
+            vec!["--model-pages", "--repeat-model-cursor"]
+        } else {
+            vec!["--model-pages"]
+        };
+        let (app, runtime) = test_app_with_runtime(&args, Duration::from_secs(5)).await;
+        let response = tokio::time::timeout(
+            Duration::from_secs(2),
+            app.oneshot(Request::get("/v1/models").body(Body::empty()).unwrap()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let body: serde_json::Value = serde_json::from_str(&response_text(response).await).unwrap();
+        let ids = body["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(ids.contains(&"chatgpt/gpt-test-first"), !repeat);
+        assert_eq!(ids.contains(&"chatgpt/gpt-test-second"), !repeat);
+        runtime.shutdown().await.unwrap();
     }
 }

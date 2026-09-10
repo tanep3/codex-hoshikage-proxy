@@ -1,0 +1,133 @@
+{
+  "history": [
+    [
+      {
+        "test": "initialize_and_catalog",
+        "passed": true,
+        "models": 6,
+        "model": "chatgpt/gpt-5.6-luna"
+      },
+      {
+        "test": "responses_and_continuation",
+        "passed": true,
+        "detail": "text and previous_response_id verified",
+        "seconds": 13.74
+      },
+      {
+        "test": "responses_image_and_schema",
+        "passed": true,
+        "detail": {
+          "color": "red"
+        },
+        "seconds": 6.81
+      },
+      {
+        "test": "chat_image_schema_reasoning",
+        "passed": false,
+        "error": "{'color': 'blue'}",
+        "seconds": 7.66
+      },
+      {
+        "test": "responses_stream",
+        "passed": false,
+        "error": "event: response.created\ndata: {\"id\":\"resp_4\",\"object\":\"response\",\"model\":\"chatgpt/gpt-5.6-luna\",\"output\":[],\"status\":\"in_progress\"}\n\nevent: codex.turn.status\ndata: {\"id\":\"resp_4\",\"message\":\"Codex turn is still running\",\"status\":\"inProgress\",\"turn_id\":\"01a08d16-a4cb-7392-a15c-c63a76622aed\"}\n\nevent: codex.turn.status\ndata: {\"id\":\"resp_4\",\"message\":\"Codex turn is still running\",\"status\":\"inProgress\",\"turn_id\":\"01a08d16-a4cb-7392-a15c-c63a76622aed\"}\n\nevent: response.output_text.delta\ndata: {\"delta\":\"STREAM\",\"id\":\"resp_4\",\"item_id\":\"msg_1\",\"output_index\":0}\n\nevent: response.output_text.delta\ndata: {\"delta\":\"_OK\",\"id\":\"resp_4\",\"item_id\":\"msg_1\",\"output_index\":0}\n\nevent: response.completed\ndata: {\"id\":\"resp_4\",\"model\":\"chatgpt/gpt-5.6-luna\",\"object\":\"response\",\"status\":\"completed\"}\n\n",
+        "seconds": 6.01
+      },
+      {
+        "test": "chat_stream",
+        "passed": false,
+        "error": "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null,\"index\":0}],\"created\":1789073472,\"id\":\"chatcmpl_2\",\"model\":\"chatgpt/gpt-5.6-luna\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"STREAM\"},\"finish_reason\":null,\"index\":0}],\"created\":1789073472,\"id\":\"chatcmpl_2\",\"model\":\"chatgpt/gpt-5.6-luna\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"_OK\"},\"finish_reason\":null,\"index\":0}],\"created\":1789073472,\"id\":\"chatcmpl_2\",\"model\":\"chatgpt/gpt-5.6-luna\",\"object\":\"chat.completion.chunk\"}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"index\":0}],\"created\":1789073472,\"id\":\"chatcmpl_2\",\"model\":\"chatgpt/gpt-5.6-luna\",\"object\":\"chat.completion.chunk\"}\n\ndata: [DONE]\n\n",
+        "seconds": 6.21
+      }
+    ],
+    [
+      {
+        "test": "initialize_and_catalog",
+        "passed": true,
+        "models": 6,
+        "model": "chatgpt/gpt-5.6-luna"
+      },
+      {
+        "test": "chat_image_schema_reasoning",
+        "passed": false,
+        "error": "{'color': 'blue'}",
+        "seconds": 12.15
+      },
+      {
+        "test": "chat_image_schema_high",
+        "passed": true,
+        "detail": {
+          "color": "red"
+        },
+        "seconds": 6.36
+      },
+      {
+        "test": "responses_stream",
+        "passed": true,
+        "detail": "text delta and completion verified",
+        "seconds": 7.54
+      },
+      {
+        "test": "chat_stream",
+        "passed": true,
+        "detail": "text delta and completion verified",
+        "seconds": 4.82
+      },
+      {
+        "test": "disconnect_interrupt",
+        "passed": true,
+        "detail": "client disconnect interrupted the real Codex turn",
+        "seconds": 2.53
+      },
+      {
+        "test": "approval_decline",
+        "passed": false,
+        "error": "{\"error\":{\"message\":\"approval decision rejected\",\"type\":\"invalid_request_error\",\"code\":\"approval_rejected\"}}",
+        "seconds": 8.21
+      },
+      {
+        "test": "approval_timeout",
+        "passed": true,
+        "detail": "approval expired without writing",
+        "seconds": 20.1
+      },
+      {
+        "test": "codex_crash",
+        "passed": true,
+        "detail": "isolated Codex crash promptly produced runtime_disconnected",
+        "seconds": 2.2
+      }
+    ]
+  ],
+  "codex_version": "codex-cli 0.153.4",
+  "results": [
+    {
+      "test": "initialize_and_catalog",
+      "passed": true,
+      "models": 6,
+      "model": "chatgpt/gpt-5.6-luna"
+    },
+    {
+      "test": "direct_image_low",
+      "passed": false,
+      "error": "direct App Server, detail=low: {'color': 'blue'}",
+      "seconds": 13.42
+    },
+    {
+      "test": "direct_image_high",
+      "passed": true,
+      "detail": {
+        "detail": "high",
+        "color": "red",
+        "proxy_bypassed": true
+      },
+      "seconds": 8.48
+    },
+    {
+      "test": "approval_decline",
+      "passed": true,
+      "detail": "cancel and duplicate rejection verified without writing; offered=['accept', 'cancel']",
+      "seconds": 8.87
+    }
+  ]
+}

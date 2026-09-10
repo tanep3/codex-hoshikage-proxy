@@ -97,8 +97,8 @@ curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
   http://127.0.0.1:4040/v1/responses
 ```
 
-MVPで対応する主なフィールドは `model`、`input`、`previous_response_id`、`stream`、`metadata` とChatGPT専用の `reasoning` です。
-標準イベントとしてレスポンス作成、テキスト差分、ツール呼び出し／結果、usage、完了、キャンセル、エラーを扱います。
+MVPで対応する主なフィールドは `model`、`input`、`previous_response_id`、`stream`、`metadata`、`text.format` とChatGPT専用の `reasoning` です。
+現在の標準出力はレスポンス作成、テキスト差分、完了・失敗が中心です。ツール呼び出し／結果・usageの完全なOpenAI形式変換は未完成です。承認はCodex拡張APIで扱います。
 
 返されたレスポンスIDで会話を継続できます。
 
@@ -123,7 +123,7 @@ curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
   http://127.0.0.1:4040/v1/chat/completions
 ```
 
-これはOpenAI API全体ではなく、互換サブセットです。MVPではテキストmessages、`model`、`stream`、`metadata` と、Proxyのツール／承認フローを中心に対応します。
+これはOpenAI API全体ではなく、互換サブセットです。テキスト／画像messages、`model`、`stream`、`metadata`、`response_format`、ChatGPT専用の`reasoning_effort`と、Proxyの承認フローに対応します。クライアント定義のtool callingとの完全互換を保証するものではありません。
 マルチモーダル入力、`tool_choice`など高度な項目を使う前に、モデルの能力と対応範囲を確認してください。
 
 ## エラーと承認
@@ -152,3 +152,47 @@ Sandbox設定とProxyの自動承認設定は別物です。`codex.sandbox.writa
 - 作業ディレクトリの許可ルートは狭く設定し、事前に存在させる。
 - Event Journalはメタデータ中心で、ローテーションと保持期間を運用で設定。出力やファイル内容はサイズ制限／redaction対象。
 - 信頼できない利用者へCodex実行を公開しない。クライアントAPI Keyは承認やファイルシステム制御の代わりにはなりません。
+
+## 画像入力と構造化出力
+
+Responsesの`input`は文字列、テキスト／画像の配列、または`role`と`content`を持つメッセージ配列を受け付けます。
+Chat Completionsの`messages[].content`も文字列とテキスト／画像の配列に対応します。
+メッセージのroleは従来どおり`[user]`などのラベル付きテキストに変換します。App Serverに独立したsystemメッセージとして渡す方式ではありません。
+
+Responsesの例:
+
+```json
+{
+  "model": "chatgpt/gpt-5.6-luna",
+  "input": [{"role": "user", "content": [
+    {"type": "input_text", "text": "画像の内容を説明して"},
+    {"type": "input_image", "image_url": "https://example.com/image.png", "detail": "high"}
+  ]}],
+  "text": {"format": {
+    "type": "json_schema",
+    "name": "description",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "properties": {"description": {"type": "string"}},
+      "required": ["description"],
+      "additionalProperties": false
+    }
+  }}
+}
+```
+
+Chat Completionsでは画像を`{"type":"image_url","image_url":{"url":"https://example.com/image.png","detail":"high"}}`で指定します。
+出力形式は`response_format: {"type":"json_schema","json_schema":{"name":"description","schema":{...},"strict":true}}`で指定します。
+ChatGPTプロバイダでは`reasoning_effort: "high"`も指定でき、そのモデルが公開する対応値に対して検証します。
+
+- 画像はHTTP(S) URLまたは`data:image/...` URLをCodexへ渡します。`file://`、サーバー上のローカル画像パス、Files APIのIDは受け付けません。
+- `detail`は`auto`、`low`、`high`、`original`に対応します。画像対応状況と取得可否は使用するモデルとCodex環境に依存します。
+- JSON Schemaは`turn/start.outputSchema`へ転送します。最終回答はJSON文字列として返し、Proxyによる追加のSchema検証は行いません。`name`や`strict`はCodexへの独立したオプションにはなりません。
+- `text`と`json_schema`以外の出力形式は400エラーになります。
+- ChatGPTのモデル一覧は`nextCursor`がなくなるまで取得します。循環するカーソル、100ページ超過、取得全体の5秒タイムアウトはカタログ取得失敗として扱います。
+
+仕様との対応状況と残る未対応機能は[App Server対応表](app-server-coverage.md)を参照してください。
+
+実接続テストではCodex 0.153.4＋gpt-5.6-lunaの`detail=low`で色の誤認が再現しました。
+同じ画像は`detail=high`で正しく認識しています。詳細は[実接続テスト結果](live-codex-validation.md)を参照してください。

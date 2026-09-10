@@ -37,7 +37,8 @@ The proxy provides:
 - OpenAI-compatible `GET /v1/models`.
 - Responses API at `POST /v1/responses`.
 - Chat Completions API at `POST /v1/chat/completions`.
-- Streaming text, tool calls, usage, completion status, errors, and cancellation.
+- Streaming text deltas, completion/failure events, and turn interruption on disconnect.
+- Image inputs (URLs/data URLs) and JSON Schema output constraints.
 - Codex file and shell operations, approval handling, and working-directory allowlists.
 - Independent reasoning-effort selection for ChatGPT models.
 
@@ -57,7 +58,23 @@ Start here:
 - [User and API guide](docs/user-guide.md)
 - [OpenWebUI registration guide](docs/openwebui.md)
 
-This project targets Codex CLI/App Server `0.147.0` or later and OpenWebUI `v0.11.0`.
+The compatibility target starts at Codex CLI/App Server `0.147.0`. This round of live validation used
+`0.153.4` with `gpt-5.6-luna`. Historical OpenWebUI `v0.11.0` acceptance notes are available; the new
+image and structured-output checks used the proxy API directly.
+
+## Validation and remaining limits
+
+Live checks cover ordinary responses, conversation continuation, images with `detail=high`, JSON Schema,
+streaming, disconnect interruption, approval cancellation/expiry, and errors after an App Server crash.
+
+- This model misidentified an image color with `detail=low`, including when the proxy was bypassed.
+  Use `high` for images in this configuration for now.
+- Full OpenAI tool-call/result and usage conversion, user-input questions, and MCP elicitation relay remain incomplete.
+- Automatic App Server restart is not implemented. Restart the proxy after an App Server crash.
+- Long-running/high-load operation and compatibility with every model/client have not been validated.
+
+See [coverage](docs/app-server-coverage.md), [live validation](docs/live-codex-validation.md), and
+[development checks](docs/development.md).
 
 ## License
 

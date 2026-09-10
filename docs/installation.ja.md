@@ -6,7 +6,7 @@
 
 - Codex CLIを実行できる環境。
 - RustとCargo。
-- Codex CLI/App Server `0.147.0`以降。
+- Codex CLI/App Server `0.147.0`以降。 今回の実接続検証は`0.153.4`。対象範囲は[検証結果](live-codex-validation.md)を参照。
 - Hoshikageモデルを使う場合はHoshikage、Ollamaモデルを使う場合はOllama。
 - 付属連携を使う場合はOpenWebUI `v0.11.0`。
 

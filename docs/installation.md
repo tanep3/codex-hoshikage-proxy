@@ -6,7 +6,7 @@
 
 - Linux or another environment where Codex CLI can run.
 - Rust and Cargo.
-- Codex CLI/App Server `0.147.0` or later.
+- Codex CLI/App Server `0.147.0` or later. This round was tested with `0.153.4`; see the [validation report](live-codex-validation.md).
 - Hoshikage for Hoshikage models, and/or Ollama for Ollama models.
 - OpenWebUI `v0.11.0` only if you want the included integration.
 

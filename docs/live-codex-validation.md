@@ -1,0 +1,60 @@
+# 実Codex接続テスト
+
+実施日: 2026-09-11（JST）
+
+- Codex CLI: `0.153.4`
+- モデル: `chatgpt/gpt-5.6-luna`
+- ソース: バグ修正コミット`72a636e`＋作業ツリーの機能追加
+- 一時ワークスペース、独立したProxy・App Server、read-only sandboxを使用。
+- 既存ログインの認証ファイルを権限600で一時領域へコピーし、終了時に削除。既存設定・会話・常駐サービスは変更しない。
+
+## 結果
+
+| 確認内容 | 結果 |
+| --- | --- |
+| initialize / initialized、モデル一覧 | 成功。6モデル取得 |
+| Responses通常応答、previous_response_idでの会話継続 | 成功 |
+| Responses画像入力＋JSON Schema、detail=high | 成功。赤画像をredと回答、Schemaに一致 |
+| Chat画像入力＋JSON Schema＋reasoning_effort=low、detail=high | 成功 |
+| Responsesストリーミング | 成功。複数deltaの結合結果と完了イベントを確認 |
+| Chatストリーミング | 成功。複数deltaの結合結果と[DONE]を確認 |
+| 応答待ち中のHTTPクライアント切断 | 成功。実CodexのTurnがinterruptedへ遷移 |
+| 対話承認のcancel、二重回答拒否 | 成功。ファイルを書き込まず、二重回答に409 |
+| 承認期限切れ | 成功。expiredに遷移し、ファイルを書き込まず |
+| 隔離したApp Serverの強制終了 | 成功。HTTPストリームにruntime_disconnectedを即時通知 |
+| Chat画像入力、detail=low | **不一致**。赤一色のPNGをblueと回答。2回再現 |
+| Proxyを経由しないApp Server直接接続、detail=low | **同じ不一致を再現** |
+| Proxyを経由しないApp Server直接接続、detail=high | 成功。redと回答 |
+
+## 切り分け
+
+`detail=low`の誤認はProxyを経由しなくても再現するため、この環境ではProxy固有の変換問題ではない。
+Codex内部の画像処理とモデルのどちらに原因があるかまでは特定していない。全モデルに一般化もしない。
+暫定的にはこのモデルで`detail=high`を使用する。Proxyがlowをhighへ黙って置換する変更は行っていない。
+
+初回のストリーム検証は、文字列`STREAM_OK`が単一deltaに含まれると仮定して誤判定した。
+実際には`STREAM`と`_OK`に分割されて正常配信されており、テスト側で結合して再検証済み。
+
+実Codexが提示した承認選択肢は`accept`と`cancel`だった。提示されていない`decline`は409となることを確認し、
+提示された`cancel`を用いた拒否を再検証した。標準の`decline`が提示されるケースの実機往復は今回未検証。
+
+ID衝突、null応答、文字列ID、大量通知、複数パスの境界などは実サーバーで任意に発生させていない。
+これらは既存の模擬サーバー・単体テストによる検証を維持する。
+モデル一覧の実接続は確認したが、6件の一覧は1ページに収まるためページ送り・循環カーソルは模擬テストで検証する。
+
+## 再実行
+
+```sh
+cargo build --offline --bin codex-hoshikage-proxy
+python3 scripts/live_codex_smoke.py
+```
+
+既存のCodexログインを使う手動テストであり、モデル利用枠を消費する。通常のcargo testには含めない。
+選択実行は`LIVE_CODEX_TESTS`へテスト名をカンマ区切りで指定する。モデルは`LIVE_CODEX_MODEL`で指定する。
+
+```sh
+LIVE_CODEX_TESTS=direct_image_low,direct_image_high python3 scripts/live_codex_smoke.py
+```
+
+未解消の画像誤認を隠さないため、lowのケースが不一致ならスクリプトは終了コード1を返す。
+機械可読の結果と過去の試行は[live-codex-results.json](live-codex-results.json)へ保存する。

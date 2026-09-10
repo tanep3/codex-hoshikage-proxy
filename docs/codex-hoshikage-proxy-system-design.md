@@ -15,6 +15,15 @@
 | OpenWebUI連携実装言語 | Python |
 | 設定ルート | `~/.config/codex-hoshikage-proxy` |
 
+### 実装・検証状況（2026-09-11）
+
+本書には未実装の要求・設計を含むため、全体の状態はDraftのままとする。現在の提供範囲は
+[App Server対応表](app-server-coverage.md)、実機で確認した範囲は[実接続テスト結果](live-codex-validation.md)を参照する。
+Codex 0.153.4＋gpt-5.6-lunaで主要APIと切断・承認キャンセル／期限切れ・異常終了を確認済み。
+画像入力とoutputSchema、Chatの推論強度、モデル一覧のページ送りを追加した。
+完全なtool call／usage変換、App Server自動復旧、長時間・高負荷検証などは未完了である。
+
+
 ---
 
 ## 2. 設計目的
@@ -1569,8 +1578,8 @@ Approval Request発生時、非StreamingまたはSSEヘッダー送信前であ�
 
 | API | MVP契約 |
 |---|---|
-| Chat Completions | `messages`, `model`, `stream`, `metadata`、標準的なtext/tool call/tool result/usage/finish reason/error/cancellation |
-| Responses | `input`, `previous_response_id`, `model`, `stream`, `metadata`, `reasoning`（ChatGPTのみ）、標準的なtext/tool call/tool result/usage/finish reason/error/cancellation |
+| Chat Completions | テキスト／画像`messages`, `model`, `stream`, `metadata`, `response_format`, `reasoning_effort`（ChatGPTのみ）、テキスト差分・完了／失敗、切断時の中断 |
+| Responses | テキスト／画像／メッセージ形式`input`, `previous_response_id`, `model`, `stream`, `metadata`, `text.format`, `reasoning`（ChatGPTのみ）、テキスト差分・完了／失敗、切断時の中断 |
 
 `tools`、`tool_choice`、Function Call、multimodal contentなどは、実装するフィールドをWire DTOとFixtureで個別に定義する。未対応または意味を安全に無視できないフィールドは、黙って無視せず `unsupported_parameter` を返す。
 
