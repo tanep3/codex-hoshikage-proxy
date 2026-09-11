@@ -43,6 +43,7 @@ pub struct AppState {
     pub catalog: Arc<ModelCatalogManager>,
     pub cwd_policy: CwdPolicy,
     pub default_cwd: std::path::PathBuf,
+    pub generated_images_root: Option<std::path::PathBuf>,
     pub api_key: Option<String>,
     pub v2: Option<Arc<crate::v2::service::Service>>,
     pub turn_idle_timeout: Duration,
@@ -122,6 +123,7 @@ impl AppState {
             }
         });
         Self {
+            generated_images_root: None,
             runtime,
             catalog: Arc::new(catalog),
             cwd_policy,
@@ -258,6 +260,14 @@ pub fn router(state: AppState) -> Router {
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/v1/models", get(list_models))
+        .route(
+            "/v1/codex/responses/{response_id}/images",
+            get(crate::generated_images::list),
+        )
+        .route(
+            "/v1/codex/responses/{response_id}/images/{filename}",
+            get(crate::generated_images::content),
+        )
         .route("/v1/responses", post(create_response))
         .route("/v1/codex/capabilities", get(capabilities))
         .route("/v1/codex/requests/{request_id}", get(get_request))
@@ -278,6 +288,7 @@ pub fn router(state: AppState) -> Router {
             "/v1/codex/turns/{turn_id}/events/stream",
             get(turn_events_stream),
         )
+        .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), authenticate))
         .with_state(state)
 }

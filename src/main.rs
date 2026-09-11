@@ -127,6 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         journal,
         responses,
     );
+    state.generated_images_root = Some(config.codex_home.join("generated_images"));
     if let Some(service) = v2_service {
         state.v2 = Some(service.clone());
         let _maintenance =

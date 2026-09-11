@@ -104,3 +104,13 @@ P-08は共有認証主体の範囲、要求単位の自動承認抑制とThread�
 
 模擬試験と実機試験の範囲は[検証結果](live-codex-validation.md)、開発チェックは[検証手順](development.md)を参照。
 実装はソースに反映済み。サービスへの適用と更新後の確認手順は[常駐設定](server-operations.md)を参照。
+
+## Codex生成画像の取得
+
+OpenAI互換APIとは別の、PIPE向け画像表示用拡張。Bearer認証必須。
+
+- `GET /v1/codex/responses/{response_id}/images`: 完了済み実行の生成PNG一覧。`data`の各項目は`name`・`content_type`・`size_bytes`。
+- `GET /v1/codex/responses/{response_id}/images/{filename}`: PNGバイト列。最大10 MiB、SHA-256のETag、private/no-storeを返す。
+
+対象はそのResponseに対応するThreadのCodex `generated_images`ディレクトリ内で、実行開始から終了の間に更新されたPNGのみ。1実行16枚まで。任意パス、別Thread、実行期間外、シンボリックリンク、ハードリンクを取得できない。未完了409、対象なし404、アクセス拒否403、不正PNG415、読み取り中の更新409。
+この経路は画像ツールがCodexホームへ生成した画像の表示用であり、v2成果物の不変性・保持リースは提供しない。PIPEは取得した画像をOpenWebUIの利用者所有ファイルとして保存してから表示する。

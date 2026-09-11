@@ -13,3 +13,5 @@ pub mod store;
 pub mod turn;
 
 pub mod v2;
+
+pub mod generated_images;

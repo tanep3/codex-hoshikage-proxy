@@ -1,7 +1,7 @@
 """
 title: Codex Hoshikage Proxy
 author: Codex Hoshikage Proxy
-version: 0.5.0
+version: 0.6.0
 requirements: httpx
 
 OpenWebUI Manifold Pipe for Codex Hoshikage Proxy.
@@ -14,6 +14,10 @@ extension endpoints.
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
+import re
+from urllib.parse import urlparse, quote
 import json
 import logging
 from typing import Any, AsyncGenerator, Literal, Optional
@@ -121,6 +125,7 @@ class Pipe:
         __event_emitter__: Any = None,
         __event_call__: Any = None,
         __task__: Optional[str] = None,
+        __files__: Optional[list[dict[str, Any]]] = None,
         **_: Any,
     ) -> AsyncGenerator[str, None]:
         """Stream a Responses API result and preserve a logical conversation."""
@@ -167,6 +172,12 @@ class Pipe:
             conversation_id,
             proxy_model if isinstance(proxy_model, str) else "",
         )
+        try:
+            payload["input"] = await self._resolve_images(payload["input"], __files__ or source_metadata.get("files") or [], __user__)
+        except Exception as error:
+            await self._report_stream_error(error, __event_emitter__)
+            yield f"画像の読み込みに失敗しました: {error}"
+            return
         payload.pop("messages", None)
         previous_response_id = self._previous_response_id(
             conversation_id,
@@ -217,6 +228,8 @@ class Pipe:
                     __event_emitter__,
                 ):
                     yield delta
+                async for rendered in self._generated_images(client, conversation_id, str(proxy_model), __request__, __user__):
+                    yield rendered
             except _ProxyThreadNotFound:
                 # Proxy state can outlive the Codex App Server process.  Start
                 # a replacement thread from OpenWebUI's visible history.
@@ -229,6 +242,7 @@ class Pipe:
                     proxy_model if isinstance(proxy_model, str) else "",
                 )
                 try:
+                    payload["input"] = await self._resolve_images(payload["input"], __files__ or source_metadata.get("files") or [], __user__)
                     async for delta in self._stream_responses(
                         client,
                         payload,
@@ -238,6 +252,8 @@ class Pipe:
                         __event_emitter__,
                     ):
                         yield delta
+                    async for rendered in self._generated_images(client, conversation_id, str(proxy_model), __request__, __user__):
+                        yield rendered
                 except Exception as error:
                     await self._report_stream_error(error, __event_emitter__)
                     detail = str(error).strip()
@@ -326,8 +342,9 @@ class Pipe:
                 approval_task = asyncio.create_task(
                     self._watch_approvals(client, turn_id, event_call)
                 )
+            lines = self._response_lines(response, approval_task)
             try:
-                async for line in response.aiter_lines():
+                async for line in lines:
                     if line.startswith("event:"):
                         event_name = line[6:].strip()
                         continue
@@ -390,12 +407,14 @@ class Pipe:
                                 response_id = candidate
                         if response_id is not None:
                             self._response_ids[conversation_id] = (model_id, response_id)
+                        break
                 if not terminal_event:
                     raise RuntimeError(
                         "Proxy response stream ended before a terminal event "
                         f"(response_id={response_id or 'unknown'}, turn_id={turn_id or 'unknown'})"
                     )
             finally:
+                await lines.aclose()
                 if approval_task is not None:
                     approval_task.cancel()
                     await asyncio.gather(approval_task, return_exceptions=True)
@@ -417,33 +436,131 @@ class Pipe:
         return current[1]
 
     def _responses_input(
-        self,
-        body: dict[str, Any],
-        metadata: dict[str, Any],
-        conversation_id: str,
-        model_id: str,
-    ) -> list[dict[str, str]]:
-        """Use the latest prompt normally, or full history after a model switch."""
-        previous = self._previous_response_id(conversation_id, model_id)
-        if previous:
-            prompt = metadata.get("user_prompt")
-            if not isinstance(prompt, str) or not prompt:
-                prompt = self._last_user_content(body.get("messages", []))
-            return [{"type": "text", "text": prompt}]
-
+        self, body: dict[str, Any], metadata: dict[str, Any],
+        conversation_id: str, model_id: str,
+    ) -> list[dict[str, Any]]:
         messages = body.get("messages") or []
-        result: list[dict[str, str]] = []
+        if self._previous_response_id(conversation_id, model_id):
+            messages = next(([m] for m in reversed(messages) if m.get("role") == "user"), [])
+        result: list[dict[str, Any]] = []
         for message in messages:
             if not isinstance(message, dict):
                 continue
-            role = str(message.get("role") or "user")
             content = message.get("content")
-            if isinstance(content, str) and content:
-                result.append({"type": "text", "text": f"[{role}]\n{content}"})
-        if result:
-            return result
-        prompt = metadata.get("user_prompt")
-        return [{"type": "text", "text": prompt if isinstance(prompt, str) else ""}]
+            parts = [{"type": "text", "text": content}] if isinstance(content, str) else content
+            if not isinstance(parts, list):
+                continue
+            result.append({"type": "text", "text": f"[{message.get('role', 'user')}]\n"})
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") in ("text", "input_text", "output_text"):
+                    result.append({"type": "text", "text": part.get("text", "")})
+                elif part.get("type") in ("image_url", "input_image", "image"):
+                    result.append(dict(part))
+        return result or [{"type": "text", "text": metadata.get("user_prompt", "")}]
+
+    @staticmethod
+    async def _file_image(file_id: str, user: Any) -> tuple[str, str]:
+        from open_webui.models.users import Users
+        from open_webui.routers.files import get_file_content_by_id
+        account = await Users.get_user_by_id(user.get("id") if isinstance(user, dict) else "")
+        if account is None:
+            raise RuntimeError("画像を読み取る利用者を確認できません")
+        response = await get_file_content_by_id(file_id, user=account, db=None)
+        media = response.media_type or ""
+        if not media.startswith("image/"):
+            return "", ""
+        def read():
+            with open(response.path, "rb") as file:
+                data = file.read(10 * 1024 * 1024 + 1)
+            if len(data) > 10 * 1024 * 1024:
+                raise RuntimeError("画像は10 MiB以下にしてください")
+            return data
+        data = await asyncio.to_thread(read)
+        return f"data:{media};base64," + base64.b64encode(data).decode(), media
+
+    async def _resolve_images(self, parts: list[dict[str, Any]], files: list[dict[str, Any]], user: Any) -> list[dict[str, Any]]:
+        result = []
+        seen = set()
+        for part in parts:
+            kind = part.get("type")
+            if kind in ("image_url", "input_image", "image"):
+                url = part.get("image_url") if kind != "image" else part.get("url")
+                if isinstance(url, dict):
+                    url = url.get("url")
+                if not isinstance(url, str):
+                    raise RuntimeError("画像URLがありません")
+                parsed = urlparse(url)
+                match = re.fullmatch(r"/api/v1/files/([a-zA-Z0-9-]+)/content", parsed.path)
+                if match:
+                    file_id = match.group(1)
+                    url, _ = await self._file_image(file_id, user)
+                    seen.add(file_id)
+                    if not url:
+                        raise RuntimeError("添付ファイルは画像ではありません")
+                elif parsed.scheme not in ("http", "https", "data"):
+                    raise RuntimeError("この画像URL形式には対応していません")
+                if url not in seen:
+                    result.append({"type": "input_image", "image_url": url})
+                    seen.add(url)
+            else:
+                result.append(part)
+        for file in files:
+            nested = file.get("file") or {}
+            file_id = file.get("id") or nested.get("id")
+            media = file.get("content_type") or (nested.get("meta") or {}).get("content_type", "")
+            if not file_id or file_id in seen or not media.startswith("image/"):
+                continue
+            url, _ = await self._file_image(file_id, user)
+            if url and url not in seen:
+                result.append({"type": "input_image", "image_url": url})
+                seen.add(url)
+            seen.add(file_id)
+        if sum(len(str(v)) for v in result) > 15 * 1024 * 1024:
+            raise RuntimeError("添付を含む入力サイズが15 MiBを超えています")
+        return result
+
+    async def _generated_images(self, client: Any, conversation: str, model: str, request: Any, user: Any) -> AsyncGenerator[str, None]:
+        try:
+            async for rendered in self._import_generated_images(client, conversation, model, request, user):
+                yield rendered
+        except Exception as error:
+            log.warning("Generated image import failed: %s", error)
+            yield f"\n\n生成処理は完了しましたが、画像の取得・表示に失敗しました: {error}\n"
+
+    async def _import_generated_images(self, client: Any, conversation: str, model: str, request: Any, user: Any) -> AsyncGenerator[str, None]:
+        response_id = self._previous_response_id(conversation, model)
+        if not response_id or request is None:
+            return
+        listing = await client.get(f"{self._base_url()}/v1/codex/responses/{response_id}/images", headers=self._headers())
+        if listing.status_code == 404:  # Older Proxy; text remains usable.
+            return
+        listing.raise_for_status()
+        for item in listing.json()["data"]:
+            name = item["name"]
+            async with client.stream("GET", f"{self._base_url()}/v1/codex/responses/{response_id}/images/{quote(name, safe='')}", headers=self._headers()) as response:
+                response.raise_for_status()
+                data = bytearray()
+                async for chunk in response.aiter_bytes():
+                    data.extend(chunk)
+                    if len(data) > 10 * 1024 * 1024:
+                        raise RuntimeError("生成画像が10 MiBを超えています")
+            if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise RuntimeError("生成画像の形式が不正です")
+            from open_webui.models.users import Users
+            from open_webui.routers.files import upload_file_handler
+            from starlette.datastructures import UploadFile, Headers
+            account = await Users.get_user_by_id(user.get("id") if isinstance(user, dict) else "")
+            if account is None:
+                raise RuntimeError("画像の保存先利用者を確認できません")
+            file = UploadFile(io.BytesIO(data), filename=name, headers=Headers({"content-type": "image/png"}))
+            try:
+                saved = await upload_file_handler(request, file=file, metadata={}, process=False, process_in_background=False, user=account, db=None)
+            finally:
+                await file.close()
+            file_id = saved["id"] if isinstance(saved, dict) else saved.id
+            yield f"\n\n![生成画像](/api/v1/files/{file_id}/content)\n"
 
     @staticmethod
     def _last_user_content(messages: Any) -> str:
@@ -464,95 +581,124 @@ class Pipe:
             return model_id
         return model_id.split(marker, 1)[1]
 
+    @staticmethod
+    async def _response_lines(response: Any, approval_task: Any) -> AsyncGenerator[str, None]:
+        """Surface monitor failures even when generation is blocked on approval."""
+        lines = response.aiter_lines()
+        next_line = asyncio.create_task(lines.__anext__())
+        try:
+            while True:
+                waiting = {next_line}
+                if approval_task is not None:
+                    waiting.add(approval_task)
+                done, _ = await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+                if approval_task is not None and approval_task in done:
+                    try:
+                        approval_task.result()
+                    except Exception as error:
+                        raise RuntimeError(f"Approval monitoring failed: {error}") from error
+                    raise RuntimeError("Approval monitoring failed: monitor ended unexpectedly")
+                try:
+                    line = next_line.result()
+                except StopAsyncIteration:
+                    return
+                yield line
+                next_line = asyncio.create_task(lines.__anext__())
+        finally:
+            next_line.cancel()
+            await asyncio.gather(next_line, return_exceptions=True)
+            await lines.aclose()
+
     async def _watch_approvals(
         self,
         client: Any,
         turn_id: str,
         event_call: Any,
     ) -> None:
-        async with client.stream(
-            "GET",
-            f"{self._base_url()}/v1/codex/turns/{turn_id}/events/stream",
-            headers=self._headers(),
-        ) as response:
-            response.raise_for_status()
-            lines = response.aiter_lines()
-            next_line = asyncio.create_task(lines.__anext__())
-            approval_call = None
-            approval_id = None
-            event_name = None
-            try:
-                while True:
-                    pending = {next_line}
-                    if approval_call is not None:
-                        pending.add(approval_call)
-                    done, _ = await asyncio.wait(
-                        pending, return_when=asyncio.FIRST_COMPLETED
+        """Reconcile the authoritative pending list while one dialog is open.
+
+        Polling avoids dropping overlapping requests or depending on delivery of
+        transient SSE events. Never retry a decision whose result is unknown.
+        """
+        approval_call = None
+        active = None
+        submitted: set[str] = set()
+        try:
+            while True:
+                response = await client.get(
+                    f"{self._base_url()}/v1/codex/turns/{turn_id}/approvals",
+                    headers=self._headers(),
+                    timeout=self._healthcheck_timeout(),
+                )
+                response.raise_for_status()
+                pending = {
+                    item["approval_id"]: item
+                    for item in response.json()["data"]
+                    if isinstance(item.get("approval_id"), str)
+                }
+                # Expiry/resolution wins over a simultaneous late button press.
+                if active is not None and active["id"] not in pending:
+                    approval_call.cancel()
+                    await asyncio.gather(approval_call, return_exceptions=True)
+                    approval_call = active = None
+                if approval_call is not None and approval_call.done():
+                    answer = approval_call.result()
+                    decision = self._normalize_decision(answer, active["available_decisions"])
+                    approval_id = active["id"]
+                    submitted.add(approval_id)
+                    result = await client.post(
+                        f"{self._base_url()}/v1/codex/approvals/{approval_id}",
+                        headers=self._headers(),
+                        json={
+                            "decision": decision,
+                            "expected_turn_id": turn_id,
+                            "expected_thread_id": active["details"].get("threadId"),
+                        },
                     )
-                    if approval_call is not None and approval_call in done:
-                        answer = approval_call.result()
-                        approval_call = None
-                        decision = self._normalize_decision(answer, decisions)
-                        approval_response = await client.post(
+                    # An expired/resolved dialog is normal only when confirmed
+                    # by a fresh read. Other conflicts remain actionable errors.
+                    if result.status_code == 409:
+                        current = await client.get(
                             f"{self._base_url()}/v1/codex/approvals/{approval_id}",
                             headers=self._headers(),
-                            json={"decision": decision},
                         )
-                        approval_response.raise_for_status()
-                        event_name = None
-                        continue
-                    if next_line not in done:
-                        continue
-                    try:
-                        line = next_line.result()
-                    except StopAsyncIteration:
-                        break
-                    next_line = asyncio.create_task(lines.__anext__())
-                    if line.startswith("event:"):
-                        event_name = line[6:].strip()
-                        continue
-                    if not line.startswith("data:"):
-                        continue
-                    try:
-                        event = json.loads(line[5:].strip())
-                    except json.JSONDecodeError:
-                        continue
-                    if event_name == "approval_requested":
-                        requested_id = event.get("approval_id")
-                        if not isinstance(requested_id, str) or approval_call is not None:
+                        current.raise_for_status()
+                        if current.json().get("state") == "pending":
+                            result.raise_for_status()
+                    else:
+                        result.raise_for_status()
+                    approval_call = active = None
+                if active is None:
+                    for approval_id in pending:
+                        if approval_id in submitted:
                             continue
-                        approval_id = requested_id
-                        decisions = event.get("availableDecisions") or []
-                        approval_call = asyncio.create_task(
-                            event_call(
-                                {
-                                    "type": "confirmation",
-                                    "data": {
-                                        "title": "Codex approval required",
-                                        "message": (
-                                            "Approve this operation? Available Codex decisions: "
-                                            + ", ".join(str(value) for value in decisions)
-                                        ),
-                                    },
-                                }
-                            )
+                        detail = await client.get(
+                            f"{self._base_url()}/v1/codex/approvals/{approval_id}",
+                            headers=self._headers(),
                         )
-                    elif event_name == "approval_resolved":
-                        if event.get("approval_id") == approval_id and approval_call:
-                            approval_call.cancel()
-                            await asyncio.gather(approval_call, return_exceptions=True)
-                            approval_call = None
-                            approval_id = None
-                    event_name = None
-            finally:
-                next_line.cancel()
-                if approval_call is not None:
-                    approval_call.cancel()
-                await asyncio.gather(
-                    next_line,
-                    *( [approval_call] if approval_call is not None else [] ),
-                    return_exceptions=True,
-                )
+                        detail.raise_for_status()
+                        candidate = detail.json()
+                        if candidate["state"] != "pending":
+                            continue
+                        if candidate["details"].get("turnId") != turn_id:
+                            raise RuntimeError("Approval target does not match the current turn")
+                        active = candidate
+                        approval_call = asyncio.create_task(event_call({
+                            "type": "confirmation",
+                            "data": {
+                                "title": "Codex approval required",
+                                "message": "Approve this operation?\n"
+                                    + json.dumps(active["details"], ensure_ascii=False, indent=2)
+                                    + "\nAvailable decisions: "
+                                    + ", ".join(active["available_decisions"]),
+                            },
+                        }))
+                        break
+                await asyncio.sleep(0.5)
+        finally:
+            if approval_call is not None:
+                approval_call.cancel()
+                await asyncio.gather(approval_call, return_exceptions=True)
 
     @staticmethod
     def _normalize_decision(answer: Any, available: list[Any]) -> str:

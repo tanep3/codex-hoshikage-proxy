@@ -86,7 +86,7 @@ async fn test_app_with_store(
         runtime.clone(),
     )
     .unwrap();
-    let app = router(AppState::new(
+    let mut state = AppState::new(
         runtime.clone(),
         catalog,
         config.cwd_policy.clone(),
@@ -101,8 +101,12 @@ async fn test_app_with_store(
         !args.contains(&"--global-auto-approval-off"),
         journal,
         responses.clone(),
-    ));
-    (app, runtime, responses)
+    );
+    if let Some(root) = args.iter().find_map(|a| a.strip_prefix("generated_root:")) {
+        state.generated_images_root = Some(root.into());
+        state.api_key = Some("image-test-key".into());
+    }
+    (router(state), runtime, responses)
 }
 
 async fn response_text(response: Response) -> String {
@@ -1145,4 +1149,79 @@ async fn tcp_disconnect_immediately_after_headers_interrupts_silent_turn() {
         result.is_ok(),
         "TCP response body drop must interrupt without needing a model delta"
     );
+}
+
+#[tokio::test]
+async fn generated_images_are_authenticated_and_bound_to_execution_time_and_thread() {
+    use codex_hoshikage_proxy::control::Execution;
+    use std::fs::{self, File, FileTimes};
+    use std::os::unix::fs::symlink;
+    let root = std::env::temp_dir().join(format!("generated-image-test-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(root.join("thread_image")).unwrap();
+    let prefix = format!("generated_root:{}", root.display());
+    let (app, runtime, store) =
+        test_app_with_store(&[&prefix], Duration::from_secs(10), None).await;
+    let mut execution = Execution::new("resp_image".into(), None, None);
+    execution.thread_id = Some("thread_image".into());
+    execution.phase = "finished".into();
+    execution.started_at_ms = 1000;
+    execution.last_observed_at_ms = 3000;
+    store.control.reserve(execution).unwrap();
+    for (name, time) in [("current.png", 2000), ("old.png", 500), ("later.png", 4000)] {
+        let path = root.join("thread_image").join(name);
+        fs::write(&path, b"\x89PNG\r\n\x1a\ntest").unwrap();
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(
+                FileTimes::new().set_modified(SystemTime::UNIX_EPOCH + Duration::from_millis(time)),
+            )
+            .unwrap();
+    }
+    symlink(
+        root.join("thread_image/current.png"),
+        root.join("thread_image/link.png"),
+    )
+    .unwrap();
+    let base = "/v1/codex/responses/resp_image/images";
+    let response = app
+        .clone()
+        .oneshot(Request::get(base).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(base)
+                .header("authorization", "Bearer image-test-key")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&response_text(response).await).unwrap();
+    assert_eq!(value["data"].as_array().unwrap().len(), 1);
+    assert_eq!(value["data"][0]["name"], "current.png");
+    for (name, status) in [
+        ("current.png", StatusCode::OK),
+        ("old.png", StatusCode::NOT_FOUND),
+        ("later.png", StatusCode::NOT_FOUND),
+        ("link.png", StatusCode::FORBIDDEN),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("{base}/{name}"))
+                    .header("authorization", "Bearer image-test-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status, "{name}");
+    }
+    runtime.shutdown().await.unwrap();
+    fs::remove_dir_all(root).unwrap();
 }
