@@ -96,3 +96,9 @@ OpenAI互換APIとGateway拡張API v2を同時に標準提供する。既存の�
 - v1/v2とも同じ要求キーの再送が同じResponse IDを指し、新規実行しないこと。v1の重複応答は契約どおり実行記録を返す（検証スクリプトの`id`参照を`response_id`へ修正して照合）。
 
 標準有効化後の自動テスト106件、Clippy警告ゼロ、整形・差分チェックを通過した。別LAN PC・Gateway/Discord結合・混合負荷の未確認項目は[v2受入記録](v2-implementation-status.ja.md)に残す。
+
+## 2026-09-11 画像対応の反映記録
+
+22:40 JSTに`a6eded43651381ecbbe6dd55a9762dbfca1bc458`のreleaseバイナリへ更新。設定・認証・LAN待受を維持し、旧版を`~/.cargo/bin/codex-hoshikage-proxy.before-images-20260911T134017Z`へ退避した。Gatewayは常駐したまま正常に再接続している。
+
+Proxyテスト107件とClippy、PIPEテスト8件を通過。実画像入力による識別、生成画像APIの元PNGとのバイト一致、OpenWebUI利用者所有ファイルへの保存・画像リンク生成を確認。PIPE 0.6.0を登録済み。旧登録内容は`/home/tane/tools/docker/open-webui/pipe-backup-20260911T134107Z/`、復旧した作画回答の変更前内容は`/home/tane/tools/docker/open-webui/image-chat-backup-20260911T134257Z/`に権限を制限して保存している。
