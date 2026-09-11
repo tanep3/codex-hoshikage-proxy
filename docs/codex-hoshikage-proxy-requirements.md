@@ -23,6 +23,9 @@ Codex 0.153.4＋gpt-5.6-lunaで主要APIと切断・承認キャンセル／期�
 画像入力とoutputSchema、Chatの推論強度、モデル一覧のページ送りを追加した。
 App Server異常終了時のProxy終了とsystemdによる再起動に対応した。完全なtool call／usage変換、長時間・高負荷検証などは未完了である。
 
+制御API v1（要求IDの永続照会、Steer／中断、承認制御、snapshot SSE）と同一Provider内の会話モデル変更も実装し、実Codexで検証した。
+現行の永続化はJSONL（`mappings.jsonl`／`executions.jsonl`）であり、本文中のSQLite構想は未実装である。
+正確な契約・責務境界は[制御API v1](control-api.ja.md)、適用済みの構成は[常駐設定](server-operations.md)を参照する。
 
 ---
 

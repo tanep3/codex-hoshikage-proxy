@@ -7,6 +7,8 @@ Start with the end-user documentation:
 - [Installation Guide](installation.md)
 - [User and API Guide](user-guide.md)
 - [OpenWebUI Registration Guide](openwebui.md)
+- [Server service operations (Japanese)](server-operations.md)
+- [Control API v1 and Gateway contract (Japanese)](control-api.ja.md)
 
 Project references:
 
@@ -17,10 +19,6 @@ Project references:
 - [Live Codex validation](live-codex-validation.md)
 - [Development checks](development.md)
 
-The operational guides above are maintained in English with Japanese counterparts. The requirements,
+Installation, user/API, and OpenWebUI guides have English and Japanese versions.
+Server operations and the control API contract are maintained in Japanese. The requirements,
 design, and task records are internal project references and remain Japanese-first for now.
-
-
-- [Server service operations](server-operations.md)
-
-- [Control API v1 and Gateway contract (Japanese)](control-api.ja.md)

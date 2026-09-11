@@ -37,6 +37,7 @@ ollama/gemma4:e4b
 - 画像入力（URL／data URL）とJSON Schemaによる出力指定
 - Codexによるファイル操作・シェル実行、承認処理、作業ディレクトリの許可リスト
 - ChatGPTモデルだけに適用できる推論レベル指定
+- 永続化した要求ID照会、重複実行防止、TurnのSteer／中断、同一Provider内の会話モデル変更。詳細は[制御API v1](docs/control-api.ja.md)。
 
 つまり、使い慣れたOpenAI互換クライアントからCodexを呼び出すための橋渡しです。
 
@@ -57,6 +58,8 @@ ollama/gemma4:e4b
 Codex CLI/App Server `0.147.0`以降を対象とし、今回の実接続検証は`0.153.4`＋`gpt-5.6-luna`で実施しました。
 OpenWebUI `v0.11.0`の過去の受入記録はありますが、今回の画像・構造化出力はProxy APIへの直接接続で検証しています。
 
+制御APIの要求照会・重複防止・Steer・中断、および`gpt-5.6-luna`から`gpt-5.6-terra`への同一Thread内変更と再起動後の継承も実接続確認済みです。
+
 ## 動作確認と残る制約
 
 通常応答、会話継続、画像入力（`detail=high`）、JSON Schema、ストリーミング、切断時の中断、承認キャンセル／期限切れ、App Server異常終了時のエラー通知を実環境で確認しました。
@@ -64,13 +67,11 @@ OpenWebUI `v0.11.0`の過去の受入記録はありますが、今回の画像�
 - `detail=low`で画像の色を誤認する現象が、このモデルではApp Serverへの直接接続でも再現しています。画像には当面`high`を使用してください。
 - ツール呼び出し／結果・usageの完全なOpenAI形式変換、ユーザーへの質問やMCP elicitationの対話中継は未対応です。
 - App Server異常終了時はProxyも異常終了します。付属systemdサービスでは5秒後に再起動します。実行中の処理は自動再実行しません。
+- 最終出力の再取得とSSEの過去イベント再生は未対応です。制御APIは共有運用者向けで、利用者ごとの分離はありません。
 - 長時間・高負荷運転や、全モデル／全クライアントの互換性は未検証です。
 
 詳細は[対応表](docs/app-server-coverage.md)、[実接続テスト結果](docs/live-codex-validation.md)、[開発時の検証手順](docs/development.md)を参照してください。
 
 ## ライセンス
 
-Copyright (c) 2026 Tane Channel Technology。[[MIT License](LICENSE)]です。
-
-
-汎用クライアント向けの要求ID照会・Steer・中断・同一Provider内モデル変更は[制御API v1](docs/control-api.ja.md)を参照してください。
+Copyright (c) 2026 Tane Channel Technology。[MIT License](LICENSE)です。

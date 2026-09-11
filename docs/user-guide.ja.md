@@ -23,7 +23,7 @@
 | `server.turn_heartbeat_seconds` | Turn実行中にSSE heartbeatを送る間隔。デフォルトは`30`秒 |
 | `security.allowed_cwds` | Codexが使える実在する正規化済みディレクトリのルート |
 | `security.api_key` / `api_key_env` | クライアント認証。非loopbackでは必須 |
-| `defaults.model` | リクエストにmodelがない場合のモデル |
+| `defaults.model` | 新規会話／Chatでmodelを省略した場合のモデル。Responses継続ではThreadの最新選択を継承 |
 | `approval.timeout_seconds` | 承認の有効期限 |
 | `approval.auto_approve_workspace` | 指定ワークスペース内のCodex操作を自動承認するか。デフォルトは `true` |
 | `codex.sandbox.mode` | 新しいThreadで使うCodexのsandboxモード。デフォルトは `workspace-write` |
@@ -61,8 +61,10 @@ curl -H "Authorization: Bearer $PROXY_API_KEY" \
 ```
 
 ProxyはCodex App Serverの標準`thread/read`メソッドへ`includeTurns=true`を付けて問い合わせます。
-`inProgress`、`completed`、`interrupted`、`failed`の状態、取得できた失敗理由、Proxyが最後に受信したイベント時刻を返します。
-これにより、長時間処理中なのか、イベントストリームが止まったのかを切り分けられます。
+`status`は`inProgress`、`completed`、`interrupted`、`failed`、または照会できない場合の`unknown`です。
+保存済みの観測値は`last_observed_status`と`last_observed_at_ms`として別に返します。
+互換フィールド`last_event_at_ms`もこの状態観測時刻であり、進捗イベントの最終受信時刻ではありません。
+`unknown`を完了や失敗として扱わないでください。
 
 `server.turn_idle_timeout_seconds`は、Codex App Serverからイベントが届かない時間の上限です。
 タスク全体の実行時間ではありません。期限を超えるとProxyはCodex Turnへinterruptを送り、
@@ -112,9 +114,13 @@ MVPで対応する主なフィールドは `model`、`input`、`previous_respons
 
 Proxy再起動後は`thread/resume`で保存済みThreadを再読み込みし、利用可能な場合に継続できます。利用不能なら `thread_not_found` となり、会話文から擬似復元はしません。
 
+継続できるのは成功したResponseだけです。同一Provider内なら`model`を指定して、履歴を保ったまま次のTurnからモデルを変更できます。
+継続時の`model`省略は、参照した古いResponseのモデルではなく、そのThreadで最後に開始が受理されたモデルを継承します。
+Providerをまたぐ変更は409、同一Threadの実行競合も409です。付属OpenWebUI Pipeは引き続きモデル変更時に新規Threadを作ります。
+
 ## Chat Completions API
 
-OpenWebUIはこのエンドポイントを使用します。
+通常のOpenAI互換Chatクライアント向けです。付属のOpenWebUI PipeはResponses APIを使用します。
 
 ```sh
 curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
@@ -131,7 +137,7 @@ curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
 - `401 invalid_api_key`: クライアント認証失敗。
 - `404 model_not_found`: 公開モデルIDが未登録。
 - `409 approval_required`: 承認機能のないクライアントで承認要求が発生。ProxyはCodex側を拒否／キャンセルしてTurnを解放し、タイムアウト待ちはしません。
-- `409 thread_not_found`: 継続対象のResponses Threadが利用不能。
+- `404 thread_not_found`: 継続対象のResponses Threadが利用不能。
 - `400 unsupported_parameter`: 対応しないプロバイダ固有オプション。
 - `turn_failed`等: 利用可能ならCodexの失敗詳細を含みます。
 
@@ -150,7 +156,9 @@ Sandbox設定とProxyの自動承認設定は別物です。`codex.sandbox.writa
 - リモート公開時はAPI Keyを使い、TLSはリバースプロキシへ委譲。
 - 特別な理由がない限りCORSは無効のまま。
 - 作業ディレクトリの許可ルートは狭く設定し、事前に存在させる。
-- Event Journalはメタデータ中心で、ローテーションと保持期間を運用で設定。出力やファイル内容はサイズ制限／redaction対象。
+- Event Journalと実行台帳に自動ローテーション・期限削除はありません。ディスク使用量を監視してください。
+- `state/responses/mappings.jsonl`と`executions.jsonl`は会話継続・重複実行防止に必要です。更新や復旧時に削除せず、同じ状態ディレクトリを複数Proxyで共有しないでください。
+- 実行台帳はメタデータを保存し、プロンプトや最終出力の再取得用ストアではありません。
 - 信頼できない利用者へCodex実行を公開しない。クライアントAPI Keyは承認やファイルシステム制御の代わりにはなりません。
 
 ## 画像入力と構造化出力
@@ -200,3 +208,7 @@ ChatGPTプロバイダでは`reasoning_effort: "high"`も指定でき、その�
 ## 汎用の実行制御
 
 開始時の識別子、Idempotency-Key、状態照会、Steer、中断、承認抑制、会話モデル変更の契約は[制御API v1](control-api.ja.md)を参照してください。同一Provider内のモデル変更は次のTurnに反映し、会話履歴を保持します。
+
+Responsesに`Idempotency-Key`を付けると要求IDで照会できます。同じキー・同じ本文の再送は実行記録を返し、出力やSSEを再配信しません。
+監視SSEの再接続はsnapshot方式で、過去イベントの差分再生はありません。生成接続の切断はTurn中断を伴いますが、監視接続の切断は中断しません。
+制御APIは同じAPIキーを共有する運用者向けで、利用者ごとの分離はありません。

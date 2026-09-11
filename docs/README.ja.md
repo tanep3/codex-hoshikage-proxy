@@ -7,6 +7,8 @@
 - [インストールガイド](installation.ja.md)
 - [ユーザー／APIガイド](user-guide.ja.md)
 - [OpenWebUI登録ガイド](openwebui.ja.md)
+- [サーバー常駐設定と操作](server-operations.md)
+- [汎用制御API v1・Gatewayへの契約回答](control-api.ja.md)
 
 プロジェクト内部資料:
 
@@ -17,9 +19,4 @@
 - [実Codex接続テスト結果](live-codex-validation.md)
 - [開発時の検証手順](development.md)
 
-上の運用ガイドは英語版と日本語版を対で管理します。要件・設計・タスク記録は現時点では日本語中心の内部資料です。
-
-
-- [サーバー常駐設定と操作](server-operations.md)
-
-- [汎用制御API v1・Gatewayへの契約回答](control-api.ja.md)
+インストール・ユーザー／API・OpenWebUIガイドは英語版と日本語版を対で管理します。常駐設定と制御API契約は日本語で管理します。要件・設計・タスク記録は現時点では日本語中心の内部資料です。

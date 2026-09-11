@@ -64,3 +64,14 @@ HTTP終了待ちの上限は5秒、サービスの停止上限は15秒とする�
 更新後は認証付き`/readyz`、`/v1/codex/capabilities`（契約1.0）、モデル一覧、短いResponses生成と要求ID・Turn状態照会を確認する。認証なしが401になること、`0.0.0.0:4040`の待受も確認する。初期起動・ヘルス確認に失敗した場合は退避バイナリへ戻して再起動する。
 
 制御API対応版では実行メタデータを`state/responses/executions.jsonl`へ同期保存する。新形式の記録と旧`mappings.jsonl`を維持し、更新・ロールバック時に状態ディレクトリを削除しない。
+
+## 2026-09-11 制御API v1適用記録
+
+09:03 JSTに実装コミット`6875bb0859878d3ac7f3d4dcd185e1db88c05244`のreleaseビルドを適用した。
+適用記録は`~/.config/codex-hoshikage-proxy/last-update.json`、旧バイナリは
+`~/.cargo/bin/codex-hoshikage-proxy.before-6875bb085987`に保存した。
+
+反映後にサービス稼働・自動起動有効・`0.0.0.0:4040`待受を確認した。
+サーバー自身からLAN IPへ接続し、キーなし／不正キーの401、制御API契約1.0、モデル一覧6件を確認した。
+実Codexへの短いResponses要求は`DEPLOY_OK`で完了し、要求ID照会・Turnのcompleted状態・同一Idempotency-Key再送時の同一Response IDも確認した。
+これはProxyの受入記録であり、これから実装するGatewayや別LAN PCからの接続を検証したものではない。

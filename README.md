@@ -41,6 +41,8 @@ The proxy provides:
 - Image inputs (URLs/data URLs) and JSON Schema output constraints.
 - Codex file and shell operations, approval handling, and working-directory allowlists.
 - Independent reasoning-effort selection for ChatGPT models.
+- Durable request lookup, duplicate prevention, Turn steer/interrupt, and conversation model changes
+  within one provider. See the [Control API v1 contract (Japanese)](docs/control-api.ja.md).
 
 In short: it is a bridge between familiar OpenAI-compatible clients and Codex.
 
@@ -62,6 +64,9 @@ The compatibility target starts at Codex CLI/App Server `0.147.0`. This round of
 `0.153.4` with `gpt-5.6-luna`. Historical OpenWebUI `v0.11.0` acceptance notes are available; the new
 image and structured-output checks used the proxy API directly.
 
+Live checks also cover control request lookup, duplicate prevention, steer, interrupt, and a
+`gpt-5.6-luna` to `gpt-5.6-terra` change in the same thread with inheritance after restart.
+
 ## Validation and remaining limits
 
 Live checks cover ordinary responses, conversation continuation, images with `detail=high`, JSON Schema,
@@ -72,6 +77,8 @@ streaming, disconnect interruption, approval cancellation/expiry, and errors aft
 - Full OpenAI tool-call/result and usage conversion, user-input questions, and MCP elicitation relay remain incomplete.
 - App Server failure causes the proxy to exit with an error. The bundled systemd service restarts it
   after five seconds; interrupted requests are not automatically replayed.
+- Final-output retrieval and historical SSE replay are unsupported. Control APIs use a shared
+  operator scope without per-user isolation.
 - Long-running/high-load operation and compatibility with every model/client have not been validated.
 
 See [coverage](docs/app-server-coverage.md), [live validation](docs/live-codex-validation.md), and
@@ -80,6 +87,3 @@ See [coverage](docs/app-server-coverage.md), [live validation](docs/live-codex-v
 ## License
 
 Copyright (c) 2026 Tane Channel Technology. Licensed under the [MIT License](LICENSE).
-
-
-See the [Control API v1 contract (Japanese)](docs/control-api.ja.md) for request lookup, steer, interrupt, and conversation model changes within one provider.

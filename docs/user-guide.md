@@ -25,7 +25,7 @@ Important settings:
 | `server.turn_heartbeat_seconds` | SSE heartbeat interval during a running Turn; default `30`. |
 | `security.allowed_cwds` | Existing canonical directory roots Codex may use |
 | `security.api_key` / `api_key_env` | Client authentication; required for non-loopback |
-| `defaults.model` | Public model ID used when a request omits `model` |
+| `defaults.model` | Default for new conversations and Chat when `model` is omitted; Responses continuations inherit the latest selection in the thread |
 | `approval.timeout_seconds` | Approval expiry interval |
 | `approval.auto_approve_workspace` | Automatically accepts operations Codex reports inside the requested workspace; default `true` |
 | `codex.sandbox.mode` | Codex sandbox mode used for new threads; `workspace-write` is the default |
@@ -63,11 +63,12 @@ curl -H "Authorization: Bearer $PROXY_API_KEY" \
   http://127.0.0.1:4040/v1/codex/turns/{turn_id}/status
 ```
 
-The endpoint asks Codex App Server's standard `thread/read` method for the current
-thread and Turn state. It reports `inProgress`, `completed`, `interrupted`, or
-`failed`, together with the latest Codex error when available. It also includes the
-last event observed by the Proxy, which helps distinguish a live long-running Turn
-from a Turn whose event stream has stopped.
+The endpoint queries Codex App Server with `thread/read` and `includeTurns=true`.
+`status` is `inProgress`, `completed`, `interrupted`, `failed`, or `unknown` when the
+current state cannot be queried. Persisted observations are returned separately as
+`last_observed_status` and `last_observed_at_ms`. The compatibility field
+`last_event_at_ms` also means this status observation time, not the last progress
+event time. Do not interpret `unknown` as completion or failure.
 
 `server.turn_idle_timeout_seconds` is an inactivity timeout: it limits how long the
 Proxy waits without receiving any Codex App Server event. It is not a total task
@@ -125,9 +126,15 @@ Use the returned response ID to continue a durable Responses conversation:
 After a proxy restart, the proxy uses `thread/resume` to reload the persisted Codex thread when available. Otherwise
 the proxy returns `thread_not_found`; it does not reconstruct a thread from conversation text.
 
+Only successful Responses can be continued. Specify `model` to change models within the same
+provider for the next Turn while keeping thread history. If omitted, the model is inherited from
+the latest accepted Turn start in that thread, even when referencing an older Response.
+Cross-provider changes and concurrent execution in one thread return 409. The bundled OpenWebUI
+Pipe still starts a new thread when its model selection changes.
+
 ## Chat Completions API
 
-OpenWebUI uses this endpoint:
+Use this endpoint for ordinary OpenAI-compatible Chat clients. The bundled OpenWebUI Pipe uses the Responses API.
 
 ```sh
 curl -N -H "Authorization: Bearer $PROXY_API_KEY" \
@@ -147,7 +154,7 @@ client-defined tool calling or every advanced OpenAI field.
 - `404 model_not_found`: the public model ID is not registered.
 - `409 approval_required`: a client without approval capability reached a tool approval request. The
   proxy declines/cancels the Codex-side request and releases the turn; it does not wait for a timeout.
-- `409 thread_not_found`: a requested durable Responses thread is unavailable.
+- `404 thread_not_found`: a requested durable Responses thread is unavailable.
 - `400 unsupported_parameter`: a provider-specific option was sent to the wrong provider.
 - `turn_failed` or a failed completion: the response includes the Codex failure detail when available.
 
@@ -172,8 +179,10 @@ Set `network_access = true` only for trusted local skills that need outbound net
 - For remote access, use an API key and place TLS at a reverse proxy.
 - Keep CORS disabled unless you have a specific trusted browser deployment.
 - Keep allowed working-directory roots narrow and existing.
-- Event Journal files are metadata-oriented and should be rotated and retained according to local policy;
-  command output and file content are size-limited/redacted when recorded.
+- Event Journal and execution records have no automatic rotation or expiry. Monitor disk usage.
+- Preserve `state/responses/mappings.jsonl` and `executions.jsonl` during updates and recovery; they
+  support conversation continuation and duplicate prevention. Only one Proxy may own a state directory.
+- The execution ledger stores metadata, not prompts or final output for later retrieval.
 - Do not expose Codex execution to untrusted users. The client API key is not a substitute for approval
   or filesystem policy.
 
@@ -205,3 +214,8 @@ See the [live validation report](live-codex-validation.md).
 ## Execution control
 
 The [Control API v1 contract (Japanese)](control-api.ja.md) covers start identity, Idempotency-Key, status lookup, steer, interrupt, approval suppression and conversation model changes. Model changes within one provider apply to the next turn while preserving thread history.
+
+Use `Idempotency-Key` on Responses for request-ID lookup. Repeating the same key and body returns
+execution metadata, not replayed output or SSE. Observer SSE reconnects provide snapshots, not
+historical event replay. Disconnecting generation interrupts the Turn; disconnecting observation does not.
+Control APIs assume a shared operator API key and do not isolate individual users.
