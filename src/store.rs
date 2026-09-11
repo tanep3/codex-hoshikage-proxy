@@ -39,9 +39,19 @@ impl ResponseStore {
         let directory = root.as_ref().join("state/responses");
         fs::create_dir_all(&directory).await?;
         let path = directory.join("mappings.jsonl");
+        let control = crate::control::ControlStore::open(&directory)?;
         let mut mappings = HashMap::new();
         let mut next_id = 1;
-        match fs::read_to_string(&path).await {
+        let stored = if let Some(records) = control.persisted_mappings()? {
+            Ok(records
+                .iter()
+                .map(|v| serde_json::to_string(v).expect("mapping"))
+                .collect::<Vec<_>>()
+                .join("\n"))
+        } else {
+            fs::read_to_string(&path).await
+        };
+        match stored {
             Ok(contents) => {
                 for line in contents.lines().filter(|line| !line.trim().is_empty()) {
                     let mapping: ResponseMapping = serde_json::from_str(line)?;
@@ -53,13 +63,16 @@ impl ResponseStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
+        for record in control.records()? {
+            next_id = next_id.max(parse_response_id(&record.response_id).saturating_add(1));
+        }
         let writer = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&path)
             .await?;
         Ok(Self {
-            control: crate::control::ControlStore::open(&directory)?,
+            control,
             path,
             writer: Mutex::new(writer),
             mappings: Mutex::new(mappings),
@@ -76,6 +89,13 @@ impl ResponseStore {
     }
 
     pub async fn put(&self, mapping: ResponseMapping) -> Result<(), ResponseStoreError> {
+        if self.control.persist_mapping(&mapping)? {
+            self.mappings
+                .lock()
+                .await
+                .insert(mapping.response_id.clone(), mapping);
+            return Ok(());
+        }
         let mut line = serde_json::to_vec(&mapping)?;
         line.push(b'\n');
         let mut writer = self.writer.lock().await;

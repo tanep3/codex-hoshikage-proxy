@@ -15,8 +15,13 @@
 - [要件定義](codex-hoshikage-proxy-requirements.md)
 - [システム設計](codex-hoshikage-proxy-system-design.md)
 - [タスクと受入メモ](TASKS.md)
+- [ワーク・成果物・回答復旧 API v2 契約](workspace-artifact-api-v2.ja.md)
 - [App Server対応表](app-server-coverage.md)
 - [実Codex接続テスト結果](live-codex-validation.md)
 - [開発時の検証手順](development.md)
 
 インストール・ユーザー／API・OpenWebUIガイドは英語版と日本語版を対で管理します。常駐設定と制御API契約は日本語で管理します。要件・設計・タスク記録は現時点では日本語中心の内部資料です。
+
+- [v2の設定・運用](v2-operations.ja.md)
+- [v2実装・受入記録](v2-implementation-status.ja.md)
+- [v2実装設計](v2-system-design.ja.md)

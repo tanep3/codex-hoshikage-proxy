@@ -23,6 +23,7 @@ pub enum ConfigError {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct RawConfig {
+    pub v2: crate::v2::limits::Limits,
     pub server: RawServerConfig,
     pub codex: RawCodexConfig,
     pub security: RawSecurityConfig,
@@ -35,6 +36,7 @@ pub struct RawConfig {
 impl Default for RawConfig {
     fn default() -> Self {
         Self {
+            v2: Default::default(),
             server: RawServerConfig::default(),
             codex: RawCodexConfig::default(),
             security: RawSecurityConfig::default(),
@@ -65,6 +67,7 @@ impl Default for RawApprovalConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct RawServerConfig {
+    pub v2_enabled: bool,
     pub host: String,
     pub port: u16,
     pub default_cwd: Option<String>,
@@ -77,6 +80,7 @@ pub struct RawServerConfig {
 impl Default for RawServerConfig {
     fn default() -> Self {
         Self {
+            v2_enabled: true,
             host: "127.0.0.1".into(),
             port: 4040,
             default_cwd: None,
@@ -254,6 +258,8 @@ impl Default for RawCompatibilityConfig {
 
 #[derive(Debug, Clone)]
 pub struct ValidatedConfig {
+    pub v2_enabled: bool,
+    pub v2_limits: crate::v2::limits::Limits,
     pub listen_addr: SocketAddr,
     pub codex_command: String,
     pub codex_args: Vec<String>,
@@ -424,6 +430,14 @@ impl ValidatedConfig {
                 "non-loopback server requires security.api_key_env with a non-empty environment value".into(),
             ));
         }
+        raw.v2
+            .validate()
+            .map_err(|e| ConfigError::Invalid(e.to_string()))?;
+        if raw.server.v2_enabled && api_key.is_none() {
+            return Err(ConfigError::Invalid(
+                "v2 requires a non-empty API key".into(),
+            ));
+        }
         let registry = RawModelRegistryConfig {
             default_model: raw.defaults.model,
             providers: raw.providers,
@@ -433,6 +447,8 @@ impl ValidatedConfig {
             listen_addr,
             codex_command: raw.codex.command,
             codex_args: raw.codex.args,
+            v2_enabled: raw.server.v2_enabled,
+            v2_limits: raw.v2,
             cwd_policy: CwdPolicy {
                 allowed_roots: roots,
             },
@@ -584,6 +600,7 @@ mod tests {
         ];
         raw.security.api_key = Some("config-secret".into());
         let config = ValidatedConfig::from_raw(raw).unwrap();
+        assert!(config.v2_enabled);
         assert_eq!(config.api_key.as_deref(), Some("config-secret"));
     }
 
@@ -621,6 +638,7 @@ mod tests {
 
             [security]
             allowed_cwds = ["/tmp"]
+            api_key = "test-key"
             "#,
         )
         .expect("valid config");
@@ -633,6 +651,7 @@ mod tests {
     #[test]
     fn generates_codex_provider_config_without_touching_auth() {
         let mut raw = RawConfig::default();
+        raw.security.api_key = Some("test-key".into());
         raw.server.default_cwd = Some("/tmp".into());
         raw.security.allowed_cwds = vec!["/tmp".into()];
         raw.codex.sandbox.writable_roots = vec!["/tmp".into()];
@@ -655,6 +674,7 @@ mod tests {
     #[test]
     fn rejects_sandbox_writable_root_outside_cwd_allowlist() {
         let mut raw = RawConfig::default();
+        raw.security.api_key = Some("test-key".into());
         raw.server.default_cwd = Some("/tmp".into());
         raw.security.allowed_cwds = vec!["/tmp".into()];
         raw.codex.sandbox.writable_roots = vec!["/var".into()];
@@ -667,6 +687,7 @@ mod tests {
     #[test]
     fn generates_auth_env_key_only_when_configured() {
         let mut raw = RawConfig::default();
+        raw.security.api_key = Some("test-key".into());
         raw.server.default_cwd = Some("/tmp".into());
         raw.security.allowed_cwds = vec!["/tmp".into()];
         raw.providers
@@ -688,6 +709,7 @@ mod tests {
     #[test]
     fn does_not_override_codex_builtin_providers() {
         let mut raw = RawConfig::default();
+        raw.security.api_key = Some("test-key".into());
         raw.server.default_cwd = Some("/tmp".into());
         raw.security.allowed_cwds = vec!["/tmp".into()];
         raw.providers.insert(

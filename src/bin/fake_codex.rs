@@ -5,6 +5,10 @@ use std::{
 };
 
 fn main() {
+    if std::env::args().any(|a| a == "--version") {
+        println!("codex-cli 0.153.4");
+        return;
+    }
     let stdin = io::stdin();
     let approval_mode = std::env::var("FAKE_CODEX_APPROVAL").is_ok()
         || std::env::args().any(|arg| arg == "--approval");
@@ -32,6 +36,17 @@ fn main() {
         let Some(id) = request.get("id").cloned() else {
             continue;
         };
+        if request.get("method").is_none() && id == "artifact_fake" {
+            write_json(
+                &json!({"method":"item/agentMessage/delta","params":{"threadId":thread_id,"turnId":turn_id,"delta":if request["result"]["success"]==true{"artifact published"}else{"artifact failed"}}}),
+            );
+            turn_status = "completed";
+            turns.insert(turn_id.clone(), (thread_id.clone(), turn_status.into()));
+            write_json(
+                &json!({"method":"turn/completed","params":{"threadId":thread_id,"turnId":turn_id,"turn":{"id":turn_id,"status":"completed"}}}),
+            );
+            continue;
+        }
         if approval_pending && request.get("method").is_none() && id == approval_id {
             approval_pending = false;
             turn_status = "completed";
@@ -171,6 +186,18 @@ fn main() {
                 }
                 let response = json!({"jsonrpc":"2.0","id":id,"result":{"turn":{"id":turn_id}}});
                 write_json(&response);
+                if std::env::args().any(|arg| arg == "--artifact-tool") {
+                    let cwd = request["params"]["cwd"].as_str().unwrap();
+                    std::fs::write(
+                        std::path::Path::new(cwd).join("report.txt"),
+                        "immutable artifact",
+                    )
+                    .unwrap();
+                    write_json(
+                        &json!({"id":"artifact_fake","method":"item/tool/call","params":{"threadId":thread_id,"turnId":turn_id,"callId":format!("call_{turn_id}"),"tool":"hoshikage_publish_artifact","arguments":{"path":"report.txt","display_name":"report.txt"}}}),
+                    );
+                    continue;
+                }
                 if std::env::args().any(|arg| arg == "--exit-during-turn") {
                     return;
                 }

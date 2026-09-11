@@ -7,13 +7,21 @@
 | 文書名 | Codex Hoshikage Proxy システム設計書 |
 | プロジェクト名 | Codex Hoshikage Proxy |
 | 文書種別 | システム設計書 |
-| 対象フェーズ | MVP（段階実装） |
+| 対象フェーズ | 製品版（v1互換API・v2 Gateway契約） |
 | 状態 | Draft |
 | 対応要件 | `codex-hoshikage-proxy-requirements.md` |
 | 想定公開先 | GitHub |
 | Proxy実装言語 | Rust |
 | OpenWebUI連携実装言語 | Python |
 | 設定ルート | `~/.config/codex-hoshikage-proxy` |
+
+### v2製品契約の実装方針
+
+[合意済み契約0.2](workspace-artifact-api-v2.ja.md)をワーク・成果物・回答復旧の規範とする。
+SQLiteによる会話・操作・占有・停止意思・保存物・リース・監査のtransaction、私有ファイルの同期公開、
+会話IDでの永続実行、HTTP切断と明示停止の分離を実装する。Discord認可・キュー・配信結果はGatewayが所有する。
+以下の旧Draft記述と競合する場合はv2契約を優先する。既存v1の提供範囲は維持し、v2の実装・受入状況は
+[v2実装記録](v2-implementation-status.ja.md)で別管理する。実装構造は[v2実装設計](v2-system-design.ja.md)、管理操作は[v2運用手順](v2-operations.ja.md)を参照する。未検証機能を利用可能と表示しない。
 
 ### 実装・検証状況（2026-09-11）
 

@@ -1,0 +1,77 @@
+# v2の設定・運用
+
+実装対象は[契約0.2](workspace-artifact-api-v2.ja.md)。[受入記録](v2-implementation-status.ja.md)の未確認項目を本番保証に含めない。常駐サービスの設定はこの実装作業では変更していない。
+
+## 有効化と保存先
+
+Codex CLI 0.153.4を使用する。v2の動的ツールadapterはこの検証済み版に固定し、異なる版では起動を拒否する。更新時はschemaと実接続の再受入を行ってadapterの対応版を更新する。
+
+v2は標準で有効で、バージョン切替設定は不要。`config.example.toml`を使い、`PROXY_API_KEY`環境変数（または`security.api_key`）に十分に長いAPIキーを設定する。`/v1`のOpenAI互換APIも併用できる。明示的な`server.v2_enabled = false`はv2未移行環境の旧動作検証用で、通常運用には使わない。LAN利用時の`server.host = "0.0.0.0"`は従来どおり利用可能。v2追加によるlistenアドレス変更はない。
+
+- 管理ワーク: 保存された`default_cwd`配下の`.managed-workspaces/ws_*`。
+- メタデータ・保存物: `$CODEX_HOSHIKAGE_PROXY_HOME/state/v2/`。SQLite WAL、同期commit、同時所有者ロック、ディレクトリ700・保存ファイル600。
+- Codex履歴: 同じProxy homeの`codex-home/`。
+- v1の既存台帳: 初回v2起動時に`state/responses/`を検証し、`pre-v2/`へ元バイト列とハッシュを退避してSQLiteへ取り込む。以後の要求キー・会話対応は同じDBが正本で、JSONLへの追記は止まる。移行は一度だけ。破損した台帳を無視して再作成しない。
+
+モデルの作業領域とProxy状態領域を分離する。v2は共有運用者のBearer認証であり、Discord利用者ごとの認可はGatewayの責務。保存時暗号化は実装していない。バックアップには会話内容・生成物が含まれるため、保存先にも同等のアクセス制御を適用する。
+
+`GET /v2/codex/capabilities`でinstance・generation・実効制限を取得し、それ以外のv2要求へ`X-Proxy-Instance-Id`と`X-Proxy-Recovery-Generation`を付ける。POSTには`Idempotency-Key`が必要。202を受けたら操作・対象IDを保存して照会する。通信結果が不明な要求を新しいキーでやり直さない。
+
+新しい入力はSQLiteに一時保存され、開始確定／確定拒否で削除される。UNKNOWNの入力は保持期限後に削除するが、要求キーと結果記録は残す。削除は物理媒体からの完全消去を意味しない。
+
+容量設定は`[v2]`に置く。`GET /v2/codex/capacity`で使用・予約量を確認する。期限切れ内容はGCし、操作・成果物の識別情報は残す。ワーク原本は自動削除しない。
+
+## ローカル管理
+
+サーバ実行ユーザー専用の`state/v2/admin.sock`を使う。HTTP Bearer利用者に管理権限は与えない。CLIにはサーバと同じ`CODEX_HOSHIKAGE_PROXY_HOME`と設定ファイルを指定する。
+
+```bash
+codex-hoshikage-proxy admin workspace register --operation-id ws-register-001 --path /absolute/shared-work --display-name shared-work
+codex-hoshikage-proxy admin workspace revoke --workspace-id ws_example
+codex-hoshikage-proxy admin execution-hold inspect --response-id resp_example
+```
+
+inspectで返された対象・状態・revision・review_tokenと、上流がまだ書き込んでいる可能性を確認してから解除する。
+
+```bash
+codex-hoshikage-proxy admin execution-hold release --operation-id hold-release-001 --response-id resp_example --review-token review_example --expected-revision 2 --reason "上流と残存プロセスを調査した結果と判断理由" --accept-risk
+```
+
+解除は実行停止・成功への書換えではない。元要求の再送を禁止し、旧会話を隔離する。再利用は共有ワークを明示選択した新しい会話で行う。後から実行中と判明すると占有が復活する。
+
+## 正式バックアップ・復元
+
+バックアップ前にGatewayをpauseし、活動実行・UNKNOWN・コピーが残っていないことを照会する。
+
+```bash
+codex-hoshikage-proxy admin backup create --destination /absolute/new-backup-directory
+```
+
+v2 DB、保存本体とmanifest、v1台帳、Codexのsessions・archived_sessions・state SQLite・session indexを含む。SQLiteは整合したコピーを作る。認証情報・設定・ワーク原本はbundleに含めない。manifestの`codex_history`が`included`であることを確認する。原本と設定は別途保全する。原本への外部書込みの整合は保証しない。
+
+復元時はGatewayの受付を止め、Proxyサービスを停止し、旧App Serverと生成した子プロセスが終了していることを確認する。そのうえで次を実行する。
+
+```bash
+codex-hoshikage-proxy admin backup restore --from /absolute/backup-directory
+```
+
+同じホスト・Proxy home・ワーク配置へ復元する。外部restore-pendingマーカー、新世代、旧状態の退避を作る。途中終了したら同じbundleで同じコマンドを再実行する。マーカーを手で消さない。補助データまで復元が終わるまではサーバ起動を拒否する。
+
+完了後にサービスを起動すると`recovery_blocked`になる。Capabilityと対象照会を使い、Gatewayの未完了記録と照合する。`/readyz`は解除まで503となる。新世代のヘッダーを付けた明示停止は利用できる。
+
+```bash
+codex-hoshikage-proxy admin recovery release --restore-id restore_example --generation gen_example --reason "GatewayとProxyの照合結果および残るUNKNOWNの扱い" --accept-risk
+```
+
+解除の再送は同じ監査結果を返す。個別UNKNOWNの占有は解除しない。v2状態が存在するhomeで`v2_enabled=false`にして起動することは拒否する。古いバイナリへの切戻しはv2ストアを認識しないため禁止する。復元・切戻し前にバイナリ版、設定、Gatewayの世代を一組で確認する。
+
+## 検証
+
+```bash
+cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
+cargo build --bin codex-hoshikage-proxy
+python3 scripts/live_v2_smoke.py
+```
+
+最後の試験は実モデルを使用する。現在の認証を一時領域へコピーし、隔離したProxyを起動する。常駐サービスを操作しない。実行にはモデル利用量が発生する。生のCodexログ・認証内容は標準出力に表示しない。

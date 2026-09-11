@@ -7,6 +7,8 @@ use std::{env, path::PathBuf, time::Duration};
 
 fn fake_config(args: &[&str]) -> ValidatedConfig {
     let mut raw = RawConfig::default();
+    // Exercise legacy compatibility independently of the v2 service.
+    raw.server.v2_enabled = false;
     raw.security.allowed_cwds = vec![
         env::current_dir()
             .expect("current directory")

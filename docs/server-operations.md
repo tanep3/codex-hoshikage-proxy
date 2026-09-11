@@ -61,9 +61,9 @@ HTTP終了待ちの上限は5秒、サービスの停止上限は15秒とする�
 
 `cargo build --release --bin codex-hoshikage-proxy`でビルドし、既存バイナリを退避してから同じディレクトリ内の一時ファイルから原子的に置換する。進行中の実行・接続を確認し、`systemctl --user restart codex-hoshikage-proxy`で反映する。設定ファイルやAPIキーを上書きしない。
 
-更新後は認証付き`/readyz`、`/v1/codex/capabilities`（契約1.0）、モデル一覧、短いResponses生成と要求ID・Turn状態照会を確認する。認証なしが401になること、`0.0.0.0:4040`の待受も確認する。初期起動・ヘルス確認に失敗した場合は退避バイナリへ戻して再起動する。
+更新後は認証付き`/readyz`、`/v1/codex/capabilities`（契約1.0）、モデル一覧、短いResponses生成と要求ID・Turn状態照会を確認する。認証なしが401になること、`0.0.0.0:4040`の待受も確認する。v2移行後は古いバイナリだけへの切戻しを行わない。旧版はv2の占有・停止記録を認識しないため、[v2復旧手順](v2-operations.ja.md)に従う。v2要求を一度も受理していない移行失敗時に限り、停止中に取得した移行前バックアップの設定・状態・バイナリを一組で復元する。
 
-制御API対応版では実行メタデータを`state/responses/executions.jsonl`へ同期保存する。新形式の記録と旧`mappings.jsonl`を維持し、更新・ロールバック時に状態ディレクトリを削除しない。
+v1のみの旧版では実行メタデータを`state/responses/executions.jsonl`へ同期保存する。新形式の記録と旧`mappings.jsonl`を維持し、更新・ロールバック時に状態ディレクトリを削除しない。
 
 ## 2026-09-11 制御API v1適用記録
 
@@ -75,3 +75,8 @@ HTTP終了待ちの上限は5秒、サービスの停止上限は15秒とする�
 サーバー自身からLAN IPへ接続し、キーなし／不正キーの401、制御API契約1.0、モデル一覧6件を確認した。
 実Codexへの短いResponses要求は`DEPLOY_OK`で完了し、要求ID照会・Turnのcompleted状態・同一Idempotency-Key再送時の同一Response IDも確認した。
 これはProxyの受入記録であり、これから実装するGatewayや別LAN PCからの接続を検証したものではない。
+
+## v2を標準提供する版への移行
+
+OpenAI互換`/v1`とGateway拡張`/v2/codex`を同時に提供する。通常は`server.v2_enabled`の設定不要。既存のAPIキー・LAN待受・承認方針を継承する。更新時にはサービス停止中のホームと旧バイナリを退避する。
+初回起動で旧Responses台帳を`state/v2/metadata.sqlite3`へ移行し、移行元を`state/responses/pre-v2/`に保存する。v2の状態がある環境では無効化による起動を拒否する。以降のバックアップ・復元には[v2運用手順](v2-operations.ja.md)を使用する。

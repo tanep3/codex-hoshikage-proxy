@@ -44,14 +44,15 @@ pub struct AppState {
     pub cwd_policy: CwdPolicy,
     pub default_cwd: std::path::PathBuf,
     pub api_key: Option<String>,
+    pub v2: Option<Arc<crate::v2::service::Service>>,
     pub turn_idle_timeout: Duration,
     pub turn_stall_detection: Duration,
     pub turn_stall_confirmation_count: u32,
     pub turn_heartbeat: Duration,
     pub sandbox_mode: String,
     pub journal: Arc<EventJournal>,
-    responses: Arc<ResponseStore>,
-    permits: Arc<ProviderPermitPool>,
+    pub(crate) responses: Arc<ResponseStore>,
+    pub(crate) permits: Arc<ProviderPermitPool>,
     pub approvals: Arc<ApprovalManager>,
     next_chat_id: Arc<AtomicU64>,
     thread_locks: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
@@ -126,6 +127,7 @@ impl AppState {
             cwd_policy,
             default_cwd,
             api_key,
+            v2: None,
             turn_idle_timeout,
             turn_stall_detection,
             turn_stall_confirmation_count,
@@ -214,7 +216,7 @@ struct ApiErrorDetail {
 }
 
 #[derive(Debug)]
-struct ApiError {
+pub(crate) struct ApiError {
     status: StatusCode,
     code: &'static str,
     message: String,
@@ -248,6 +250,11 @@ impl IntoResponse for ApiError {
 
 pub fn router(state: AppState) -> Router {
     Router::new()
+        .route(
+            "/v2/codex/{*path}",
+            axum::routing::any(crate::v2::api::handle)
+                .layer(axum::extract::DefaultBodyLimit::max(16777216)),
+        )
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/v1/models", get(list_models))
@@ -290,6 +297,52 @@ async fn authenticate(
         .and_then(|value| value.strip_prefix("Bearer "))
         .is_some_and(|value| value == expected);
     if authorized {
+        if let Some(service) = &state.v2 {
+            let path = request.uri().path();
+            let mut is_managed = false;
+            if let Some(tail) = path.strip_prefix("/v1/codex/turns/") {
+                let turn = tail.split('/').next().unwrap_or("");
+                is_managed = service
+                    .store
+                    .list("response")
+                    .map(|rs| rs.iter().any(|r| r["turn_id"] == turn))
+                    .unwrap_or(true);
+            }
+            if let Some(rid) = path.strip_prefix("/v1/codex/responses/") {
+                is_managed = service
+                    .store
+                    .get("response", rid)
+                    .map(|_| true)
+                    .unwrap_or_else(|e| e.status != 404);
+            }
+            if let Some(approval_id) = path.strip_prefix("/v1/codex/approvals/")
+                && let Ok(view) = state.approvals.get(approval_id).await
+            {
+                is_managed = service
+                    .store
+                    .list("response")
+                    .map(|rs| {
+                        rs.iter().any(|r| {
+                            r["thread_id"].is_string() && r["thread_id"] == view.details["threadId"]
+                        })
+                    })
+                    .unwrap_or(true);
+            }
+            if is_managed {
+                for (name, value) in [
+                    ("x-proxy-instance-id", &service.store.instance),
+                    ("x-proxy-recovery-generation", &service.store.generation),
+                ] {
+                    if request.headers().get(name).and_then(|h| h.to_str().ok()) != Some(value) {
+                        return (
+                            if request.headers().contains_key(name){StatusCode::CONFLICT}else{StatusCode::PRECONDITION_REQUIRED},
+                            Json(json!({"error":{"code":if !request.headers().contains_key(name){"instance_precondition_required"}else if name=="x-proxy-instance-id"{"instance_mismatch"}else{"recovery_generation_mismatch"}}})),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+        }
         next.run(request).await
     } else {
         (
@@ -466,6 +519,11 @@ async fn healthz() -> impl IntoResponse {
 async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
     if state.runtime.snapshot().await == crate::domain::RuntimeState::Ready
         && state.responses.control.records().is_ok()
+        && state.v2.as_ref().is_none_or(|s| {
+            s.store
+                .metadata("recovery_state")
+                .is_ok_and(|v| v == "ready")
+        })
     {
         (StatusCode::OK, Json(HealthBody { status: "ready" }))
     } else {
@@ -1069,14 +1127,54 @@ async fn begin_turn_with_mode(
             "conversation model changes are supported within the same public provider only",
         ));
     }
-    let cwd = request
+    let explicit_cwd = request
         .metadata
         .get("codex.cwd")
-        .map(String::as_str)
         .map(|value| state.cwd_policy.validate(value))
         .transpose()
-        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, "invalid_cwd", error.to_string()))?
-        .unwrap_or_else(|| state.default_cwd.clone());
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_cwd",
+                "invalid working directory",
+            )
+        })?;
+    let cwd = if let Some(context) = &previous {
+        let saved = state
+            .responses
+            .control
+            .records()
+            .map_err(control_store_error)?
+            .into_iter()
+            .filter(|r| r.thread_id.as_deref() == Some(&context.thread_id) && r.turn_id.is_some())
+            .filter_map(|r| r.cwd.map(|cwd| (r.sequence, cwd)))
+            .max_by_key(|(seq, _)| *seq)
+            .map(|(_, cwd)| cwd);
+        let saved = saved.ok_or_else(|| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "workspace_unknown",
+                "historical workspace is not recorded",
+            )
+        })?;
+        let saved = state.cwd_policy.validate(&saved).map_err(|_| {
+            ApiError::new(
+                StatusCode::FORBIDDEN,
+                "workspace_access_revoked",
+                "workspace access revoked",
+            )
+        })?;
+        if explicit_cwd.as_ref().is_some_and(|cwd| cwd != &saved) {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "workspace_change_unsupported",
+                "continuation cannot change workspace",
+            ));
+        }
+        saved
+    } else {
+        explicit_cwd.unwrap_or_else(|| state.default_cwd.clone())
+    };
     let input = normalize_input(&request.input)?;
     let output_schema =
         parse_output_schema(request.text.as_ref().and_then(|text| text.format.as_ref()))?;
@@ -1104,6 +1202,31 @@ async fn begin_turn_with_mode(
             .reserve(Execution::new(response_id.into(), None, None))
             .map_err(control_store_error)?;
     }
+    let mut legacy_reservation = if let Some(service) = &state.v2 {
+        Some(
+            crate::v2::coordination::reserve_legacy(
+                service.clone(),
+                &cwd,
+                response_id,
+                &model.public_provider_id,
+                state
+                    .catalog
+                    .provider_limits()
+                    .get(&model.public_provider_id)
+                    .copied()
+                    .unwrap_or(1),
+            )
+            .map_err(|e| {
+                ApiError::new(
+                    StatusCode::from_u16(e.status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
+                    e.code,
+                    "workspace or provider unavailable",
+                )
+            })?,
+        )
+    } else {
+        None
+    };
     drop(control_guard.take());
     let permit = state
         .permits
@@ -1126,6 +1249,27 @@ async fn begin_turn_with_mode(
             .clone();
         control_guard = Some(lock.lock_owned().await);
     }
+    if let Some(context) = &previous
+        && let Some(service) = &state.v2
+        && service
+            .store
+            .list("legacy_hold")
+            .map_err(|e| {
+                ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    e.code,
+                    "managed state unavailable",
+                )
+            })?
+            .iter()
+            .any(|r| r["quarantined"] == true && r["thread_id"] == context.thread_id)
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "conversation_unavailable",
+            "legacy thread is quarantined after administrative hold release",
+        ));
+    }
     let resuming = previous.is_some();
     // Persist before either upstream call; a cancelled future must not lose this boundary.
     state
@@ -1135,8 +1279,12 @@ async fn begin_turn_with_mode(
             r.phase = "dispatching".into();
             r.thread_id = previous.as_ref().map(|c| c.thread_id.clone());
             r.model_id = Some(model.public_model_id.clone());
+            r.cwd = Some(cwd.to_string_lossy().into_owned());
         })
         .map_err(control_store_error)?;
+    if let Some(reservation) = legacy_reservation.as_mut() {
+        reservation.dispatched();
+    }
     let thread_id = if let Some(context) = previous {
         let result = state.runtime.request("thread/resume",json!({
             "threadId":context.thread_id,"model":model.upstream_model_id,"modelProvider":model.codex_provider_id,
@@ -1874,7 +2022,7 @@ fn normalize_content_part(part: &Value) -> Result<Value, ApiError> {
     }
 }
 
-fn normalize_input(input: &Value) -> Result<Vec<Value>, ApiError> {
+pub(crate) fn normalize_input(input: &Value) -> Result<Vec<Value>, ApiError> {
     if let Some(text) = input.as_str() {
         return Ok(vec![json!({"type":"text", "text":text})]);
     }
@@ -1895,7 +2043,7 @@ fn normalize_input(input: &Value) -> Result<Vec<Value>, ApiError> {
     Ok(result)
 }
 
-fn parse_output_schema(format: Option<&Value>) -> Result<Option<Value>, ApiError> {
+pub(crate) fn parse_output_schema(format: Option<&Value>) -> Result<Option<Value>, ApiError> {
     let Some(format) = format else {
         return Ok(None);
     };
@@ -1914,7 +2062,7 @@ fn parse_output_schema(format: Option<&Value>) -> Result<Option<Value>, ApiError
     }
 }
 
-async fn request_interrupt(
+pub(crate) async fn request_interrupt(
     runtime: &CodexRuntime,
     thread_id: &str,
     turn_id: &str,
@@ -2033,7 +2181,7 @@ fn string_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
     current.as_str()
 }
 
-fn reasoning_name(value: crate::model::ReasoningEffort) -> &'static str {
+pub(crate) fn reasoning_name(value: crate::model::ReasoningEffort) -> &'static str {
     match value {
         crate::model::ReasoningEffort::None => "none",
         crate::model::ReasoningEffort::Low => "low",
@@ -2414,6 +2562,23 @@ async fn control_interrupt(
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
     let target = execution_for_turn(&state, &id)?;
+    if let Some(service) = &state.v2
+        && service.store.get("response", &target.response_id).is_ok()
+    {
+        let outcome = service
+            .stop(
+                &format!("v1-stop-{}", target.response_id),
+                &json!({"target":{"response_id":target.response_id}}),
+            )
+            .map_err(|e| {
+                ApiError::new(
+                    StatusCode::from_u16(e.status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
+                    e.code,
+                    "managed stop failed",
+                )
+            })?;
+        return Ok((StatusCode::ACCEPTED, Json(outcome)).into_response());
+    }
     let lock = state
         .control_locks
         .lock()
@@ -2493,6 +2658,29 @@ async fn control_steer(
             "turn_mismatch",
             "expected_turn_id must match URL turn",
         ));
+    }
+    if let Some(service) = &state.v2 {
+        let stopped = service
+            .store
+            .list("response")
+            .map_err(|e| {
+                ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    e.code,
+                    "managed state unavailable",
+                )
+            })?
+            .iter()
+            .any(|r| {
+                r["turn_id"] == id && (r["stop_requested"] == true || r["phase"] != "started")
+            });
+        if stopped {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "turn_not_steerable",
+                "managed turn is stopping or inactive",
+            ));
+        }
     }
     let input = normalize_input(&request.input)?;
     if input.is_empty()

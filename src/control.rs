@@ -22,6 +22,8 @@ pub struct Execution {
     pub thread_id: Option<String>,
     pub turn_id: Option<String>,
     pub model_id: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
     pub last_observed_status: String,
     pub last_observed_at_ms: u128,
     pub started_at_ms: u128,
@@ -52,6 +54,7 @@ impl Execution {
             thread_id: None,
             turn_id: None,
             model_id: None,
+            cwd: None,
             last_observed_status: "unknown".into(),
             last_observed_at_ms: crate::journal::now_ms(),
             started_at_ms: crate::journal::now_ms(),
@@ -69,6 +72,7 @@ impl Execution {
 
 struct Inner {
     file: File,
+    database: Option<rusqlite::Connection>,
     records: HashMap<String, Execution>,
     failed: bool,
 }
@@ -82,7 +86,17 @@ impl ControlStore {
         std::fs::create_dir_all(root)?;
         let path = root.join("executions.jsonl");
         let mut records = HashMap::new();
-        match std::fs::read_to_string(&path) {
+        let database = crate::v2::migration::open(root)?;
+        let contents = if let Some(db) = &database {
+            Ok(crate::v2::migration::read(db, "execution")?
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n"))
+        } else {
+            std::fs::read_to_string(&path)
+        };
+        match contents {
             Ok(contents) => {
                 // Fail closed even on a torn tail: never silently forget a reserved ID.
                 for line in contents.lines() {
@@ -104,6 +118,7 @@ impl ControlStore {
         Ok(Self {
             inner: Mutex::new(Inner {
                 file,
+                database,
                 records,
                 failed: false,
             }),
@@ -173,16 +188,62 @@ impl ControlStore {
     fn append(inner: &mut Inner, record: Execution) -> std::io::Result<()> {
         let mut bytes = serde_json::to_vec(&record)?;
         bytes.push(b'\n');
-        if let Err(e) = inner
-            .file
-            .write_all(&bytes)
-            .and_then(|()| inner.file.sync_all())
-        {
+        let result = if let Some(db) = &inner.database {
+            crate::v2::migration::put(
+                db,
+                "execution",
+                &record.response_id,
+                &serde_json::to_value(&record)?,
+            )
+        } else {
+            inner
+                .file
+                .write_all(&bytes)
+                .and_then(|()| inner.file.sync_all())
+        };
+        if let Err(e) = result {
             inner.failed = true;
             return Err(e);
         }
         inner.records.insert(record.response_id.clone(), record);
         Ok(())
+    }
+    pub fn persisted_mappings(
+        &self,
+    ) -> std::io::Result<Option<Vec<crate::store::ResponseMapping>>> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .database
+            .as_ref()
+            .map(|db| {
+                crate::v2::migration::read(db, "mapping")?
+                    .into_iter()
+                    .map(|v| serde_json::from_value(v).map_err(std::io::Error::other))
+                    .collect()
+            })
+            .transpose()
+    }
+    pub fn persist_mapping(
+        &self,
+        mapping: &crate::store::ResponseMapping,
+    ) -> std::io::Result<bool> {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.failed {
+            return Err(std::io::Error::other("control store is unavailable"));
+        }
+        let Some(db) = &inner.database else {
+            return Ok(false);
+        };
+        if let Err(e) = crate::v2::migration::put(
+            db,
+            "mapping",
+            &mapping.response_id,
+            &serde_json::to_value(mapping)?,
+        ) {
+            inner.failed = true;
+            return Err(e);
+        }
+        Ok(true)
     }
     pub fn observe(&self, turn: &str, status: &str) -> std::io::Result<()> {
         if let Some(r) = self.by_turn(turn)? {

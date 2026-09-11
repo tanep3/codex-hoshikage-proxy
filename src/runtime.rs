@@ -84,6 +84,27 @@ pub struct CodexRuntime {
 
 impl CodexRuntime {
     pub async fn launch(config: &ValidatedConfig) -> Result<Arc<Self>, RuntimeError> {
+        if config.v2_enabled {
+            let version = tokio::time::timeout(
+                Duration::from_secs(5),
+                Command::new(&config.codex_command)
+                    .arg("--version")
+                    .kill_on_drop(true)
+                    .output(),
+            )
+            .await
+            .map_err(|_| RuntimeError::Initialization("Codex version probe timed out".into()))??;
+            if !version.status.success()
+                || String::from_utf8_lossy(&version.stdout)
+                    .split_whitespace()
+                    .nth(1)
+                    != Some("0.153.4")
+            {
+                return Err(RuntimeError::Initialization(
+                    "v2 dynamic-tool adapter requires verified Codex CLI 0.153.4".into(),
+                ));
+            }
+        }
         let mut command = Command::new(&config.codex_command);
         command
             .kill_on_drop(true)
@@ -118,7 +139,7 @@ impl CodexRuntime {
         runtime.spawn_reader(stdout);
         runtime.spawn_process_monitor();
 
-        if let Err(error) = runtime.initialize().await {
+        if let Err(error) = runtime.initialize(config.v2_enabled).await {
             let mut state = runtime.state.write().await;
             *state = reduce_runtime(
                 &state,
@@ -134,14 +155,14 @@ impl CodexRuntime {
         Ok(runtime)
     }
 
-    async fn initialize(&self) -> Result<(), RuntimeError> {
+    async fn initialize(&self, experimental: bool) -> Result<(), RuntimeError> {
         let params = json!({
             "clientInfo": {
                 "name": "codex-hoshikage-proxy",
                 "title": "Codex Hoshikage Proxy",
                 "version": env!("CARGO_PKG_VERSION")
             },
-            "capabilities": {}
+            "capabilities": {"experimentalApi":experimental}
         });
         {
             let mut state = self.state.write().await;

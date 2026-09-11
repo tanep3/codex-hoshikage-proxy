@@ -39,6 +39,8 @@ async fn test_app_with_store(
     store: Option<Arc<ResponseStore>>,
 ) -> (axum::Router, Arc<CodexRuntime>, Arc<ResponseStore>) {
     let mut raw = RawConfig::default();
+    // Exercise legacy compatibility independently of the v2 service.
+    raw.server.v2_enabled = false;
     raw.providers.get_mut("chatgpt").unwrap().enabled = args.contains(&"--model-pages");
     raw.providers.get_mut("hoshikage").unwrap().base_url = None;
     raw.models.insert(
