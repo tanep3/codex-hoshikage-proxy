@@ -2,6 +2,7 @@ use crate::{
     approval_manager::{ApprovalCapability, ApprovalDecisionRequest, ApprovalManager},
     catalog::ModelCatalogManager,
     config::CwdPolicy,
+    control::{Execution, terminal},
     journal::{EventJournal, JournalEntry, now_ms},
     model::ModelError,
     permit::ProviderPermitPool,
@@ -12,7 +13,7 @@ use crate::{
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     middleware,
     response::{
         IntoResponse, Response,
@@ -31,7 +32,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{
-    sync::{RwLock, broadcast, mpsc},
+    sync::{broadcast, mpsc},
     time,
 };
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
@@ -48,21 +49,13 @@ pub struct AppState {
     pub turn_stall_confirmation_count: u32,
     pub turn_heartbeat: Duration,
     pub sandbox_mode: String,
-    tracked_turns: Arc<RwLock<HashMap<String, TrackedTurn>>>,
     pub journal: Arc<EventJournal>,
     responses: Arc<ResponseStore>,
     permits: Arc<ProviderPermitPool>,
     pub approvals: Arc<ApprovalManager>,
     next_chat_id: Arc<AtomicU64>,
-}
-
-#[derive(Debug, Clone)]
-struct TrackedTurn {
-    thread_id: String,
-    model_id: String,
-    started_at_ms: u128,
-    last_event_at_ms: u128,
-    last_status: String,
+    thread_locks: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+    control_locks: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 struct StartedTurn {
@@ -71,6 +64,7 @@ struct StartedTurn {
     turn_id: Option<String>,
     notifications: broadcast::Receiver<Value>,
     _permit: tokio::sync::OwnedSemaphorePermit,
+    _thread_guard: tokio::sync::OwnedMutexGuard<()>,
 }
 
 impl AppState {
@@ -98,6 +92,34 @@ impl AppState {
             auto_approve_workspace,
         );
         approvals.start();
+        let mut events = runtime.subscribe();
+        let store = responses.clone();
+        tokio::spawn(async move {
+            loop {
+                match events.recv().await {
+                    Ok(event) => {
+                        if event["kind"] == "transport_closed" {
+                            break;
+                        }
+                        if event["method"] == "turn/completed" {
+                            let params = &event["params"];
+                            if let (Some(turn), Some(status)) = (
+                                params
+                                    .get("turnId")
+                                    .or_else(|| params.pointer("/turn/id"))
+                                    .and_then(Value::as_str),
+                                params.pointer("/turn/status").and_then(Value::as_str),
+                            ) && let Err(error) = store.control.observe(turn, status)
+                            {
+                                tracing::error!(%error, "terminal observation persistence failed");
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
         Self {
             runtime,
             catalog: Arc::new(catalog),
@@ -109,36 +131,21 @@ impl AppState {
             turn_stall_confirmation_count,
             turn_heartbeat,
             sandbox_mode,
-            tracked_turns: Arc::new(RwLock::new(HashMap::new())),
             journal,
             responses,
             permits: Arc::new(ProviderPermitPool::new(provider_limits)),
             approvals,
             next_chat_id: Arc::new(AtomicU64::new(1)),
+            thread_locks: Default::default(),
+            control_locks: Default::default(),
         }
     }
 
-    async fn track_turn(&self, turn_id: &str, thread_id: &str, model_id: &str) {
-        let now = now_ms();
-        self.tracked_turns.write().await.insert(
-            turn_id.to_owned(),
-            TrackedTurn {
-                thread_id: thread_id.to_owned(),
-                model_id: model_id.to_owned(),
-                started_at_ms: now,
-                last_event_at_ms: now,
-                last_status: "inProgress".into(),
-            },
-        );
-    }
-
     async fn touch_turn(&self, turn_id: &str, status: Option<&str>) {
-        let mut turns = self.tracked_turns.write().await;
-        if let Some(turn) = turns.get_mut(turn_id) {
-            turn.last_event_at_ms = now_ms();
-            if let Some(status) = status {
-                turn.last_status = status.to_owned();
-            }
+        if let Some(status) = status
+            && let Err(error) = self.responses.control.observe(turn_id, status)
+        {
+            tracing::error!(%error, "failed to persist turn status");
         }
     }
 }
@@ -245,6 +252,15 @@ pub fn router(state: AppState) -> Router {
         .route("/readyz", get(readyz))
         .route("/v1/models", get(list_models))
         .route("/v1/responses", post(create_response))
+        .route("/v1/codex/capabilities", get(capabilities))
+        .route("/v1/codex/requests/{request_id}", get(get_request))
+        .route("/v1/codex/responses/{response_id}", get(get_execution))
+        .route(
+            "/v1/codex/turns/{turn_id}/interrupt",
+            post(control_interrupt),
+        )
+        .route("/v1/codex/turns/{turn_id}/steer", post(control_steer))
+        .route("/v1/codex/turns/{turn_id}/approvals", get(turn_approvals))
         .route("/v1/chat/completions", post(create_chat_completion))
         .route("/v1/codex/turns/{turn_id}/status", get(get_turn_status))
         .route(
@@ -300,62 +316,8 @@ async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
 async fn get_turn_status(
     State(state): State<AppState>,
     Path(turn_id): Path<String>,
-) -> Result<impl IntoResponse, ApiError> {
-    let tracked = state
-        .tracked_turns
-        .read()
-        .await
-        .get(&turn_id)
-        .cloned()
-        .ok_or_else(|| {
-            ApiError::new(
-                StatusCode::NOT_FOUND,
-                "turn_not_found",
-                format!("turn not found: {turn_id}"),
-            )
-        })?;
-    let runtime_status = state
-        .runtime
-        .request(
-            "thread/read",
-            json!({"threadId": tracked.thread_id, "includeTurns": true}),
-        )
-        .await;
-    let turn = runtime_status.as_ref().ok().and_then(|value| {
-        value
-            .pointer("/thread/turns")
-            .or_else(|| value.get("turns"))
-            .and_then(Value::as_array)
-            .and_then(|turns| {
-                turns
-                    .iter()
-                    .find(|turn| turn.get("id").and_then(Value::as_str) == Some(turn_id.as_str()))
-            })
-            .cloned()
-    });
-    let codex_thread_status = runtime_status.as_ref().ok().and_then(|value| {
-        value
-            .pointer("/thread/status")
-            .or_else(|| value.get("status"))
-            .cloned()
-    });
-    let status = turn
-        .as_ref()
-        .and_then(|value| value.get("status"))
-        .and_then(Value::as_str)
-        .unwrap_or(&tracked.last_status);
-    Ok(Json(json!({
-        "object": "codex.turn_status",
-        "turn_id": turn_id,
-        "thread_id": tracked.thread_id,
-        "model": tracked.model_id,
-        "status": status,
-        "started_at_ms": tracked.started_at_ms,
-        "last_event_at_ms": tracked.last_event_at_ms,
-        "thread_status": codex_thread_status,
-        "turn": turn,
-        "runtime_query_error": runtime_status.err().map(|error| error.to_string()),
-    })))
+) -> Result<Json<Value>, ApiError> {
+    Ok(Json(turn_snapshot(&state, &turn_id).await?))
 }
 
 async fn get_approval(
@@ -375,6 +337,26 @@ async fn decide_approval(
     Path(approval_id): Path<String>,
     Json(request): Json<ApprovalDecisionRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let current = state
+        .approvals
+        .get(&approval_id)
+        .await
+        .map_err(approval_error)?;
+    if request
+        .expected_turn_id
+        .as_deref()
+        .is_some_and(|id| current.details.get("turnId").and_then(Value::as_str) != Some(id))
+        || request
+            .expected_thread_id
+            .as_deref()
+            .is_some_and(|id| current.details.get("threadId").and_then(Value::as_str) != Some(id))
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "approval_target_mismatch",
+            "approval target differs",
+        ));
+    }
     state
         .approvals
         .decide(&approval_id, &request.decision)
@@ -386,19 +368,43 @@ async fn decide_approval(
 async fn turn_events_stream(
     State(state): State<AppState>,
     Path(turn_id): Path<String>,
-) -> Response {
+) -> Result<Response, ApiError> {
+    execution_for_turn(&state, &turn_id)?;
     let mut notifications = state.runtime.subscribe();
+    let snapshot = turn_snapshot(&state, &turn_id).await?;
     let (sender, receiver) = mpsc::channel::<Event>(32);
     let approvals = Arc::clone(&state.approvals);
+    let connection_id = uuid::Uuid::new_v4().to_string();
     tokio::spawn(async move {
+        let mut sequence = 0_u64;
+        let mut make_event = |name: &str, value: &Value| {
+            sequence += 1;
+            Event::default()
+                .event(name)
+                .id(format!("{connection_id}:{sequence}"))
+                .json_data(value)
+                .unwrap_or_default()
+        };
+        if sender
+            .send(make_event(
+                "codex.events.reset",
+                &json!({"replay":false,"resync_required":true}),
+            ))
+            .await
+            .is_err()
+        {
+            return;
+        }
+        if sender
+            .send(make_event("codex.turn.snapshot", &snapshot))
+            .await
+            .is_err()
+        {
+            return;
+        }
         for event in approvals.pending_events_for_turn(&turn_id).await {
             if sender
-                .send(
-                    Event::default()
-                        .event("approval_requested")
-                        .json_data(&event)
-                        .unwrap_or_default(),
-                )
+                .send(make_event("approval_requested", &event))
                 .await
                 .is_err()
             {
@@ -406,35 +412,51 @@ async fn turn_events_stream(
             }
         }
         loop {
-            let event = match notifications.recv().await {
+            let event = tokio::select! {
+                _ = sender.closed() => return,
+                event = notifications.recv() => event,
+            };
+            let event = match event {
                 Ok(event) => event,
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    if sender
+                        .send(make_event(
+                            "codex.events.gap",
+                            &json!({"skipped":skipped,"resync_required":true}),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    continue;
+                }
                 Err(broadcast::error::RecvError::Closed) => break,
             };
+            if event.get("kind").and_then(Value::as_str) == Some("transport_closed") {
+                let _ = sender
+                    .send(make_event(
+                        "codex.events.gap",
+                        &json!({"reason":"transport_closed","resync_required":true}),
+                    ))
+                    .await;
+                return;
+            }
             if !matches_turn_event(&event, &turn_id) {
                 continue;
             }
-            let event_name = event
+            let name = event
                 .get("kind")
                 .and_then(Value::as_str)
                 .or_else(|| event.get("method").and_then(Value::as_str))
                 .unwrap_or("codex.event");
-            if sender
-                .send(
-                    Event::default()
-                        .event(event_name)
-                        .json_data(&event)
-                        .unwrap_or_default(),
-                )
-                .await
-                .is_err()
-            {
-                break;
+            if sender.send(make_event(name, &event)).await.is_err() {
+                return;
             }
         }
     });
-    Sse::new(ReceiverStream::new(receiver).map(Ok::<Event, std::convert::Infallible>))
-        .into_response()
+    let stream = ReceiverStream::new(receiver).map(Ok::<Event, std::convert::Infallible>);
+    Ok(Sse::new(stream).into_response())
 }
 
 async fn healthz() -> impl IntoResponse {
@@ -442,7 +464,9 @@ async fn healthz() -> impl IntoResponse {
 }
 
 async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
-    if state.runtime.snapshot().await == crate::domain::RuntimeState::Ready {
+    if state.runtime.snapshot().await == crate::domain::RuntimeState::Ready
+        && state.responses.control.records().is_ok()
+    {
         (StatusCode::OK, Json(HealthBody { status: "ready" }))
     } else {
         (
@@ -456,10 +480,66 @@ async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn create_response(
     State(state): State<AppState>,
-    Json(request): Json<ResponsesRequest>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
-    let response_id = state.responses.next_response_id();
-    let started = begin_turn(&state, &request).await?;
+    let request: ResponsesRequest = serde_json::from_value(body.clone()).map_err(|e| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            e.to_string(),
+        )
+    })?;
+    let key = headers
+        .get("idempotency-key")
+        .map(|v| v.to_str().map(str::to_owned))
+        .transpose()
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_request_id",
+                "invalid Idempotency-Key",
+            )
+        })?;
+    if let Some(key) = &key {
+        validate_request_id(key)?;
+    }
+    let response_id = format!("resp_{}", uuid::Uuid::new_v4());
+    let fingerprint = crate::control::fingerprint(&body);
+    let record = Execution::new(response_id.clone(), key, Some(fingerprint.clone()));
+    if let Some(existing) = state
+        .responses
+        .control
+        .reserve(record)
+        .map_err(control_store_error)?
+    {
+        if existing.fingerprint.as_deref() != Some(&fingerprint) {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "request_conflict",
+                "request ID already used with different content",
+            ));
+        }
+        return Ok(Json(existing.public()).into_response());
+    }
+    let started = match begin_turn(&state, &request, &response_id).await {
+        Ok(started) => started,
+        Err(error) => {
+            state
+                .responses
+                .control
+                .update(&response_id, |r| {
+                    r.phase = if matches!(r.phase.as_str(), "received" | "rejected") {
+                        "rejected"
+                    } else {
+                        "unknown"
+                    }
+                    .into();
+                })
+                .map_err(control_store_error)?;
+            return Err(error);
+        }
+    };
     if request.stream {
         return stream_response(state, response_id, started).await;
     }
@@ -469,8 +549,10 @@ async fn create_response(
         turn_id,
         mut notifications,
         _permit,
+        _thread_guard,
     } = started;
     let text = match collect_turn_text(
+        &state,
         &mut notifications,
         &thread_id,
         turn_id.as_deref(),
@@ -485,6 +567,13 @@ async fn create_response(
         }
     };
 
+    if let Some(turn) = turn_id.as_deref() {
+        state
+            .responses
+            .control
+            .observe(turn, "completed")
+            .map_err(control_store_error)?;
+    }
     state
         .responses
         .put(ResponseMapping {
@@ -526,7 +615,16 @@ async fn create_response(
             status: "completed",
         })
         .await;
-    Ok((StatusCode::OK, Json(response)).into_response())
+    let identity = state
+        .responses
+        .control
+        .get(&response.id)
+        .map_err(control_store_error)?
+        .map(|r| r.public())
+        .unwrap_or(Value::Null);
+    let mut response = (StatusCode::OK, Json(response)).into_response();
+    add_identity_headers(&mut response, &identity);
+    Ok(response)
 }
 
 async fn create_chat_completion(
@@ -557,7 +655,7 @@ async fn create_chat_completion(
             }
         }),
     };
-    let started = begin_turn_with_mode(&state, &internal, true).await?;
+    let started = begin_turn_with_mode(&state, &internal, true, None).await?;
     if request.stream {
         return stream_chat_completion(state, started).await;
     }
@@ -567,8 +665,10 @@ async fn create_chat_completion(
         turn_id,
         mut notifications,
         _permit,
+        _thread_guard,
     } = started;
     let text = match collect_turn_text(
+        &state,
         &mut notifications,
         &thread_id,
         turn_id.as_deref(),
@@ -611,6 +711,7 @@ async fn create_chat_completion(
 }
 
 async fn collect_turn_text(
+    state: &AppState,
     notifications: &mut broadcast::Receiver<Value>,
     thread_id: &str,
     turn_id: Option<&str>,
@@ -657,6 +758,14 @@ async fn collect_turn_text(
                     .pointer("/turn/status")
                     .and_then(Value::as_str)
                     .unwrap_or("completed");
+                if let Some(turn_id) = turn_id {
+                    state
+                        .responses
+                        .control
+                        .observe(turn_id, status)
+                        .map_err(control_store_error)?;
+                    state.approvals.invalidate_turn(thread_id, turn_id).await;
+                }
                 if status != "completed" {
                     let detail = params
                         .pointer("/turn/error")
@@ -711,6 +820,7 @@ async fn run_chat_stream(
         turn_id,
         mut notifications,
         _permit,
+        _thread_guard,
     } = started;
     let created = now_ms() / 1000;
     let role_chunk = json!({
@@ -864,35 +974,101 @@ fn chat_messages_to_input(messages: &[ChatMessage]) -> Result<Vec<Value>, ApiErr
     Ok(input)
 }
 
-async fn begin_turn(state: &AppState, request: &ResponsesRequest) -> Result<StartedTurn, ApiError> {
-    begin_turn_with_mode(state, request, false).await
+async fn begin_turn(
+    state: &AppState,
+    request: &ResponsesRequest,
+    response_id: &str,
+) -> Result<StartedTurn, ApiError> {
+    begin_turn_with_mode(state, request, false, Some(response_id)).await
 }
 
 async fn begin_turn_with_mode(
     state: &AppState,
     request: &ResponsesRequest,
     ephemeral: bool,
+    response_id: Option<&str>,
 ) -> Result<StartedTurn, ApiError> {
+    // Lock a known conversation before waiting for provider capacity. Otherwise
+    // a competing request could wait out the active turn and silently run later.
+    let previous = if let Some(id) = request.previous_response_id.as_deref() {
+        if let Some(record) = state
+            .responses
+            .control
+            .get(id)
+            .map_err(control_store_error)?
+            && (record.last_observed_status != "completed" || record.phase != "finished")
+        {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "response_not_continuable",
+                "only successful responses may be continued",
+            ));
+        }
+        Some(state.responses.get(id).await.ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "thread_not_found",
+                "previous response was not found",
+            )
+        })?)
+    } else {
+        None
+    };
+    let mut control_guard = None;
+    let thread_guard = if let Some(context) = &previous {
+        let guard = lock_thread(state, &context.thread_id).await?;
+        let lock = state
+            .control_locks
+            .lock()
+            .await
+            .entry(context.thread_id.clone())
+            .or_default()
+            .clone();
+        control_guard = Some(lock.lock_owned().await);
+        check_thread_idle(state, &context.thread_id).await?;
+        Some(guard)
+    } else {
+        None
+    };
+    let inherited_model = if let Some(context) = &previous {
+        state
+            .responses
+            .control
+            .records()
+            .map_err(control_store_error)?
+            .into_iter()
+            .filter(|r| {
+                r.thread_id.as_deref() == Some(&context.thread_id)
+                    && r.turn_id.is_some()
+                    && r.model_id.is_some()
+            })
+            .max_by_key(|r| r.sequence)
+            .and_then(|r| r.model_id)
+            .or_else(|| Some(context.model_id.clone()))
+    } else {
+        None
+    };
     let reasoning = request
         .reasoning
         .as_ref()
         .and_then(|value| value.effort.as_deref());
     let model = state
         .catalog
-        .resolve(request.model.as_deref(), reasoning)
+        .resolve(
+            request.model.as_deref().or(inherited_model.as_deref()),
+            reasoning,
+        )
         .await
         .map_err(model_error)?;
-    let permit = state
-        .permits
-        .acquire(&model.public_provider_id)
-        .await
-        .map_err(|error| {
-            ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "provider_unavailable",
-                error.to_string(),
-            )
-        })?;
+    if let Some(context) = &previous
+        && context.model_id.split('/').next() != Some(model.public_provider_id.as_str())
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "cross_provider_model_change_unsupported",
+            "conversation model changes are supported within the same public provider only",
+        ));
+    }
     let cwd = request
         .metadata
         .get("codex.cwd")
@@ -904,39 +1080,75 @@ async fn begin_turn_with_mode(
     let input = normalize_input(&request.input)?;
     let output_schema =
         parse_output_schema(request.text.as_ref().and_then(|text| text.format.as_ref()))?;
-    let resuming = request.previous_response_id.is_some();
-    let thread_id = if let Some(response_id) = request.previous_response_id.as_deref() {
-        let context = state.responses.get(response_id).await.ok_or_else(|| {
-            ApiError::new(
-                StatusCode::NOT_FOUND,
-                "thread_not_found",
-                "previous response was not found",
-            )
-        })?;
-        if context.model_id != model.public_model_id {
+    let suppress_auto_approval = match request
+        .metadata
+        .get("codex.auto_approve_workspace")
+        .map(String::as_str)
+    {
+        None | Some("true") => false,
+        Some("false") => true,
+        _ => {
             return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
-                "model_mismatch",
-                "a durable Responses thread cannot change model",
+                "invalid_approval_policy",
+                "codex.auto_approve_workspace must be true or false",
             ));
         }
+    };
+    let generated_id = format!("chat_{}", uuid::Uuid::new_v4());
+    let response_id = response_id.unwrap_or(&generated_id);
+    if ephemeral {
+        state
+            .responses
+            .control
+            .reserve(Execution::new(response_id.into(), None, None))
+            .map_err(control_store_error)?;
+    }
+    drop(control_guard.take());
+    let permit = state
+        .permits
+        .acquire(&model.public_provider_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider_unavailable",
+                e.to_string(),
+            )
+        })?;
+    if let Some(context) = &previous {
+        let lock = state
+            .control_locks
+            .lock()
+            .await
+            .entry(context.thread_id.clone())
+            .or_default()
+            .clone();
+        control_guard = Some(lock.lock_owned().await);
+    }
+    let resuming = previous.is_some();
+    // Persist before either upstream call; a cancelled future must not lose this boundary.
+    state
+        .responses
+        .control
+        .update(response_id, |r| {
+            r.phase = "dispatching".into();
+            r.thread_id = previous.as_ref().map(|c| c.thread_id.clone());
+            r.model_id = Some(model.public_model_id.clone());
+        })
+        .map_err(control_store_error)?;
+    let thread_id = if let Some(context) = previous {
+        let result = state.runtime.request("thread/resume",json!({
+            "threadId":context.thread_id,"model":model.upstream_model_id,"modelProvider":model.codex_provider_id,
+            "cwd":cwd,"approvalPolicy":"on-request","sandbox":state.sandbox_mode
+        })).await;
+        result.map_err(|error| start_error(state, response_id, error, resuming))?;
         context.thread_id
     } else {
-        let result = state
-            .runtime
-            .request(
-                "thread/start",
-                json!({
-                    "model": model.upstream_model_id,
-                    "modelProvider": model.codex_provider_id,
-                    "cwd": cwd,
-                    "ephemeral": ephemeral,
-                    "approvalPolicy": "on-request",
-                    "sandbox": state.sandbox_mode
-                }),
-            )
-            .await
-            .map_err(runtime_error)?;
+        let result = state.runtime.request("thread/start",json!({
+            "model":model.upstream_model_id,"modelProvider":model.codex_provider_id,"cwd":cwd,"ephemeral":ephemeral,
+            "approvalPolicy":"on-request","sandbox":state.sandbox_mode
+        })).await.map_err(|error|start_error(state,response_id,error,false))?;
         string_at(&result, &["thread", "id"])
             .or_else(|| result.get("id").and_then(Value::as_str))
             .ok_or_else(|| {
@@ -946,8 +1158,40 @@ async fn begin_turn_with_mode(
                     "thread/start returned no thread id",
                 )
             })?
-            .to_string()
+            .to_owned()
     };
+    let thread_guard = match thread_guard {
+        Some(guard) => guard,
+        None => lock_thread(state, &thread_id).await?,
+    };
+    if control_guard.is_none() {
+        let lock = state
+            .control_locks
+            .lock()
+            .await
+            .entry(thread_id.clone())
+            .or_default()
+            .clone();
+        control_guard = Some(lock.lock_owned().await);
+    }
+    let _control_guard = control_guard;
+    let suppress_auto_approval = suppress_auto_approval
+        || state
+            .responses
+            .control
+            .records()
+            .map_err(control_store_error)?
+            .iter()
+            .any(|r| r.thread_id.as_deref() == Some(&thread_id) && r.suppress_auto_approval);
+    state
+        .responses
+        .control
+        .update(response_id, |r| {
+            r.thread_id = Some(thread_id.clone());
+            r.model_id = Some(model.public_model_id.clone());
+            r.suppress_auto_approval = suppress_auto_approval;
+        })
+        .map_err(control_store_error)?;
     let notifications = state.runtime.subscribe();
     let capability = if request
         .metadata
@@ -961,7 +1205,7 @@ async fn begin_turn_with_mode(
     };
     state
         .approvals
-        .register_turn(&thread_id, capability, &cwd)
+        .register_turn(&thread_id, capability, &cwd, suppress_auto_approval)
         .await;
     let turn_result = state
         .runtime
@@ -978,20 +1222,38 @@ async fn begin_turn_with_mode(
             }),
         )
         .await
-        .map_err(|error| {
-            if resuming && is_thread_not_found(&error) {
-                ApiError::new(StatusCode::NOT_FOUND, "thread_not_found", error.to_string())
-            } else {
-                runtime_error(error)
-            }
-        })?;
+        .map_err(|error| start_error(state, response_id, error, resuming))?;
     let turn_id = string_at(&turn_result, &["turn", "id"])
         .or_else(|| turn_result.get("id").and_then(Value::as_str))
         .map(str::to_owned);
+    if let Err(error) = state.responses.control.update(response_id, |r| {
+        r.turn_id = turn_id.clone();
+        r.phase = if turn_id.is_some() {
+            "started"
+        } else {
+            "unknown"
+        }
+        .into();
+        r.last_observed_status = if turn_id.is_some() {
+            "inProgress"
+        } else {
+            "unknown"
+        }
+        .into();
+        r.last_observed_at_ms = now_ms();
+    }) {
+        interrupt_turn(&state.runtime, &thread_id, turn_id.as_deref()).await;
+        return Err(control_store_error(error));
+    }
     if let Some(turn_id) = turn_id.as_deref() {
-        state
-            .track_turn(turn_id, &thread_id, &model.public_model_id)
-            .await;
+        state.approvals.bind_turn(&thread_id, turn_id).await;
+    }
+    if turn_id.is_none() {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "turn_identity_unknown",
+            "upstream omitted turn identity; do not replay",
+        ));
     }
     Ok(StartedTurn {
         model,
@@ -999,6 +1261,7 @@ async fn begin_turn_with_mode(
         turn_id,
         notifications,
         _permit: permit,
+        _thread_guard: thread_guard,
     })
 }
 
@@ -1041,9 +1304,12 @@ async fn stream_response(
                 "stream closed",
             )
         })?;
+    let identity = json!({"response_id": response_id, "thread_id": started.thread_id, "turn_id": started.turn_id});
     tokio::spawn(run_stream(state, response_id, started, sender));
     let stream = ReceiverStream::new(receiver).map(Ok::<Event, std::convert::Infallible>);
-    Ok(Sse::new(stream).into_response())
+    let mut response = Sse::new(stream).into_response();
+    add_identity_headers(&mut response, &identity);
+    Ok(response)
 }
 
 async fn run_stream(
@@ -1058,6 +1324,7 @@ async fn run_stream(
         turn_id,
         mut notifications,
         _permit,
+        _thread_guard,
     } = started;
     let mut silent_since = Instant::now();
     let mut stalled_probe_count = 0_u32;
@@ -1647,14 +1914,41 @@ fn parse_output_schema(format: Option<&Value>) -> Result<Option<Value>, ApiError
     }
 }
 
-async fn interrupt_turn(runtime: &CodexRuntime, thread_id: &str, turn_id: Option<&str>) {
-    if let Some(turn_id) = turn_id {
-        let _ = runtime
+async fn request_interrupt(
+    runtime: &CodexRuntime,
+    thread_id: &str,
+    turn_id: &str,
+) -> Result<Value, RuntimeError> {
+    // Codex 0.153.4 may acknowledge turn/start before registering its active
+    // task. Retry only this explicit rejection, never a lost RPC response.
+    for attempt in 0..20 {
+        let result = runtime
             .request(
                 "turn/interrupt",
-                json!({"threadId": thread_id, "turnId": turn_id}),
+                json!({"threadId":thread_id,"turnId":turn_id}),
             )
             .await;
+        let not_active = matches!(&result, Err(RuntimeError::Protocol(message)) if message.contains("no active turn to interrupt") && message.contains("(-32600)"));
+        if !not_active || attempt == 19 {
+            return result;
+        }
+        time::sleep(Duration::from_millis(50)).await;
+    }
+    unreachable!("bounded interrupt retry loop returns")
+}
+
+async fn interrupt_turn(runtime: &CodexRuntime, thread_id: &str, turn_id: Option<&str>) {
+    if let Some(turn_id) = turn_id {
+        tracing::info!(thread_id, turn_id, "requesting internal turn interruption");
+        match request_interrupt(runtime, thread_id, turn_id).await {
+            Ok(_) => tracing::info!(
+                turn_id,
+                "internal interruption accepted; completion not yet confirmed"
+            ),
+            Err(error) => {
+                tracing::warn!(turn_id, %error, "internal interruption result is unknown")
+            }
+        }
     }
 }
 
@@ -1892,5 +2186,421 @@ mod tests {
             turn_failure_message("interrupted", &json!({})),
             "Codex turn ended with status interrupted"
         );
+    }
+}
+
+fn control_store_error(error: std::io::Error) -> ApiError {
+    tracing::error!(%error, "control store unavailable");
+    ApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "control_store_unavailable",
+        "durable control store unavailable; do not retry execution",
+    )
+}
+
+fn validate_request_id(id: &str) -> Result<(), ApiError> {
+    if id.is_empty()
+        || id.len() > 128
+        || !id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_id",
+            "request ID must be 1..128 ASCII letters, digits, -_.",
+        ));
+    }
+    Ok(())
+}
+
+fn add_identity_headers(response: &mut Response, record: &Value) {
+    for (header, field) in [
+        ("x-response-id", "response_id"),
+        ("x-codex-thread-id", "thread_id"),
+        ("x-codex-turn-id", "turn_id"),
+    ] {
+        if let Some(value) = record
+            .get(field)
+            .and_then(Value::as_str)
+            .and_then(|v| v.parse().ok())
+        {
+            response.headers_mut().insert(header, value);
+        }
+    }
+}
+
+async fn capabilities() -> Json<Value> {
+    Json(
+        json!({"contract_version":"1.0", "responses":true, "streaming":true,
+        "conversation_resume":true, "conversation_model_change":true, "identity_on_start":true, "request_lookup":true,
+        "persistent_turn_status":true, "turn_status":true, "turn_events":true,
+        "turn_interrupt":true, "turn_steer":true, "interactive_approval":true,
+        "auto_approval_suppression":true, "event_reconnect":true, "output_retrieval":false,
+        "limits":{"auth_scope":"shared_operator", "request_retention":"no_automatic_deletion",
+            "event_reconnect":"snapshot_only", "event_history_replay":false,
+            "steer_idempotency":false, "disconnect_interrupts":true,
+            "approval_kinds":["commandExecution","fileChange"], "user_input":false, "mcp_elicitation":false, "permissions_approval":false,
+            "model_change_scope":"same_provider", "continuation":"successful_response_only"}}),
+    )
+}
+
+async fn get_request(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    validate_request_id(&id)?;
+    let record = state
+        .responses
+        .control
+        .by_request(&id)
+        .map_err(control_store_error)?
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "request_not_found",
+                "no retained record; this does not prove that the request was never sent",
+            )
+        })?;
+    Ok(Json(record.public()))
+}
+async fn get_execution(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let record = state
+        .responses
+        .control
+        .get(&id)
+        .map_err(control_store_error)?
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "response_not_found",
+                "execution metadata not found (legacy mappings have no turn identity)",
+            )
+        })?;
+    let mut value = record.public();
+    value["continuable"] = json!(
+        record.last_observed_status == "completed" && state.responses.get(&id).await.is_some()
+    );
+    Ok(Json(value))
+}
+fn execution_for_turn(state: &AppState, id: &str) -> Result<Execution, ApiError> {
+    state
+        .responses
+        .control
+        .by_turn(id)
+        .map_err(control_store_error)?
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "turn_not_found",
+                "turn was not recorded by this proxy",
+            )
+        })
+}
+async fn turn_approvals(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    execution_for_turn(&state, &id)?;
+    Ok(Json(
+        json!({"turn_id":id, "data":state.approvals.pending_events_for_turn(&id).await}),
+    ))
+}
+
+async fn lock_thread(
+    state: &AppState,
+    thread: &str,
+) -> Result<tokio::sync::OwnedMutexGuard<()>, ApiError> {
+    let lock = state
+        .thread_locks
+        .lock()
+        .await
+        .entry(thread.into())
+        .or_default()
+        .clone();
+    lock.try_lock_owned().map_err(|_| {
+        ApiError::new(
+            StatusCode::CONFLICT,
+            "thread_busy",
+            "another request owns this thread",
+        )
+    })
+}
+async fn check_thread_idle(state: &AppState, thread: &str) -> Result<(), ApiError> {
+    for record in state
+        .responses
+        .control
+        .records()
+        .map_err(control_store_error)?
+    {
+        if record.thread_id.as_deref() != Some(thread)
+            || terminal(&record.last_observed_status)
+            || record.phase == "rejected"
+        {
+            continue;
+        }
+        let Some(turn_id) = record.turn_id else {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "thread_state_unknown",
+                "previous start outcome is unknown",
+            ));
+        };
+        let snapshot = turn_snapshot(state, &turn_id).await?;
+        if !snapshot["status"].as_str().is_some_and(terminal) {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "thread_busy",
+                "previous turn has not been confirmed terminal",
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn turn_snapshot(state: &AppState, id: &str) -> Result<Value, ApiError> {
+    let record = execution_for_turn(state, id)?;
+    let result = state
+        .runtime
+        .request(
+            "thread/read",
+            json!({"threadId": record.thread_id, "includeTurns":true}),
+        )
+        .await;
+    let queried_at = now_ms();
+    let turn = result
+        .as_ref()
+        .ok()
+        .and_then(|v| v.pointer("/thread/turns").or_else(|| v.get("turns")))
+        .and_then(Value::as_array)
+        .and_then(|turns| turns.iter().find(|t| t["id"].as_str() == Some(id)))
+        .cloned();
+    let status = turn
+        .as_ref()
+        .and_then(|t| t["status"].as_str())
+        .unwrap_or("unknown")
+        .to_owned();
+    if status != "unknown" {
+        state
+            .responses
+            .control
+            .observe(id, &status)
+            .map_err(control_store_error)?;
+    }
+    if terminal(&status) {
+        state
+            .approvals
+            .invalidate_turn(record.thread_id.as_deref().unwrap_or_default(), id)
+            .await;
+    }
+    let latest = execution_for_turn(state, id)?;
+    Ok(
+        json!({"object":"codex.turn_status", "turn_id":id, "response_id":record.response_id,
+        "thread_id":record.thread_id, "model":record.model_id, "status":status,
+        "last_observed_status":latest.last_observed_status, "last_observed_at_ms":latest.last_observed_at_ms,
+        "last_event_at_ms":latest.last_observed_at_ms, "started_at_ms":record.started_at_ms, "queried_at_ms":queried_at,
+        "turn":turn, "thread_status":result.as_ref().ok().and_then(|v|v.pointer("/thread/status")).cloned(),
+        "runtime_query_error":result.err().map(|e| e.to_string()),
+        "pending_approvals":state.approvals.pending_events_for_turn(id).await,
+        "output_retrieval":"unavailable"}),
+    )
+}
+
+async fn control_interrupt(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    let target = execution_for_turn(&state, &id)?;
+    let lock = state
+        .control_locks
+        .lock()
+        .await
+        .entry(target.thread_id.clone().expect("recorded turn has thread"))
+        .or_default()
+        .clone();
+    let _guard = lock.lock().await;
+    let snapshot = turn_snapshot(&state, &id).await?;
+    if snapshot["status"].as_str().is_some_and(terminal) {
+        return Ok(Json(
+            json!({"turn_id":id, "result":"already_terminal", "status":snapshot["status"]}),
+        )
+        .into_response());
+    }
+    let record = execution_for_turn(&state, &id)?;
+    if let Some(previous) = record.interrupt_state {
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(json!({"turn_id":id,"result":previous,"status":snapshot["status"]})),
+        )
+            .into_response());
+    }
+    if snapshot["status"] != "inProgress" {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "turn_state_unknown",
+            "cannot confirm an active turn",
+        ));
+    }
+    state
+        .responses
+        .control
+        .update(&record.response_id, |r| {
+            r.interrupt_state = Some("unknown".into())
+        })
+        .map_err(control_store_error)?;
+    let result = request_interrupt(
+        &state.runtime,
+        record.thread_id.as_deref().expect("recorded thread"),
+        &id,
+    )
+    .await;
+    match result {
+        Ok(_) => {
+            state
+                .responses
+                .control
+                .update(&record.response_id, |r| {
+                    r.interrupt_state = Some("accepted".into())
+                })
+                .map_err(control_store_error)?;
+            Ok((
+                StatusCode::ACCEPTED,
+                Json(json!({"turn_id":id,"result":"accepted","status":"not_yet_confirmed"})),
+            )
+                .into_response())
+        }
+        Err(error) => Err(control_runtime_error(error)),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SteerRequest {
+    expected_turn_id: String,
+    input: Value,
+}
+async fn control_steer(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<SteerRequest>,
+) -> Result<Response, ApiError> {
+    if id != request.expected_turn_id {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "turn_mismatch",
+            "expected_turn_id must match URL turn",
+        ));
+    }
+    let input = normalize_input(&request.input)?;
+    if input.is_empty()
+        || input.iter().all(|part| {
+            part["type"] == "text"
+                && part["text"]
+                    .as_str()
+                    .is_some_and(|text| text.trim().is_empty())
+        })
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_input",
+            "Steer input must not be empty",
+        ));
+    }
+    let target = execution_for_turn(&state, &id)?;
+    let lock = state
+        .control_locks
+        .lock()
+        .await
+        .entry(target.thread_id.clone().expect("recorded turn has thread"))
+        .or_default()
+        .clone();
+    let _guard = lock.lock().await;
+    let snapshot = turn_snapshot(&state, &id).await?;
+    let record = execution_for_turn(&state, &id)?;
+    let waiting_for_input = snapshot
+        .pointer("/thread_status/activeFlags")
+        .and_then(Value::as_array)
+        .is_some_and(|flags| {
+            flags.iter().any(|flag| {
+                matches!(
+                    flag.as_str(),
+                    Some("waitingOnApproval" | "waitingOnUserInput")
+                )
+            })
+        });
+    if snapshot["status"] != "inProgress"
+        || waiting_for_input
+        || record.interrupt_state.is_some()
+        || !state
+            .approvals
+            .pending_events_for_turn(&id)
+            .await
+            .is_empty()
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "turn_not_steerable",
+            "turn is inactive, unknown, awaiting approval, or interrupt requested",
+        ));
+    }
+    let result = state
+        .runtime
+        .request(
+            "turn/steer",
+            json!({"threadId":record.thread_id,"expectedTurnId":id,"input":input}),
+        )
+        .await
+        .map_err(control_runtime_error)?;
+    if result["turnId"].as_str() != Some(&id) {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "steer_result_unknown",
+            "upstream did not confirm expected turn; do not resend",
+        ));
+    }
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({"turn_id":id,"result":"accepted"})),
+    )
+        .into_response())
+}
+
+fn control_runtime_error(error: RuntimeError) -> ApiError {
+    if matches!(&error, RuntimeError::Protocol(message) if message.contains("(-32602)")) {
+        ApiError::new(
+            StatusCode::CONFLICT,
+            "upstream_control_rejected",
+            error.to_string(),
+        )
+    } else {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "control_result_unknown",
+            format!("{error}; do not automatically resend"),
+        )
+    }
+}
+
+fn start_error(
+    state: &AppState,
+    response_id: &str,
+    error: RuntimeError,
+    resuming: bool,
+) -> ApiError {
+    if matches!(&error, RuntimeError::Protocol(message) if message.contains("(-32602)"))
+        && let Err(error) = state
+            .responses
+            .control
+            .update(response_id, |r| r.phase = "rejected".into())
+    {
+        return control_store_error(error);
+    }
+    if resuming && is_thread_not_found(&error) {
+        ApiError::new(StatusCode::NOT_FOUND, "thread_not_found", error.to_string())
+    } else {
+        runtime_error(error)
     }
 }

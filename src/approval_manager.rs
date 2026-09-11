@@ -27,6 +27,8 @@ pub struct ApprovalView {
     pub state: &'static str,
     pub available_decisions: Vec<ApprovalDecision>,
     pub details: Value,
+    pub expires_at_ms: Option<u128>,
+    pub reply_status: &'static str,
 }
 
 #[derive(Debug, Error)]
@@ -42,6 +44,7 @@ pub enum ApprovalManagerError {
 }
 
 struct ApprovalRecord {
+    reply_status: &'static str,
     request: ApprovalRequest,
     state: ApprovalState,
 }
@@ -50,11 +53,12 @@ struct ApprovalRecord {
 struct TurnApprovalContext {
     capability: ApprovalCapability,
     cwd: PathBuf,
+    suppress_auto_approval: bool,
+    turn_id: Option<String>,
 }
 
 pub struct ApprovalManager {
     runtime: Arc<CodexRuntime>,
-    next_id: Mutex<u64>,
     turn_contexts: Mutex<HashMap<String, TurnApprovalContext>>,
     records: Mutex<HashMap<String, ApprovalRecord>>,
     file_change_paths: Mutex<HashMap<String, Vec<String>>>,
@@ -70,7 +74,6 @@ impl ApprovalManager {
     ) -> Arc<Self> {
         Arc::new(Self {
             runtime,
-            next_id: Mutex::new(1),
             turn_contexts: Mutex::new(HashMap::new()),
             records: Mutex::new(HashMap::new()),
             file_change_paths: Mutex::new(HashMap::new()),
@@ -93,6 +96,25 @@ impl ApprovalManager {
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 };
                 if event.get("kind").and_then(Value::as_str) != Some("server_request") {
+                    if event.get("method").and_then(Value::as_str) == Some("turn/completed") {
+                        let params = &event["params"];
+                        if let Some(thread) = params.get("threadId").and_then(Value::as_str)
+                            && let Some(turn) = params
+                                .get("turnId")
+                                .or_else(|| params.pointer("/turn/id"))
+                                .and_then(Value::as_str)
+                        {
+                            manager.invalidate_turn(thread, turn).await;
+                        }
+                    }
+                    if event.get("kind").and_then(Value::as_str) == Some("transport_closed") {
+                        let mut records = manager.records.lock().await;
+                        for record in records.values_mut() {
+                            if matches!(record.state, ApprovalState::Pending { .. }) {
+                                record.state = ApprovalState::Cancelled;
+                            }
+                        }
+                    }
                     manager.observe_file_change_notification(&event).await;
                     continue;
                 }
@@ -164,14 +186,51 @@ impl ApprovalManager {
         }
     }
 
-    pub async fn register_turn(&self, thread_id: &str, capability: ApprovalCapability, cwd: &Path) {
+    pub async fn register_turn(
+        &self,
+        thread_id: &str,
+        capability: ApprovalCapability,
+        cwd: &Path,
+        suppress_auto_approval: bool,
+    ) {
         self.turn_contexts.lock().await.insert(
             thread_id.into(),
             TurnApprovalContext {
                 capability,
                 cwd: cwd.to_path_buf(),
+                suppress_auto_approval,
+                turn_id: None,
             },
         );
+    }
+
+    pub async fn bind_turn(&self, thread_id: &str, turn_id: &str) {
+        let mut contexts = self.turn_contexts.lock().await;
+        if let Some(context) = contexts.get_mut(thread_id) {
+            context.turn_id = Some(turn_id.into());
+        }
+        for record in self.records.lock().await.values_mut() {
+            if record.request.thread_id == thread_id && record.request.turn_id.is_none() {
+                record.request.turn_id = Some(turn_id.into());
+                record.request.details["turnId"] = json!(turn_id);
+            }
+        }
+    }
+
+    pub async fn invalidate_turn(&self, thread_id: &str, turn_id: &str) {
+        let mut contexts = self.turn_contexts.lock().await;
+        if contexts.get(thread_id).and_then(|c| c.turn_id.as_deref()) == Some(turn_id) {
+            contexts.remove(thread_id);
+        }
+        drop(contexts);
+        for record in self.records.lock().await.values_mut() {
+            if record.request.thread_id == thread_id
+                && record.request.turn_id.as_deref() == Some(turn_id)
+                && matches!(record.state, ApprovalState::Pending { .. })
+            {
+                record.state = ApprovalState::Cancelled;
+            }
+        }
     }
 
     pub async fn pending_events_for_turn(&self, turn_id: &str) -> Vec<Value> {
@@ -181,7 +240,7 @@ impl ApprovalManager {
             .filter_map(|record| {
                 let request = &record.request;
                 if request.turn_id.as_deref() != Some(turn_id)
-                    || !matches!(record.state, ApprovalState::Pending { .. })
+                    || !matches!(record.state, ApprovalState::Pending { expires_at_ms, .. } if expires_at_ms > crate::journal::now_ms())
                 {
                     return None;
                 }
@@ -216,6 +275,12 @@ impl ApprovalManager {
             let record = records
                 .get_mut(approval_id)
                 .ok_or_else(|| ApprovalManagerError::NotFound(approval_id.into()))?;
+            if matches!(&record.state, ApprovalState::Pending { expires_at_ms, .. } if *expires_at_ms <= crate::journal::now_ms())
+            {
+                drop(records);
+                self.expire(approval_id).await?;
+                return Err(ApprovalManagerError::Rejected);
+            }
             let transition = reduce_approval(
                 &record.state,
                 ApprovalEvent::UserDecisionReceived(decision.clone()),
@@ -225,6 +290,7 @@ impl ApprovalManager {
             }
             let effects = transition.effects.clone();
             record.state = transition.next;
+            record.reply_status = "unknown";
             let view = view_of(approval_id, record);
             (record.request.rpc_id.clone(), effects, view)
         };
@@ -238,6 +304,9 @@ impl ApprovalManager {
                     .await?;
             }
         }
+        if let Some(record) = self.records.lock().await.get_mut(approval_id) {
+            record.reply_status = "written";
+        }
         self.runtime.publish(json!({
             "kind": "approval_resolved",
             "approval_id": approval_id,
@@ -246,20 +315,27 @@ impl ApprovalManager {
             "state": view.state,
         }));
         tracing::info!(approval_id, decision = ?decision, state = view.state, "approval resolved");
-        Ok(view)
+        self.get(approval_id).await
     }
 
     async fn handle_request(
         self: &Arc<Self>,
         rpc_id: Value,
         method: &str,
-        params: Value,
+        mut params: Value,
     ) -> Result<(), ApprovalManagerError> {
         let thread_id = params
             .get("threadId")
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        // Keep context selection and record insertion atomic with bind_turn.
+        let contexts = self.turn_contexts.lock().await;
+        if params.get("turnId").and_then(Value::as_str).is_none()
+            && let Some(turn_id) = contexts.get(&thread_id).and_then(|c| c.turn_id.clone())
+        {
+            params["turnId"] = json!(turn_id);
+        }
         let turn_id = params
             .get("turnId")
             .and_then(Value::as_str)
@@ -275,12 +351,7 @@ impl ApprovalManager {
             })
             .filter(|decisions| !decisions.is_empty())
             .unwrap_or_else(|| default_decisions_for(method));
-        let approval_id = {
-            let mut next = self.next_id.lock().await;
-            let id = format!("approval_{}", *next);
-            *next = next.saturating_add(1);
-            id
-        };
+        let approval_id = format!("approval_{}", uuid::Uuid::new_v4());
         let request = ApprovalRequest {
             approval_id: approval_id.clone(),
             rpc_id: rpc_id.clone(),
@@ -290,19 +361,20 @@ impl ApprovalManager {
             details: params.clone(),
         };
         let available_decisions = request.available_decisions.clone();
-        let context = self
-            .turn_contexts
-            .lock()
-            .await
+        let context = contexts
             .get(&thread_id)
+            .filter(|c| c.turn_id.is_none() || turn_id.is_none() || c.turn_id == turn_id)
             .cloned()
             .unwrap_or(TurnApprovalContext {
                 capability: ApprovalCapability::None,
                 cwd: PathBuf::new(),
+                suppress_auto_approval: true,
+                turn_id: None,
             });
         let capability = context.capability;
-        let auto_approved =
-            self.auto_approve_workspace && request_is_in_workspace(method, &params, &context.cwd);
+        let auto_approved = self.auto_approve_workspace
+            && !context.suppress_auto_approval
+            && request_is_in_workspace(method, &params, &context.cwd);
         let automatic_decision = auto_approved.then(|| preferred_accept(&available_decisions));
         let state = if let Some(decision) = automatic_decision.clone() {
             ApprovalState::Approved { decision }
@@ -314,10 +386,19 @@ impl ApprovalManager {
         } else {
             ApprovalState::Cancelled
         };
-        self.records
-            .lock()
-            .await
-            .insert(approval_id.clone(), ApprovalRecord { request, state });
+        self.records.lock().await.insert(
+            approval_id.clone(),
+            ApprovalRecord {
+                reply_status: if matches!(state, ApprovalState::Pending { .. }) {
+                    "not_sent"
+                } else {
+                    "unknown"
+                },
+                request,
+                state,
+            },
+        );
+        drop(contexts);
         if auto_approved {
             let decision = automatic_decision.expect("automatic approval decision is present");
             self.runtime
@@ -362,6 +443,11 @@ impl ApprovalManager {
                 "turnId": turn_id,
             }));
         }
+        if (auto_approved || capability != ApprovalCapability::Interactive)
+            && let Some(record) = self.records.lock().await.get_mut(&approval_id)
+        {
+            record.reply_status = "written";
+        }
         Ok(())
     }
 
@@ -377,6 +463,7 @@ impl ApprovalManager {
             }
             let effects = transition.effects.clone();
             record.state = transition.next;
+            record.reply_status = "unknown";
             (
                 record.request.rpc_id.clone(),
                 effects,
@@ -392,6 +479,9 @@ impl ApprovalManager {
                     )
                     .await?;
             }
+        }
+        if let Some(record) = self.records.lock().await.get_mut(approval_id) {
+            record.reply_status = "written";
         }
         self.runtime.publish(json!({
             "kind": "approval_resolved",
@@ -511,11 +601,18 @@ fn view_of(id: &str, record: &ApprovalRecord) -> ApprovalView {
         state,
         available_decisions,
         details: record.request.details.clone(),
+        expires_at_ms: match &record.state {
+            ApprovalState::Pending { expires_at_ms, .. } => Some(*expires_at_ms),
+            _ => None,
+        },
+        reply_status: record.reply_status,
     }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ApprovalDecisionRequest {
+    pub expected_turn_id: Option<String>,
+    pub expected_thread_id: Option<String>,
     pub decision: String,
 }
 

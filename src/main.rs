@@ -6,6 +6,7 @@ use codex_hoshikage_proxy::{
     runtime::CodexRuntime,
     store::ResponseStore,
 };
+use std::{future::IntoFuture, time::Duration};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 #[tokio::main]
@@ -34,11 +35,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?,
     );
+    let listener = tokio::net::TcpListener::bind(config.listen_addr).await?;
     let runtime = CodexRuntime::launch(&config).await?;
     let catalog = ModelCatalogManager::new(config.models.clone(), runtime.clone())?;
-    let listener = tokio::net::TcpListener::bind(config.listen_addr).await?;
     tracing::info!(address = %config.listen_addr, "Codex Hoshikage Proxy listening");
-    axum::serve(
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel::<()>();
+    let server = axum::serve(
         listener,
         router(AppState::new(
             runtime.clone(),
@@ -57,10 +59,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             responses,
         )),
     )
-    .with_graceful_shutdown(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        let _ = runtime.shutdown().await;
+    .with_graceful_shutdown(async {
+        let _ = shutdown_receiver.await;
     })
-    .await?;
+    .into_future();
+    tokio::pin!(server);
+    let failed = tokio::select! {
+        result = &mut server => {
+            runtime.shutdown().await?;
+            result?;
+            return Ok(());
+        }
+        _ = shutdown_signal() => false,
+        _ = runtime.wait_for_failure() => {
+            tracing::error!("Codex App Server failed; stopping proxy for supervisor restart");
+            true
+        }
+    };
+    let _ = shutdown_sender.send(());
+    runtime.shutdown().await?;
+    // Allow active requests to receive the transport error, but do not let
+    // an unresponsive client prevent supervisor recovery indefinitely.
+    match tokio::time::timeout(Duration::from_secs(5), &mut server).await {
+        Ok(result) => result?,
+        Err(_) => tracing::warn!("HTTP shutdown drain timed out"),
+    }
+    if failed {
+        return Err(std::io::Error::other("Codex App Server failed").into());
+    }
     Ok(())
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = tokio::signal::ctrl_c().await;
 }

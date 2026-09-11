@@ -22,6 +22,7 @@ import time
 import urllib.error
 import urllib.request
 import zlib
+import uuid
 
 
 def red_png():
@@ -76,9 +77,12 @@ enabled = true
         env['CODEX_HOSHIKAGE_PROXY_HOME'] = str(root / 'proxy')
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-        def request(path, body=None):
+        def request(path, body=None, key=None):
             data = None if body is None else json.dumps(body).encode()
-            req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', data=data, headers={'Content-Type': 'application/json'})
+            headers = {'Content-Type': 'application/json'}
+            if key:
+                headers['Idempotency-Key'] = key
+            req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', data=data, headers=headers)
             return opener.open(req, timeout=150)
 
         def call(path, body=None):
@@ -174,6 +178,68 @@ enabled = true
             check('responses_stream', lambda: streaming('/v1/responses'))
             check('chat_stream', lambda: streaming('/v1/chat/completions'))
 
+            def control_api():
+                capability = call('/v1/codex/capabilities')
+                assert capability['turn_steer'] and capability['request_lookup'], capability
+                key = str(uuid.uuid4())
+                body = {'model': model, 'stream': True, 'input': 'Run the shell command sleep 20 once, then reply DONE. Do not read or write any files.',
+                        'metadata': {'codex.approval_capability': 'interactive', 'codex.auto_approve_workspace': 'false'}}
+                with request('/v1/responses', body, key) as response:
+                    turn_id = response.headers['x-codex-turn-id']
+                    response_id = response.headers['x-response-id']
+                    thread_id = response.headers['x-codex-thread-id']
+                    assert turn_id and response_id and thread_id
+                    record = call('/v1/codex/requests/' + key)
+                    assert record['turn_id'] == turn_id and record['response_id'] == response_id, record
+                    with request('/v1/responses', body, key) as duplicate:
+                        assert json.load(duplicate)['response_id'] == response_id
+                    with request(f'/v1/codex/turns/{turn_id}/events/stream') as observer:
+                        lines = []
+                        while True:
+                            line = observer.readline().decode()
+                            assert line, lines
+                            lines.append(line)
+                            if 'event: codex.turn.snapshot' in line:
+                                break
+                    accepted = call(f'/v1/codex/turns/{turn_id}/steer', {'expected_turn_id': turn_id, 'input': 'After the command, reply CONTROL_OK instead.'})
+                    assert accepted['result'] == 'accepted', accepted
+                    interrupted = call(f'/v1/codex/turns/{turn_id}/interrupt', {})
+                    assert interrupted['result'] == 'accepted', interrupted
+                    stream = response.read().decode()
+                    assert 'response.failed' in stream, stream[-1000:]
+                    status = call(f'/v1/codex/turns/{turn_id}/status')
+                    assert status['status'] == 'interrupted', status
+                    assert call(f'/v1/codex/turns/{turn_id}/interrupt', {})['result'] == 'already_terminal'
+                return 'start identity, durable lookup, duplicate suppression, observer reconnect, steer and explicit interrupt verified'
+            check('control_api', control_api)
+
+            def model_change():
+                nonlocal process
+                candidates = [os.environ.get('LIVE_CODEX_SWITCH_MODEL', 'chatgpt/gpt-5.6-terra'), 'chatgpt/gpt-5.5']
+                target = next((candidate for candidate in candidates if candidate in ids and candidate != model), None)
+                assert target, 'No second model available for model-change smoke test'
+                first = call('/v1/responses', {'model':model,'input':'Do not use tools. Remember the word CEDAR. Reply OK.'})
+                changed = call('/v1/responses', {'model':target,'previous_response_id':first['id'],'input':'What word did I ask you to remember? Reply only that word. Do not use tools.'})
+                assert changed['model'] == target and 'CEDAR' in text(changed), changed
+                first_record = call('/v1/codex/responses/' + first['id'])
+                changed_record = call('/v1/codex/responses/' + changed['id'])
+                assert first_record['thread_id'] == changed_record['thread_id']
+                # Restart only this script's isolated Proxy, preserving its temporary state.
+                process.terminate()
+                process.wait(timeout=15)
+                process = subprocess.Popen([str(binary)], env=env, cwd=workspace, stdout=log, stderr=log, start_new_session=True)
+                for _ in range(100):
+                    try:
+                        if call('/readyz')['status'] == 'ready': break
+                    except (OSError, urllib.error.HTTPError): pass
+                    time.sleep(.1)
+                else: raise AssertionError('temporary proxy restart failed')
+                continued = call('/v1/responses', {'previous_response_id':first['id'],'input':'Again, what word did I ask you to remember? Reply only that word. Do not use tools.'})
+                assert continued['model'] == target and 'CEDAR' in text(continued), continued
+                assert call('/v1/codex/responses/' + continued['id'])['thread_id'] == first_record['thread_id']
+                return {'from':model,'to':target,'same_thread':True,'context_after_restart':True,'old_response_inherits_latest_model':True}
+            check('conversation_model_change', model_change)
+
             def direct_image(detail):
                 direct_env = env.copy()
                 direct_env['CODEX_HOME'] = str(home)
@@ -233,6 +299,8 @@ enabled = true
                 response = request('/v1/responses', {'model':model, 'stream':True, 'input':prompt,
                     'metadata':{'codex.approval_capability':'interactive'}})
                 try:
+                    if response.headers.get('x-codex-turn-id'):
+                        return response, response.headers['x-codex-turn-id']
                     while True:
                         line = response.readline().decode()
                         if not line:
@@ -247,13 +315,15 @@ enabled = true
 
             def disconnect():
                 response, turn_id = active_stream('Run the shell command sleep 20 once, then reply DONE. Do not read or write any files.')
+                # Force a TCP disconnect rather than only closing urllib's buffered reader.
+                response.fp.raw._sock.shutdown(socket.SHUT_RDWR)
                 response.close()
-                for _ in range(50):
+                for _ in range(100):
                     status = call(f'/v1/codex/turns/{turn_id}/status')['status']
                     if status == 'interrupted':
                         return 'client disconnect interrupted the real Codex turn'
                     time.sleep(.2)
-                raise AssertionError(f'Expected interrupted; got {status}')
+                raise AssertionError(f'Expected interrupted; got {status}; log: ' + (root / 'proxy.log').read_text()[-2000:])
             check('disconnect_interrupt', disconnect)
 
             def approval(expire=False):
@@ -262,20 +332,14 @@ enabled = true
                 response, turn_id = active_stream(prompt)
                 try:
                     approval_id = None
-                    for _ in range(50):
-                        for index in range(1, 10):
-                            candidate = f'approval_{index}'
-                            try:
-                                view = call('/v1/codex/approvals/' + candidate)
-                            except urllib.error.HTTPError as error:
-                                if error.code == 404:
-                                    break
-                                raise
-                            if view['details'].get('turnId') == turn_id and view['state'] == 'pending':
-                                approval_id = candidate
+                    for _ in range(150):
+                        pending = call(f'/v1/codex/turns/{turn_id}/approvals')['data']
+                        if pending:
+                            approval_id = pending[0]['approval_id']
+                            view = call('/v1/codex/approvals/' + approval_id)
+                            if view['state'] == 'pending':
                                 break
-                        if approval_id:
-                            break
+                            approval_id = None
                         time.sleep(.2)
                     assert approval_id, 'Real Codex did not issue a pending approval'
                     path = '/v1/codex/approvals/' + approval_id

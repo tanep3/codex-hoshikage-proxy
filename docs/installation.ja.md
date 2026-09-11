@@ -160,3 +160,15 @@ loopback専用でAPI Key未設定ならAuthorizationヘッダーは不要です�
 
 - [ユーザー／APIガイド](user-guide.ja.md)
 - [OpenWebUI登録ガイド](openwebui.ja.md)
+
+## App Server異常終了時の復旧
+
+App Serverの終了・通信切断を検知すると、Proxyはリクエスト終了のため最大5秒待って非ゼロで終了します。
+付属ユーザーサービスの`Restart=on-failure`と`RestartSec=5`がProxyとApp Serverを再起動します。
+通常のSIGTERM／SIGINT停止は正常終了として扱います。60秒間に6回の起動制限に達した場合は、ログで原因を確認してから`systemctl --user reset-failed codex-hoshikage-proxy`を実行してください。
+
+進行中だった要求を自動再送することはありません。保存済みResponses会話の次の要求では`thread/resume`でThreadを再読み込みします。
+会話データが失われている場合はエラーとなり、内容を擬似復元しません。
+
+LAN公開時は`server.host = "0.0.0.0"`とAPIキーを設定します。APIキーを環境変数で指定する場合は、サービスに`EnvironmentFile`も設定してください。
+このサーバーの配置・操作方法は[サーバー運用メモ](server-operations.md)を参照してください。

@@ -2,6 +2,7 @@ pub mod approval;
 pub mod approval_manager;
 pub mod catalog;
 pub mod config;
+pub mod control;
 pub mod domain;
 pub mod http;
 pub mod journal;

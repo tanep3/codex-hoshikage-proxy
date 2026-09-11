@@ -70,7 +70,8 @@ streaming, disconnect interruption, approval cancellation/expiry, and errors aft
 - This model misidentified an image color with `detail=low`, including when the proxy was bypassed.
   Use `high` for images in this configuration for now.
 - Full OpenAI tool-call/result and usage conversion, user-input questions, and MCP elicitation relay remain incomplete.
-- Automatic App Server restart is not implemented. Restart the proxy after an App Server crash.
+- App Server failure causes the proxy to exit with an error. The bundled systemd service restarts it
+  after five seconds; interrupted requests are not automatically replayed.
 - Long-running/high-load operation and compatibility with every model/client have not been validated.
 
 See [coverage](docs/app-server-coverage.md), [live validation](docs/live-codex-validation.md), and
@@ -80,3 +81,5 @@ See [coverage](docs/app-server-coverage.md), [live validation](docs/live-codex-v
 
 Copyright (c) 2026 Tane Channel Technology. Licensed under the [MIT License](LICENSE).
 
+
+See the [Control API v1 contract (Japanese)](docs/control-api.ja.md) for request lookup, steer, interrupt, and conversation model changes within one provider.

@@ -1,4 +1,5 @@
 {
+  "tested_at": "2026-09-10T23:42:39.823200+00:00",
   "history": [
     [
       {
@@ -97,6 +98,140 @@
         "detail": "isolated Codex crash promptly produced runtime_disconnected",
         "seconds": 2.2
       }
+    ],
+    [
+      {
+        "test": "initialize_and_catalog",
+        "passed": true,
+        "models": 6,
+        "model": "chatgpt/gpt-5.6-luna"
+      },
+      {
+        "test": "direct_image_low",
+        "passed": false,
+        "error": "direct App Server, detail=low: {'color': 'blue'}",
+        "seconds": 13.42
+      },
+      {
+        "test": "direct_image_high",
+        "passed": true,
+        "detail": {
+          "detail": "high",
+          "color": "red",
+          "proxy_bypassed": true
+        },
+        "seconds": 8.48
+      },
+      {
+        "test": "approval_decline",
+        "passed": true,
+        "detail": "cancel and duplicate rejection verified without writing; offered=['accept', 'cancel']",
+        "seconds": 8.87
+      }
+    ],
+    [
+      {
+        "test": "initialize_and_catalog",
+        "passed": true,
+        "models": 6,
+        "model": "chatgpt/gpt-5.6-luna"
+      },
+      {
+        "test": "responses_stream",
+        "passed": true,
+        "detail": "text delta and completion verified",
+        "seconds": 14.04
+      },
+      {
+        "test": "chat_stream",
+        "passed": true,
+        "detail": "text delta and completion verified",
+        "seconds": 5.66
+      },
+      {
+        "test": "control_api",
+        "passed": true,
+        "detail": "start identity, durable lookup, duplicate suppression, observer reconnect, steer and explicit interrupt verified",
+        "seconds": 0.25
+      },
+      {
+        "test": "conversation_model_change",
+        "passed": true,
+        "detail": {
+          "from": "chatgpt/gpt-5.6-luna",
+          "to": "chatgpt/gpt-5.6-terra",
+          "same_thread": true,
+          "context_after_restart": true,
+          "old_response_inherits_latest_model": true
+        },
+        "seconds": 17.59
+      }
+    ],
+    [
+      {
+        "test": "initialize_and_catalog",
+        "passed": true,
+        "models": 6,
+        "model": "chatgpt/gpt-5.6-luna"
+      },
+      {
+        "test": "disconnect_interrupt",
+        "passed": false,
+        "error": "Expected interrupted; got inProgress",
+        "seconds": 11.26
+      },
+      {
+        "test": "approval_decline",
+        "passed": false,
+        "error": "Real Codex did not issue a pending approval",
+        "seconds": 10.24
+      },
+      {
+        "test": "approval_timeout",
+        "passed": false,
+        "error": "Real Codex did not issue a pending approval",
+        "seconds": 10.21
+      }
+    ],
+    [
+      {
+        "test": "initialize_and_catalog",
+        "passed": true,
+        "models": 6,
+        "model": "chatgpt/gpt-5.6-luna"
+      },
+      {
+        "test": "disconnect_interrupt",
+        "passed": false,
+        "error": "Expected interrupted; got completed; log: WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/hoshikage-live-j38g4ssi/proxy/codex-home\"))\n2026-09-10T23:36:40.478351Z  INFO codex_hoshikage_proxy: Codex Hoshikage Proxy listening address=127.0.0.1:39675\n2026-09-10T23:36:42.920748Z  INFO codex_hoshikage_proxy::catalog: refreshed ChatGPT model catalog chatgpt_imported=6\n2026-09-10T23:36:42.930066Z  INFO codex_hoshikage_proxy::catalog: refreshed ChatGPT model catalog chatgpt_imported=6\n",
+        "seconds": 21.3
+      },
+      {
+        "test": "approval_decline",
+        "passed": true,
+        "detail": "cancel and duplicate rejection verified without writing; offered=['accept', 'cancel']",
+        "seconds": 10.45
+      },
+      {
+        "test": "approval_timeout",
+        "passed": true,
+        "detail": "approval expired without writing",
+        "seconds": 20.35
+      }
+    ],
+    [
+      {
+        "test": "initialize_and_catalog",
+        "passed": true,
+        "models": 6,
+        "model": "chatgpt/gpt-5.6-luna"
+      },
+      {
+        "test": "disconnect_interrupt",
+        "passed": false,
+        "error": "Expected interrupted; got completed; log: WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/hoshikage-live-itdj_o6w/proxy/codex-home\"))\n2026-09-10T23:39:33.157008Z  INFO codex_hoshikage_proxy: Codex Hoshikage Proxy listening address=127.0.0.1:43757\n2026-09-10T23:39:35.792015Z  INFO codex_hoshikage_proxy::catalog: refreshed ChatGPT model catalog chatgpt_imported=6\n2026-09-10T23:39:35.807310Z  INFO codex_hoshikage_proxy::catalog: refreshed ChatGPT model catalog chatgpt_imported=6\n2026-09-10T23:39:35.953591Z  INFO codex_hoshikage_proxy::http: requesting internal turn interruption thread_id=\"01a08db0-e60e-7352-9b18-f84533cadd1c\" turn_id=\"01a08db0-e65f-74a3-b977-ecd9b7ee3995\"\n2026-09-10T23:39:35.958233Z  WARN codex_hoshikage_proxy::http: internal interruption result is unknown turn_id=\"01a08db0-e65f-74a3-b977-ecd9b7ee3995\" error=Codex App Server request failed: no active turn to interrupt (-32600)\n",
+        "seconds": 21.46
+      }
     ]
   ],
   "codex_version": "codex-cli 0.153.4",
@@ -108,26 +243,16 @@
       "model": "chatgpt/gpt-5.6-luna"
     },
     {
-      "test": "direct_image_low",
-      "passed": false,
-      "error": "direct App Server, detail=low: {'color': 'blue'}",
-      "seconds": 13.42
+      "test": "control_api",
+      "passed": true,
+      "detail": "start identity, durable lookup, duplicate suppression, observer reconnect, steer and explicit interrupt verified",
+      "seconds": 0.19
     },
     {
-      "test": "direct_image_high",
+      "test": "disconnect_interrupt",
       "passed": true,
-      "detail": {
-        "detail": "high",
-        "color": "red",
-        "proxy_bypassed": true
-      },
-      "seconds": 8.48
-    },
-    {
-      "test": "approval_decline",
-      "passed": true,
-      "detail": "cancel and duplicate rejection verified without writing; offered=['accept', 'cancel']",
-      "seconds": 8.87
+      "detail": "client disconnect interrupted the real Codex turn",
+      "seconds": 0.31
     }
   ]
 }

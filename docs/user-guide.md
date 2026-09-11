@@ -122,7 +122,7 @@ Use the returned response ID to continue a durable Responses conversation:
 }
 ```
 
-After a proxy restart, continuation works only while the Codex-side thread remains available. Otherwise
+After a proxy restart, the proxy uses `thread/resume` to reload the persisted Codex thread when available. Otherwise
 the proxy returns `thread_not_found`; it does not reconstruct a thread from conversation text.
 
 ## Chat Completions API
@@ -201,3 +201,7 @@ See the [App Server coverage notes](app-server-coverage.md) for remaining gaps.
 Live validation with Codex 0.153.4 and gpt-5.6-luna reproduced a color error with `detail=low`,
 including when bypassing this proxy. The same image was recognized correctly with `detail=high`.
 See the [live validation report](live-codex-validation.md).
+
+## Execution control
+
+The [Control API v1 contract (Japanese)](control-api.ja.md) covers start identity, Idempotency-Key, status lookup, steer, interrupt, approval suppression and conversation model changes. Model changes within one provider apply to the next turn while preserving thread history.

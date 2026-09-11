@@ -86,6 +86,7 @@ impl CodexRuntime {
     pub async fn launch(config: &ValidatedConfig) -> Result<Arc<Self>, RuntimeError> {
         let mut command = Command::new(&config.codex_command);
         command
+            .kill_on_drop(true)
             .args(&config.codex_args)
             .env("CODEX_HOME", &config.codex_home)
             .stdin(Stdio::piped())
@@ -317,6 +318,21 @@ impl CodexRuntime {
             )
             .next;
         });
+    }
+
+    /// A closed transport is fatal even if the process has not exited yet.
+    pub async fn wait_for_failure(&self) {
+        loop {
+            if self.transport_closed.load(Ordering::Acquire)
+                || matches!(
+                    self.snapshot().await,
+                    RuntimeState::Recovering { .. } | RuntimeState::Failed { .. }
+                )
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 
     pub async fn snapshot(&self) -> RuntimeState {

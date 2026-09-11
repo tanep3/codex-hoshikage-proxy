@@ -2,12 +2,17 @@
 Description=Codex Hoshikage Proxy
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=6
 
 [Service]
 Type=simple
 ExecStart=%h/.cargo/bin/codex-hoshikage-proxy
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+UMask=0077
 Environment=CODEX_HOSHIKAGE_PROXY_HOME=%h/.config/codex-hoshikage-proxy
 Environment=VOLTA_HOME=%h/.volta
 Environment=PATH=%h/.volta/bin:%h/bin:%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin

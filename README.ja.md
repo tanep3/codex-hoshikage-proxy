@@ -63,7 +63,7 @@ OpenWebUI `v0.11.0`の過去の受入記録はありますが、今回の画像�
 
 - `detail=low`で画像の色を誤認する現象が、このモデルではApp Serverへの直接接続でも再現しています。画像には当面`high`を使用してください。
 - ツール呼び出し／結果・usageの完全なOpenAI形式変換、ユーザーへの質問やMCP elicitationの対話中継は未対応です。
-- App Server異常終了後の自動再起動は未実装です。復旧にはProxyを再起動してください。
+- App Server異常終了時はProxyも異常終了します。付属systemdサービスでは5秒後に再起動します。実行中の処理は自動再実行しません。
 - 長時間・高負荷運転や、全モデル／全クライアントの互換性は未検証です。
 
 詳細は[対応表](docs/app-server-coverage.md)、[実接続テスト結果](docs/live-codex-validation.md)、[開発時の検証手順](docs/development.md)を参照してください。
@@ -72,3 +72,5 @@ OpenWebUI `v0.11.0`の過去の受入記録はありますが、今回の画像�
 
 Copyright (c) 2026 Tane Channel Technology。[[MIT License](LICENSE)]です。
 
+
+汎用クライアント向けの要求ID照会・Steer・中断・同一Provider内モデル変更は[制御API v1](docs/control-api.ja.md)を参照してください。

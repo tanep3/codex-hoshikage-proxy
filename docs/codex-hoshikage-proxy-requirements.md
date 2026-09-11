@@ -21,7 +21,7 @@
 [App Server対応表](app-server-coverage.md)、実機で確認した範囲は[実接続テスト結果](live-codex-validation.md)を参照する。
 Codex 0.153.4＋gpt-5.6-lunaで主要APIと切断・承認キャンセル／期限切れ・異常終了を確認済み。
 画像入力とoutputSchema、Chatの推論強度、モデル一覧のページ送りを追加した。
-完全なtool call／usage変換、App Server自動復旧、長時間・高負荷検証などは未完了である。
+App Server異常終了時のProxy終了とsystemdによる再起動に対応した。完全なtool call／usage変換、長時間・高負荷検証などは未完了である。
 
 
 ---
@@ -76,7 +76,7 @@ MVP では以下を対象外とする。
 
 1. 旧 OpenAI Completions API `/v1/completions`
 2. Chat Completions における Codex Thread の永続的継続
-3. 継続中の Responses Thread におけるモデル変更
+3. 継続中の Responses Thread におけるProviderを跨ぐモデル変更
 4. Codex App Server 実行中 Turn の自動再送
 5. 標準 OpenAI API ストリームへの Codex 独自イベント混入
 6. 複数 Codex App Server のクラスタリング
@@ -316,17 +316,11 @@ POST /v1/responses
 
 `previous_response_id` が指定されている場合、SQLite から対応する Codex Thread を解決し、既存 Thread を継続する。
 
-### 10.5 モデル変更禁止
+### 10.5 同じ会話のモデル変更
 
-継続リクエストで、元 Response と異なるモデルが指定された場合は拒否する。
+2026-09-11改定: 同一Provider内では次のTurnの`model`指定で変更可能とする。履歴を破棄せず同じThreadを継続する。モデル省略時は最後に開始確認できた選択を引き継ぐ。旧Responseのモデル記録は書き換えない。
 
-エラーコードは以下とする。
-
-```text
-model_change_not_allowed
-```
-
-HTTP Status は `409 Conflict` とする。
+Providerを跨ぐ切替は`409 cross_provider_model_change_unsupported`。実行中は`409 thread_busy`。拒否・結果不明・再起動時の扱いは[制御API v1](control-api.ja.md)を正とする。
 
 ### 10.6 Streaming
 
@@ -1153,7 +1147,7 @@ OpenAI 互換エラー形式を返す。
 | `model_not_found` | 404 | モデル未登録 |
 | `response_not_found` | 404 | Response 対応情報なし |
 | `thread_not_found` | 404 | Codex Thread なし |
-| `model_change_not_allowed` | 409 | 継続中モデル変更 |
+| `cross_provider_model_change_unsupported` | 409 | Providerを跨ぐ継続中モデル変更 |
 | `approval_denied` | 403 | 承認拒否 |
 | `approval_required` | 409 | クライアントにApproval capabilityがなく、対話承認が必要 |
 | `approval_timeout` | 408 | 承認タイムアウト |
@@ -1368,7 +1362,7 @@ GitHub 公開物は個人環境に依存しないこと。
 3. Responses 非 Streaming
 4. Responses Streaming
 5. previous_response_id 継続
-6. モデル変更拒否
+6. 同一Provider内モデル変更・Provider間変更拒否
 7. Provider 切り替え
 8. Provider Semaphore
 9. Approval Approve
@@ -1418,7 +1412,7 @@ MVP は以下をすべて満たした場合に受入可能とする。
 
 - 新規 Response が新規 Thread を作る
 - `previous_response_id` で同一 Thread を継続できる
-- 継続時のモデル変更が拒否される
+- 同一Provider内のモデル変更は文脈を維持し、Provider間変更は明示的に拒否される
 - Proxy 再起動後も SQLite から Thread 対応を復元できる
 
 ### 30.6 並行制御
@@ -1477,7 +1471,7 @@ MVP の主要決定事項は以下とする。
 8. Providerカタログ取得はモデル一覧要求またはモデル使用要求の直前に行い、静的モデル定義は任意の上書き・別名として適用する
 9. `model` は省略可能
 10. `default` は設定された既定モデルへ解決する
-11. Responses の継続中モデル変更は禁止する
+11. Responses の継続中モデル変更は同一Provider内で次のTurnから適用する
 12. Chat Completions はリクエストごとに新規 Thread を作る
 13. Response と Thread の対応を SQLite へ保存する
 14. 対応情報は時間経過で自動削除しない

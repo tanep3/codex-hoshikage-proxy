@@ -171,3 +171,17 @@ response contains model IDs in `provider/model` form.
 
 - Use the [user and API guide](user-guide.md) for configuration and requests.
 - Use the [OpenWebUI guide](openwebui.md) to register the Pipe.
+
+## Recovery after App Server failure
+
+When the child exits or its transport closes, the proxy drains HTTP requests for up to five seconds
+and exits nonzero. The bundled service uses `Restart=on-failure` and `RestartSec=5` to restart both
+processes. SIGTERM/SIGINT stop normally. The unit limits startup to six attempts per 60 seconds;
+inspect the logs and use `systemctl --user reset-failed codex-hoshikage-proxy` after resolving a startup failure.
+
+In-flight requests are not replayed. A subsequent request for a persisted Responses conversation uses
+`thread/resume`; missing conversations produce an error rather than synthetic reconstruction.
+
+For LAN access, set `server.host = "0.0.0.0"` and configure an API key. If the key comes from an
+environment variable, configure the service's `EnvironmentFile` too. See [server operations](server-operations.md)
+for this server's deployment.

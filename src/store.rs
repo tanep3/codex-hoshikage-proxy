@@ -27,6 +27,7 @@ pub struct ResponseMapping {
 }
 
 pub struct ResponseStore {
+    pub control: crate::control::ControlStore,
     path: PathBuf,
     writer: Mutex<tokio::fs::File>,
     mappings: Mutex<HashMap<String, ResponseMapping>>,
@@ -58,6 +59,7 @@ impl ResponseStore {
             .open(&path)
             .await?;
         Ok(Self {
+            control: crate::control::ControlStore::open(&directory)?,
             path,
             writer: Mutex::new(writer),
             mappings: Mutex::new(mappings),

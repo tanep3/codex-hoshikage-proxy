@@ -110,7 +110,7 @@ MVPで対応する主なフィールドは `model`、`input`、`previous_respons
 }
 ```
 
-Proxy再起動後もCodex側Threadが利用可能な場合だけ継続できます。利用不能なら `thread_not_found` となり、会話文から擬似復元はしません。
+Proxy再起動後は`thread/resume`で保存済みThreadを再読み込みし、利用可能な場合に継続できます。利用不能なら `thread_not_found` となり、会話文から擬似復元はしません。
 
 ## Chat Completions API
 
@@ -196,3 +196,7 @@ ChatGPTプロバイダでは`reasoning_effort: "high"`も指定でき、その�
 
 実接続テストではCodex 0.153.4＋gpt-5.6-lunaの`detail=low`で色の誤認が再現しました。
 同じ画像は`detail=high`で正しく認識しています。詳細は[実接続テスト結果](live-codex-validation.md)を参照してください。
+
+## 汎用の実行制御
+
+開始時の識別子、Idempotency-Key、状態照会、Steer、中断、承認抑制、会話モデル変更の契約は[制御API v1](control-api.ja.md)を参照してください。同一Provider内のモデル変更は次のTurnに反映し、会話履歴を保持します。

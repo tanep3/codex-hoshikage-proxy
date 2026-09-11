@@ -21,7 +21,7 @@
 [App Server対応表](app-server-coverage.md)、実機で確認した範囲は[実接続テスト結果](live-codex-validation.md)を参照する。
 Codex 0.153.4＋gpt-5.6-lunaで主要APIと切断・承認キャンセル／期限切れ・異常終了を確認済み。
 画像入力とoutputSchema、Chatの推論強度、モデル一覧のページ送りを追加した。
-完全なtool call／usage変換、App Server自動復旧、長時間・高負荷検証などは未完了である。
+App Server異常終了時のProxy終了とsystemdによる再起動に対応した。完全なtool call／usage変換、長時間・高負荷検証などは未完了である。
 
 
 ---

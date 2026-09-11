@@ -20,3 +20,7 @@ Project references:
 The operational guides above are maintained in English with Japanese counterparts. The requirements,
 design, and task records are internal project references and remain Japanese-first for now.
 
+
+- [Server service operations](server-operations.md)
+
+- [Control API v1 and Gateway contract (Japanese)](control-api.ja.md)

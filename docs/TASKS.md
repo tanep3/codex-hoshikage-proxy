@@ -15,10 +15,10 @@
 - [x] 隔離App Serverの強制終了からHTTPストリームへの即時エラー通知
 - [x] 低詳細画像の誤認を直接App Server接続でも再現し、Proxy固有の問題ではないことを確認
 
-画像detail=lowの不一致は未解消。全自動テストは53件で、Clippyも警告なし。
+画像detail=lowの不一致は未解消。全自動テストは56件で、Clippyも警告なし。
 試行履歴・テスト側の誤判定修正・未検証境界は[実接続テスト結果](live-codex-validation.md)に記録する。
 
-次の優先事項は、長時間・並列負荷試験、App Server自動復旧、未対応の対話要求とイベント変換である。
+次の優先事項は、長時間・並列負荷試験、未対応の対話要求とイベント変換である。
 [対応表](app-server-coverage.md)を現在の実装範囲の基準とする。
 
 下記OpenWebUI／他Providerの実機記録は従来の受入履歴を保持したもので、今回のAPI直接接続テストで再検証したものではない。
@@ -60,7 +60,8 @@ OpenWebUI v0.11.0ではtimeout後も標準Confirmation Dialogが画面に残る�
 
 Fake Codex統合テストでは、Codex transport終了時のpending request解決と、shutdown時の
 子プロセス終了待ち・RuntimeのStopped遷移を確認済み。今回、実Codex異常終了時のストリームへの即時エラー通知も確認した。
-自動再起動は未実装のため、異常終了後の復旧にはProxyを再起動する。
+App Server異常終了時はProxyが非ゼロで終了し、付属systemdサービスが再起動する。SIGTERMによる通常停止は正常終了する。
+再起動後のResponses継続ではthread/resumeを使う。実行中だったTurnは自動再実行しない。
 
 ### D. 受入テストと文書状態更新
 
@@ -82,3 +83,12 @@ Fake Codex統合テストでは、Codex transport終了時のpending request解�
 6. 同じTurnの継続結果をPipeへストリームする。
 
 OpenWebUI v0.11.0の標準UIは4ボタンを提供しないため、Pipeは二択のConfirmation Dialogを使用する。Accept経路は実環境で確認済み。timeout後はProxy側でApprovalとTurnが終端になるが、OpenWebUI標準UIにはPipe／Proxyからダイアログを閉じるイベントがないため、画面上にダイアログが残ることがある。この挙動は既知の運用制約とする。
+
+## 2026-09-11 汎用制御API v1
+
+- 要求ID照会・同期永続化・開始識別子・重複実行防止を追加。
+- 明示中断、期待Turn照合付きSteer、同一Thread競合拒否を追加。
+- 承認IDをUUID化し、要求単位の自動承認抑制と継続時維持、有効承認一覧を追加。
+- 監視SSEのsnapshot・欠落通知、Capability APIを追加。最終出力の再取得は非対応と明示。
+- 改定されたP-09に従い、同一Provider内のモデル変更・最新選択の継承・再起動復元を追加。
+- 詳細なAPI・制約・責務境界は[契約回答](control-api.ja.md)。常駐サービスへの適用は別作業。

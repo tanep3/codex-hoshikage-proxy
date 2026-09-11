@@ -18,6 +18,13 @@ fn main() {
     let file_approval =
         workspace_file_approval || std::env::args().any(|arg| arg == "--file-approval");
     let mut approval_pending = false;
+    let mut turn_status = "inProgress";
+    let mut thread_id = "thread_fake_1".to_string();
+    let mut turn_id = "turn_fake_1".to_string();
+    let mut next_thread = 0;
+    let mut next_turn = 0;
+    let mut rejected_interrupt = false;
+    let mut turns = std::collections::HashMap::<String, (String, String)>::new();
     for line in stdin.lock().lines().map_while(Result::ok) {
         let Ok(request) = serde_json::from_str::<Value>(&line) else {
             continue;
@@ -27,11 +34,13 @@ fn main() {
         };
         if approval_pending && request.get("method").is_none() && id == approval_id {
             approval_pending = false;
+            turn_status = "completed";
+            turns.insert(turn_id.clone(), (thread_id.clone(), turn_status.into()));
             write_json(
-                &json!({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"thread_fake_1","turnId":"turn_fake_1","delta":"approved response"}}),
+                &json!({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":thread_id,"turnId":turn_id,"delta":"approved response"}}),
             );
             write_json(
-                &json!({"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread_fake_1","turnId":"turn_fake_1","turn":{"id":"turn_fake_1","status":"completed"}}}),
+                &json!({"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":thread_id,"turnId":turn_id,"turn":{"id":turn_id,"status":"completed"}}}),
             );
             continue;
         }
@@ -82,28 +91,102 @@ fn main() {
                 json!({"id":id, "result":{"data":[{"id":model, "model":model, "modelProvider":"openai",
                     "supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"high"}]}], "nextCursor":next}})
             }
-            "thread/start" => {
-                json!({"jsonrpc":"2.0","id":id,"result":{"thread":{"id":"thread_fake_1"}}})
+            "thread/resume" if std::env::args().any(|arg| arg == "--missing-resume-thread") => {
+                json!({"id":id, "error":{"code":-32602,"message":"thread not found"}})
+            }
+            "thread/start" | "thread/resume" => {
+                if method == "thread/start" {
+                    next_thread += 1;
+                    thread_id = format!("thread_fake_{next_thread}");
+                } else {
+                    thread_id = request["params"]["threadId"].as_str().unwrap().into();
+                }
+                json!({"jsonrpc":"2.0","id":id,"result":{"thread":{"id":thread_id}}})
+            }
+            "thread/read" => {
+                if std::env::args().any(|arg| arg == "--read-unavailable") {
+                    json!({"id":id,"error":{"code":-32602,"message":"thread unavailable"}})
+                } else {
+                    json!({"id":id,"result":{"thread":{"id":request["params"]["threadId"],"status": if std::env::args().any(|arg|arg == "--upstream-waiting") { json!({"type":"active","activeFlags":["waitingOnApproval"]}) } else { json!({"type":"idle"}) },"turns": turns.iter().filter(|(_, (thread, _))| Some(thread.as_str()) == request["params"]["threadId"].as_str()).map(|(id, (_, status))| json!({"id":id,"status":status})).collect::<Vec<_>>()}}})
+                }
+            }
+            "turn/steer" => {
+                if std::env::args().any(|arg| arg == "--steer-race")
+                    || turn_status != "inProgress"
+                    || request["params"]["expectedTurnId"] != turn_id
+                {
+                    json!({"id":id,"error":{"code":-32602,"message":"no matching active turn"}})
+                } else {
+                    write_json(&json!({"method":"test/steered","params":request["params"]}));
+                    json!({"id":id,"result":{"turnId":turn_id}})
+                }
             }
             "turn/interrupt" => {
+                if !rejected_interrupt
+                    && std::env::args().any(|arg| arg == "--interrupt-not-active-once")
+                {
+                    rejected_interrupt = true;
+                    write_json(
+                        &json!({"id":id,"error":{"code":-32600,"message":"no active turn to interrupt"}}),
+                    );
+                    continue;
+                }
+                let race = std::env::args().any(|arg| arg == "--interrupt-race");
+                if !std::env::args().any(|arg| arg == "--defer-interrupt-completion") {
+                    turn_status = if race { "completed" } else { "interrupted" };
+                    turns.insert(turn_id.clone(), (thread_id.clone(), turn_status.into()));
+                    write_json(
+                        &json!({"method":"turn/completed","params":{"threadId":thread_id,"turnId":turn_id,"turn":{"id":turn_id,"status":turn_status}}}),
+                    );
+                }
                 write_json(&json!({"method":"test/interrupted", "params":request["params"]}));
-                json!({"id":id, "result":{}})
+                if race {
+                    json!({"id":id,"error":{"code":-32602,"message":"turn already completed"}})
+                } else {
+                    json!({"id":id,"result":{}})
+                }
             }
             "turn/start" => {
-                let response =
-                    json!({"jsonrpc":"2.0","id":id,"result":{"turn":{"id":"turn_fake_1"}}});
+                if request["params"]["model"] == "model-rejected" {
+                    write_json(
+                        &json!({"id":id,"error":{"code":-32602,"message":"model unavailable"}}),
+                    );
+                    continue;
+                }
+                next_turn += 1;
+                turn_id = format!("turn_fake_{next_turn}");
+                turn_status = "inProgress";
+                turns.insert(turn_id.clone(), (thread_id.clone(), turn_status.into()));
+                if std::env::args().any(|arg| arg == "--exit-before-start-reply") {
+                    return;
+                }
+                if std::env::args().any(|arg| arg == "--approval-before-start-reply") {
+                    approval_pending = true;
+                    write_json(
+                        &json!({"id":approval_id,"method":"item/commandExecution/requestApproval","params":{"threadId":thread_id,"command":"echo approval","availableDecisions":["accept","decline"]}}),
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                    write_json(&json!({"id":id,"result":{"turn":{"id":turn_id}}}));
+                    continue;
+                }
+                let response = json!({"jsonrpc":"2.0","id":id,"result":{"turn":{"id":turn_id}}});
                 write_json(&response);
                 if std::env::args().any(|arg| arg == "--exit-during-turn") {
                     return;
                 }
-                if std::env::args().any(|arg| arg == "--silent-turn") {
+                if std::env::args().any(|arg| {
+                    arg == "--silent-turn" || (arg == "--silent-after-first" && next_turn > 1)
+                }) {
                     continue;
                 }
-                if approval_mode {
+                if approval_mode
+                    && !(std::env::args().any(|arg| arg == "--approval-after-first")
+                        && next_turn == 1)
+                {
                     approval_pending = true;
                     if file_approval {
                         write_json(&json!({"method":"item/started", "params":{
-                            "threadId":"thread_fake_1", "turnId":"turn_fake_1",
+                            "threadId":thread_id, "turnId":turn_id,
                             "item":{"id":"file_1", "type":"fileChange", "changes":[
                                 {"path": std::env::current_dir().unwrap().join("inside.txt"), "kind":{"type":"add"}},
                                 {"path": if workspace_file_approval { std::env::current_dir().unwrap().join("second.txt") } else { "/var/outside.txt".into() }, "kind":{"type":"add"}}
@@ -111,12 +194,12 @@ fn main() {
                         }}));
                         write_json(
                             &json!({"id":approval_id,"method":"item/fileChange/requestApproval","params":{
-                                "threadId":"thread_fake_1","turnId":"turn_fake_1","itemId":"file_1","grantRoot":null
+                                "threadId":thread_id,"turnId":turn_id,"itemId":"file_1","grantRoot":null
                             }}),
                         );
                     } else {
                         write_json(
-                            &json!({"jsonrpc":"2.0","id":approval_id,"method":"item/commandExecution/requestApproval","params":{"threadId":"thread_fake_1","turnId":"turn_fake_1","command":"echo approval","availableDecisions":["accept","decline"]}}),
+                            &json!({"jsonrpc":"2.0","id":approval_id,"method":"item/commandExecution/requestApproval","params":{"threadId":thread_id,"turnId":turn_id,"command":"echo approval","availableDecisions":["accept","decline"]}}),
                         );
                     }
                     continue;
@@ -127,10 +210,12 @@ fn main() {
                     "fake response".into()
                 };
                 write_json(
-                    &json!({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"thread_fake_1","turnId":"turn_fake_1","itemId":"item_fake_1","delta":text}}),
+                    &json!({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":thread_id,"turnId":turn_id,"itemId":"item_fake_1","delta":text}}),
                 );
+                turn_status = "completed";
+                turns.insert(turn_id.clone(), (thread_id.clone(), turn_status.into()));
                 write_json(
-                    &json!({"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread_fake_1","turnId":"turn_fake_1","turn":{"id":"turn_fake_1","status":"completed"}}}),
+                    &json!({"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":thread_id,"turnId":turn_id,"turn":{"id":turn_id,"status":"completed"}}}),
                 );
                 continue;
             }

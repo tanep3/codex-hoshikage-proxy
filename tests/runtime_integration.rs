@@ -93,6 +93,7 @@ async fn approval_listener_survives_notification_overflow() {
     let runtime = CodexRuntime::launch(&fake_config(&[])).await.unwrap();
     let manager = ApprovalManager::new(runtime.clone(), Duration::from_secs(30), false);
     manager.start();
+    let mut events = runtime.subscribe();
     // Do not yield: overflow the subscriber before it can begin receiving.
     for _ in 0..300 {
         runtime.publish(serde_json::json!({"method": "noise"}));
@@ -103,11 +104,13 @@ async fn approval_listener_survives_notification_overflow() {
     );
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            if let Ok(view) = manager.get("approval_1").await {
+            if let Ok(event) = events.recv().await
+                && let Some(id) = event.get("approval_id").and_then(serde_json::Value::as_str)
+            {
+                let view = manager.get(id).await.unwrap();
                 assert_eq!(view.state, "cancelled");
                 break;
             }
-            tokio::task::yield_now().await;
         }
     })
     .await
