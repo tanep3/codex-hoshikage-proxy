@@ -1,6 +1,6 @@
 # v2の設定・運用
 
-実装対象は[契約0.2](workspace-artifact-api-v2.ja.md)。[受入記録](v2-implementation-status.ja.md)の未確認項目を本番保証に含めない。常駐サービスの設定はこの実装作業では変更していない。
+実装対象は[契約0.2](workspace-artifact-api-v2.ja.md)。[受入記録](v2-implementation-status.ja.md)の未確認項目を本番保証に含めない。このサーバーへの配備状態は[常駐運用記録](server-operations.md)を参照。
 
 ## 有効化と保存先
 

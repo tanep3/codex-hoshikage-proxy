@@ -80,3 +80,19 @@ v1のみの旧版では実行メタデータを`state/responses/executions.jsonl
 
 OpenAI互換`/v1`とGateway拡張`/v2/codex`を同時に提供する。通常は`server.v2_enabled`の設定不要。既存のAPIキー・LAN待受・承認方針を継承する。更新時にはサービス停止中のホームと旧バイナリを退避する。
 初回起動で旧Responses台帳を`state/v2/metadata.sqlite3`へ移行し、移行元を`state/responses/pre-v2/`に保存する。v2の状態がある環境では無効化による起動を拒否する。以降のバックアップ・復元には[v2運用手順](v2-operations.ja.md)を使用する。
+
+## 2026-09-11 Gateway拡張API適用記録
+
+21:05 JSTに実装コミット`81783d1217a6576ac698dbdd694c40ba555f5c6d`のreleaseビルドを適用した。
+OpenAI互換APIとGateway拡張API v2を同時に標準提供する。既存の設定ファイル・APIキー・承認設定・`0.0.0.0:4040`待受を継承し、バージョン切替設定は追加していない。
+停止直前に進行中・UNKNOWNの実行と既存HTTP接続がないことを確認し、停止中のProxyホームと旧バイナリを`~/.config/codex-hoshikage-proxy.before-v2-20260911T120528Z/`へ退避した（ディレクトリ権限700）。適用記録は`~/.config/codex-hoshikage-proxy/last-update.json`。
+
+初回起動で旧実行・会話台帳をSQLiteへ移行し、元のJSONLを`state/responses/pre-v2/`に保存した。
+反映後に稼働・自動起動有効・LAN待受と、サーバー自身からLAN IP経由で以下を確認した。
+
+- 認証なしの401、認証付きreadiness、モデル一覧6件、制御API v1と拡張API v2のcapabilities。
+- 実Codexで`/v1/responses`が`DEPLOY_V1_OK`、`/v1/chat/completions`が`DEPLOY_CHAT_OK`を返すこと。
+- v2会話作成・非同期実行・確定回答取得で`DEPLOY_V2_OK`、実行状態がcompletedになること。
+- v1/v2とも同じ要求キーの再送が同じResponse IDを指し、新規実行しないこと。v1の重複応答は契約どおり実行記録を返す（検証スクリプトの`id`参照を`response_id`へ修正して照合）。
+
+標準有効化後の自動テスト106件、Clippy警告ゼロ、整形・差分チェックを通過した。別LAN PC・Gateway/Discord結合・混合負荷の未確認項目は[v2受入記録](v2-implementation-status.ja.md)に残す。
