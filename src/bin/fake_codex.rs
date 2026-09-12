@@ -9,6 +9,15 @@ fn main() {
         println!("codex-cli 0.153.4");
         return;
     }
+    let read_gate = std::env::args().find_map(|a| {
+        a.strip_prefix("--interaction-read-gate=")
+            .map(str::to_owned)
+    });
+    #[cfg(target_os = "linux")]
+    if read_gate.is_some() {
+        // Test-only backpressure: force a long answer to block until we read.
+        assert!(unsafe { libc::fcntl(libc::STDIN_FILENO, libc::F_SETPIPE_SZ, 4096) } >= 0);
+    }
     let stdin = io::stdin();
     let approval_mode = std::env::var("FAKE_CODEX_APPROVAL").is_ok()
         || std::env::args().any(|arg| arg == "--approval");
@@ -207,8 +216,18 @@ fn main() {
                     .find_map(|arg| arg.strip_prefix("--server-request=").map(str::to_owned))
                 {
                     write_json(&json!({"id":"unsupported_fake","method":method,"params":{
-                        "threadId":thread_id,"turnId":turn_id,"itemId":"question_1","isBlocking":true,"questions":[{"id":"color","header":"Color","question":"Which color?","isOther":false,"options":[{"label":"Blue","description":"Blue"}]}],"permissions":{"network":{"enabled":true}},"mode":"form","serverName":"test","message":"Choose","requestedSchema":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}
+                        "threadId":thread_id,"turnId":turn_id,"itemId":"question_1","isBlocking":true,"questions":[{"id":"color","header":"Color","question":"Which color?","isOther":read_gate.is_some(),"options":[{"label":"Blue","description":"Blue"}]}],"permissions":{"network":{"enabled":true}},"mode":"form","serverName":"test","message":"Choose","requestedSchema":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}
                     }}));
+                    if let Some(gate) = &read_gate {
+                        let deadline = std::time::Instant::now() + Duration::from_secs(8);
+                        while !std::path::Path::new(gate).exists() {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "test read gate timed out"
+                            );
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                    }
                     continue;
                 }
                 if std::env::args().any(|arg| arg == "--artifact-tool") {

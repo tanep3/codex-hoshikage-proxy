@@ -759,3 +759,88 @@ async fn concurrent_answers_have_one_winner_and_generation_is_checked() {
     assert_eq!(count, 1);
     runtime.shutdown().await.unwrap();
 }
+
+/// A real TCP reset while the upstream pipe is blocked must not cancel an
+/// accepted answer. The Linux pipe size makes the send boundary deterministic.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn tcp_disconnect_during_answer_write_does_not_lose_or_resend_reply() {
+    use std::os::fd::AsRawFd;
+    use tokio::io::AsyncWriteExt;
+    let gate = std::env::temp_dir().join(format!("relay-gate-{}", uuid::Uuid::new_v4()));
+    let gate_arg = format!("--interaction-read-gate={}", gate.display());
+    let (app, s, runtime) =
+        app_args(&["--server-request=item/tool/requestUserInput", &gate_arg]).await;
+    let mut events = runtime.subscribe();
+    let (rid, iid) = interactive_request(&app, &s, "user_input").await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server_app = app.clone();
+    let server = tokio::spawn(async move { axum::serve(listener, server_app).await.unwrap() });
+    let body = json!({"expected_revision":1,"response":{"answers":{"color":{"answers":["x".repeat(8192)]}}}});
+    let encoded = body.to_string();
+    let path = format!("interactions/{iid}/reply");
+    let request = format!(
+        "POST /v2/codex/{path} HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer test-key\r\nX-Proxy-Instance-Id: {}\r\nX-Proxy-Recovery-Generation: {}\r\nIdempotency-Key: disconnected-answer\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{encoded}",
+        s.store.instance,
+        s.store.generation,
+        encoded.len()
+    );
+    let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+    socket.write_all(request.as_bytes()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while s.store.get("interaction", &iid).unwrap()["state"] != "sending" {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // Abort the connection, rather than a half-close that still accepts a response.
+    let linger = libc::linger {
+        l_onoff: 1,
+        l_linger: 0,
+    };
+    assert_eq!(
+        unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_LINGER,
+                &linger as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&linger) as libc::socklen_t,
+            )
+        },
+        0
+    );
+    drop(socket);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        s.store.get("interaction", &iid).unwrap()["state"],
+        "sending"
+    );
+    std::fs::write(&gate, b"resume").unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while s.store.get("response", &rid).unwrap()["phase"] != "finished" {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (status, op) = call(&app, &s, "POST", &path, Some("disconnected-answer"), body).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+    assert_eq!(op["state"], "succeeded");
+    let i = s.store.get("interaction", &iid).unwrap();
+    assert_eq!(i["state"], "resolved");
+    assert_eq!(i["reply_status"], "written");
+    assert!(i["request"].is_null());
+    let mut replies = 0;
+    while let Ok(e) = events.try_recv() {
+        if e["method"] == "test/serverReply" {
+            replies += 1;
+        }
+    }
+    assert_eq!(replies, 1);
+    runtime.shutdown().await.unwrap();
+    server.abort();
+    std::fs::remove_file(gate).unwrap();
+}

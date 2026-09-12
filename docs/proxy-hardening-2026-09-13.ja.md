@@ -49,4 +49,13 @@ v2全体の `acceptance_pending` は維持する。既存の正常系画像表�
 
 常駐Proxy・Gateway・OpenWebUIは変更していない。対話UIのクライアント対応と配備後の結合受入が必要。基本契約2.0と `acceptance_pending` を維持する。
 
-追加後の自動試験：Rust全対象132件成功・3件ignored、その後追加した開始前受付／期限切れrevisionの回帰試験を含む対話6件も成功（現在の成功対象は計133件）。Clippyの警告0、fmt・差分空白検査成功。PIPE既存8件も成功。HTTP切断直後の回答送信継続は所有タスクによって実装しているが、実TCP切断による専用受入は未実施。
+追加後の自動試験：Rust全対象132件成功・3件ignored、その後追加した開始前受付／期限切れrevisionの回帰試験を含む対話6件も成功（現在の成功対象は計133件）。Clippyの警告0、fmt・差分空白検査成功。PIPE既存8件も成功。HTTP切断直後の回答送信継続は、下記の実TCP切断試験でも確認した。
+
+
+## 同日追加：回答送信中の実TCP切断
+
+`tests/v2_http.rs::tcp_disconnect_during_answer_write_does_not_lose_or_resend_reply` を追加。Linuxの模擬App Serverの標準入力パイプを4096 bytesに制限し、8192 bytesの回答を送ることで上流書込みを確実に待たせる。永続状態が `sending` になってからHTTPクライアントをTCP RSTで切断し、切断後も書込み待ちであることを確認した上で上流の読取りを再開する。
+
+回答は1回だけ上流に届き、実行がfinished、対話がresolved、送信がwrittenになる。同じ操作キーでの再要求はsucceededの元operationを返し、再送しない。単なるHTTPボディ切断やレスポンス受信後の切断とは別に、送信処理中の切断を検証した。隔離したloopback通信と模擬上流の試験であり、実Discord・別ホストの不安定回線・実Codexの障害試験ではない。常駐サービスは変更していない。
+
+この追加後の `cargo test --locked --all-targets --quiet` は134件成功・失敗0件・3件ignored。Clippy（`-D warnings`）、fmt、差分空白検査も成功。

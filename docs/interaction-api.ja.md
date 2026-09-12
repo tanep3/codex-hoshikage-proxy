@@ -150,3 +150,5 @@ fileSystemは旧read/write絶対パス配列、およびentries（read/write/den
 - `/stop`、二重クリック、別ユーザーの操作、期限切れ、上流側での解消、Proxy/Gateway再起動、復元世代の不一致を受入試験に含める。秘密の質問・回答を公開Discordメッセージへ出さない。
 
 Proxy側の試験は `tests/v2_http.rs`、`tests/v2_interactions.rs`、隔離した実Codex用の `scripts/live_v2_interactions.py` を参照。実モデル試験はローカルのテストMCPだけを用い、MCP実行承認とフォーム回答の二段階、同一キーのoperation再取得、最終出力を確認した。質問・権限・URLは模擬上流・検証器で確認しており、実クライアントUIの受入とは区別する。
+
+回答送信中のHTTP切断は、Linux上で上流パイプの書込みを止めたままTCP RSTを発生させる試験も実施済み。切断後の送信継続・最終完了・同一キー再取得・上流への回答1回を確認した。[受入記録](proxy-hardening-2026-09-13.ja.md)を参照。
