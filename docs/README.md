@@ -29,4 +29,4 @@ design, and task records are internal project references and remain Japanese-fir
 - [v2実装設計](v2-system-design.ja.md)
 
 - [v2生成画像の自動登録API](generated-image-api.ja.md)
-- [Gatewayへの生成画像自動配信修正依頼](gateway-generated-image-delivery-change-request.ja.md)
+- [Gatewayへの生成画像自動配信修正依頼（対応済み・履歴）](gateway-generated-image-delivery-change-request.ja.md)

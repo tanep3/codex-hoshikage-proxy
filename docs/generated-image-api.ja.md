@@ -1,6 +1,6 @@
 # v2生成画像の自動成果物登録
 
-2026-09-12。Proxy実装契約。GatewayのDiscord自動配信は別途対応する。[v2基本契約](workspace-artifact-api-v2.ja.md)に対する後方互換の追加で、`contract_version` は `2.0` を維持する。
+2026-09-13更新。Proxy実装契約。Proxy・Gatewayとも実装・常駐サービス反映済み。利用者によるDiscord画像表示の正常系確認も完了した（[受入記録](v2-implementation-status.ja.md)）。[v2基本契約](workspace-artifact-api-v2.ja.md)に対する後方互換の追加で、`contract_version` は `2.0` を維持する。
 
 ## 概要と責務
 
@@ -88,4 +88,4 @@ Bearer認証、`X-Proxy-Instance-Id`、`X-Proxy-Recovery-Generation`、ワーク
 
 画像識別子を永続化してから成果物を予約し、画像本体、SHA-256等のmanifest、DBの順に公開する。画像本体の保存と画像一覧の成功記録の間で停止しても、既存操作キーから同じ成果物へ再接続する。未確定の予約は別内容で作り直さず `unknown` にする。正式復元の保留中は新たな画像登録を行わない。
 
-自動試験は `tests/v2_images.rs` と `tests/v2_http.rs`。実画像の保存経路だけを再検証するignored試験、および新規生成・自動登録・HTTP取得・再起動を隔離環境で確認する `scripts/live_v2_images.py` を提供する。実Discord表示はGatewayの変更後に別途確認する。
+自動試験は `tests/v2_images.rs` と `tests/v2_http.rs`。実画像の保存経路だけを再検証するignored試験、および新規生成・自動登録・HTTP取得・再起動を隔離環境で確認する `scripts/live_v2_images.py` を提供する。2026-09-13に利用者から実Discordでの画像表示成功の報告を受けた。障害復旧・負荷などの残る受入項目は[v2受入記録](v2-implementation-status.ja.md)を参照。

@@ -1,10 +1,12 @@
 # Gateway修正依頼：生成画像のDiscord自動配信
 
 - 作成日：2026-09-12
-- 状態：Gatewayへの修正依頼。本文は初期の追加契約案。Proxy側は下記の実装契約に具体化して対応しており、本文の提案値と実装済み条件を混同しない。
+- 状態：対応済み（2026-09-13更新）。双方の実装・常駐サービス反映と、利用者によるDiscord画像表示の正常系確認が完了。本文は初期の修正依頼・追加契約案を履歴として保持し、提案値と現行の実装条件を混同しない。
 - 対象：codex-hoshikage-gateway／codex-hoshikage-proxy
-- Proxy側実装契約：[生成画像API](generated-image-api.ja.md)。以下の提案から具体化した提供条件・制限・旧Responseの扱いは、この実装契約を参照。Gateway側の変更依頼は継続。
+- Proxy側実装契約：[生成画像API](generated-image-api.ja.md)。以下の提案から具体化した提供条件・制限・旧Responseの扱いは、この実装契約を参照。Gateway側は[生成画像配信仕様](../../codex-hoshikage-gateway/docs/generated-image-delivery-contract.ja.md)を参照。
 - 基準：[Workspace / Artifact API v2契約](workspace-artifact-api-v2.ja.md)
+
+以下の第1〜6節は依頼作成時点の記録。現在の確認結果と残る受入項目は[v2受入記録](v2-implementation-status.ja.md)を参照する。
 
 ## 1. 解決する問題
 
@@ -138,4 +140,4 @@ OpenAI互換の `/v1` は維持する。Gatewayはv2成果物を利用し、v1�
 2. 追加API案に必要なフィールドの不足がないか。監視期限、照会保持期間、件数・サイズ上限、再起動後の再照合方法をProxy側と確定する。
 3. 複数画像の待機・分割表示、途中成果の配信、`/get` 競合・明示再送のUXに修正希望があるか。
 
-合意後にProxyのAPI契約と双方の要件・設計・DB・受入試験を更新し、実装する。この依頼の作成は、画像自動配信の実装・常駐サービス反映・Discord表示確認が完了したことを意味しない。
+依頼時点では、合意後にProxyのAPI契約と双方の要件・設計・DB・受入試験を更新し、実装する方針だった。現在は冒頭に記したとおり対応済み。第5節の受入条件一覧そのものは、全項目の実環境試験が完了したことを意味しない。

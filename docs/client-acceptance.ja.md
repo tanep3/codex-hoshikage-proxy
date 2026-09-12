@@ -1,6 +1,6 @@
 # OpenWebUI・Gatewayのクライアント受入確認
 
-2026-09-11。OpenWebUI 0.11.3 / PIPE 0.5.1。Gatewayは拡張API v2を使用する。
+2026-09-13更新。OpenWebUI 0.11.3 / PIPE 0.6.0（2026-09-11反映記録）。Gatewayは拡張API v2を使用する。
 同一OpenWebUIユーザーの別チャット間で文脈を共有することは、利用者が指定した仕様であり、不具合と扱わない。
 
 ## OpenWebUIで試す操作
@@ -33,7 +33,11 @@ PIPEのResponse対応表はメモリ上にあるため、PIPE再読み込み・O
 実Discordの投稿テストは、投稿してよいチャンネルを指定してから実施する。
 常駐サービスを止める復旧試験は、既存の処理を確認してから行う。
 
-## 今回のGateway試験
+## 2026-09-13：生成画像のDiscord表示確認
+
+Gateway改定・常駐サービス反映後、利用者から画像表示のユーザーテスト成功の報告を受けた。生成画像の自動添付・表示の正常系は確認済み。実画像の取得・配信検証と残る確認事項は[v2受入記録](v2-implementation-status.ja.md)を参照する。
+
+## 2026-09-11：Gateway試験記録
 
 - 常駐Gateway: active、Discord接続済み、Proxy ready、UNKNOWN占有なしを確認。
 - 自動試験50件: 全件通過。通常の実行では実接続3件はignore。

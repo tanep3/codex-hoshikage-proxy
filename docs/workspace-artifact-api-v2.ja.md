@@ -1,6 +1,6 @@
 # ワーク・成果物・回答復旧 API v2 契約案
 
-版: 0.2 / 2026-09-11。状態: **Gateway・Proxy間で合意済み。実装・このサーバーへの配備済み。Gateway結合・負荷などの製品受入は未完了。**
+版: 0.2 / 2026-09-11。状態: **Gateway・Proxy間で合意済み。実装・このサーバーへの配備済み。Gatewayの生成画像配信・表示の正常系は2026-09-13に確認済み。障害時のGateway結合・負荷などの製品受入は未完了。**
 
 Gatewayの[調整案0.3](../../codex-hoshikage-gateway/docs/proxy-workspace-artifact-flow-proposal.ja.md)と、その後合意した4点へのProxy回答。
 本書のAPIは合意した製品契約であり、容量設定値は受入確認中の候補である。実装・検証結果は[v2受入記録](v2-implementation-status.ja.md)を参照する。本書は、現行[制御API v1](control-api.ja.md)の利用手順を上書きしない。

@@ -111,4 +111,10 @@ Proxyテスト107件とClippy、PIPEテスト8件を通過。実画像入力に�
 
 LAN IP経由でready、認証なし401、v1モデル一覧、新しい `response_generated_images / generated_image_artifacts` capabilityを確認。instance・復元世代と既存の保存済み回答が更新前と一致した。専用の検証依頼を実行受付前に取り消し、新しい画像一覧APIで `complete / items: []`、同一キー再送で同じResponse IDとなることを確認した。この配備検証ではAIを起動していない。実画像生成・再起動試験は[受入記録](v2-implementation-status.ja.md)を参照。
 
-Gatewayの管理状態も接続済み、Proxy ready、復元待ち・占有保留なしを確認した。Gateway自体のバイナリ・サービスは変更していない。Discordへの画像自動添付はGateway側の実装・配備後に結合確認する。
+Gatewayの管理状態も接続済み、Proxy ready、復元待ち・占有保留なしを確認した。Gateway自体のバイナリ・サービスは変更していない。この配備時点ではDiscordへの画像自動添付の結合確認は未実施だった。後日の確認結果は次節を参照。
+
+## 2026-09-13 Gateway画像表示の確認記録
+
+Gateway側の改定・常駐サービス反映が完了し、利用者からDiscord画像表示のユーザーテスト成功の報告を受けた。Gateway側の[運用・試験記録](../../codex-hoshikage-gateway/docs/implementation-status.ja.md)でもサービス反映と実Discordでの正常動作確認が記録されている。画像表示対応は双方で完了し、Gateway対応待ちは解消した。
+
+この記録更新に伴うProxyの再配備・再起動は行っていない。残る障害復旧・負荷等の確認は[v2受入記録](v2-implementation-status.ja.md)を参照。
