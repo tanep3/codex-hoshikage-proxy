@@ -43,7 +43,11 @@ async fn app_args(args: &[&str]) -> (Router, Arc<Service>, Arc<CodexRuntime>) {
         config.cwd_policy,
         config.default_cwd,
         Some("test-key".into()),
-        Duration::from_secs(10),
+        if args.contains(&"--short-idle-timeout") {
+            Duration::from_millis(200)
+        } else {
+            Duration::from_secs(10)
+        },
         Duration::from_secs(5),
         3,
         Duration::from_secs(1),
@@ -512,5 +516,246 @@ async fn unsupported_interaction_stops_only_the_accepted_execution() {
     )
     .await;
     assert_eq!(replay["resource"]["id"], rid);
+    runtime.shutdown().await.unwrap();
+}
+
+async fn interactive_request(app: &Router, s: &Service, kind: &str) -> (String, String) {
+    let (_, c) = call(
+        app,
+        s,
+        "POST",
+        "conversations",
+        Some("relay-c"),
+        json!({"workspace":{"mode":"automatic"},"model":"hoshikage/test"}),
+    )
+    .await;
+    let cid = c["resource"]["id"].as_str().unwrap().to_owned();
+    let (_, r) = call(
+        app,
+        s,
+        "POST",
+        &format!("conversations/{cid}/responses"),
+        Some("relay-r"),
+        json!({"input":"hello","interaction_capabilities":[kind]}),
+    )
+    .await;
+    let rid = r["resource"]["id"].as_str().unwrap().to_owned();
+    let iid = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let (_, items) = call(
+                app,
+                s,
+                "GET",
+                &format!("responses/{rid}/interactions"),
+                None,
+                json!({}),
+            )
+            .await;
+            if let Some(i) = items["data"].as_array().and_then(|a| a.first())
+                && s.store.get("response", &rid).unwrap()["phase"] == "started"
+            {
+                assert!(i.get("rpc_id").is_none());
+                break i["interaction_id"].as_str().unwrap().to_owned();
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    (rid, iid)
+}
+
+#[tokio::test]
+async fn opted_in_interactions_validate_reply_and_never_resend() {
+    for (kind, method, answer, bad) in [
+        (
+            "user_input",
+            "item/tool/requestUserInput",
+            json!({"answers":{"color":{"answers":["Blue"]}}}),
+            json!({"answers":{"color":{"answers":["invented"]}}}),
+        ),
+        (
+            "permissions",
+            "item/permissions/requestApproval",
+            json!({"permissions":{"network":{"enabled":true}},"scope":"turn"}),
+            json!({"permissions":{"fileSystem":{"write":["/etc"]}}}),
+        ),
+        (
+            "mcp_form",
+            "mcpServer/elicitation/request",
+            json!({"action":"accept","content":{"ok":true}}),
+            json!({"action":"accept","content":{"ok":"not a bool"}}),
+        ),
+    ] {
+        let arg = format!("--server-request={method}");
+        let (app, s, runtime) = app_args(&[&arg]).await;
+        let mut events = runtime.subscribe();
+        let (rid, iid) = interactive_request(&app, &s, kind).await;
+        let path = format!("interactions/{iid}/reply");
+        let (status, _) = call(
+            &app,
+            &s,
+            "POST",
+            &path,
+            Some("bad-reply"),
+            json!({"expected_revision":1,"response":bad}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let body = json!({"expected_revision":1,"response":answer});
+        let (status, op) = call(&app, &s, "POST", &path, Some("reply-1"), body.clone()).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+        assert_eq!(op["state"], "succeeded");
+        let (_, replayed) = call(&app, &s, "POST", &path, Some("reply-1"), body).await;
+        assert_eq!(replayed["operation_id"], op["operation_id"]);
+        let (conflict, _) = call(
+            &app,
+            &s,
+            "POST",
+            &path,
+            Some("reply-1"),
+            json!({"expected_revision":1,"response":{}}),
+        )
+        .await;
+        assert_eq!(conflict, StatusCode::CONFLICT);
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while s.store.get("response", &rid).unwrap()["phase"] != "finished" {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let (_, i) = call(
+            &app,
+            &s,
+            "GET",
+            &format!("interactions/{iid}"),
+            None,
+            json!({}),
+        )
+        .await;
+        assert_eq!(i["state"], "resolved");
+        assert!(i["request"].is_null());
+        let mut replies = 0;
+        while let Ok(e) = events.try_recv() {
+            if e["method"] == "test/serverReply" {
+                replies += 1;
+                assert!(e["params"].get("result").is_some());
+            }
+        }
+        assert_eq!(replies, 1);
+        runtime.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn stop_and_expiry_fence_interaction_answers() {
+    for expired in [false, true] {
+        let (app, s, runtime) = app_args(&["--server-request=item/tool/requestUserInput"]).await;
+        let (rid, iid) = interactive_request(&app, &s, "user_input").await;
+        if expired {
+            s.store
+                .update("interaction", &iid, |i| {
+                    i["expires_at_ms"] = json!(0);
+                    Ok(())
+                })
+                .unwrap();
+        } else {
+            call(
+                &app,
+                &s,
+                "POST",
+                "stops",
+                Some("stop-first"),
+                json!({"target":{"response_id":rid}}),
+            )
+            .await;
+        }
+        let (status, _) = call(
+            &app,
+            &s,
+            "POST",
+            &format!("interactions/{iid}/reply"),
+            Some("too-late"),
+            json!({"expected_revision":1,"response":{"answers":{"color":{"answers":["Blue"]}}}}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(s.store.get("response", &rid).unwrap()["stop_requested"] == true);
+        assert!(s.store.get("interaction", &iid).unwrap()["request"].is_null());
+        runtime.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn pending_interaction_uses_its_deadline_instead_of_model_idle_timeout() {
+    let (app, s, runtime) = app_args(&[
+        "--server-request=item/tool/requestUserInput",
+        "--short-idle-timeout",
+    ])
+    .await;
+    let (rid, iid) = interactive_request(&app, &s, "user_input").await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(s.store.get("response", &rid).unwrap()["phase"], "started");
+    let (status, op) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("waited-reply"),
+        json!({"expected_revision":1,"response":{"answers":{"color":{"answers":["Blue"]}}}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_answers_have_one_winner_and_generation_is_checked() {
+    let (app, s, runtime) = app_args(&["--server-request=item/tool/requestUserInput"]).await;
+    let (_, iid) = interactive_request(&app, &s, "user_input").await;
+    let path = format!("interactions/{iid}/reply");
+    let body = json!({"expected_revision":1,"response":{"answers":{"color":{"answers":["Blue"]}}}});
+    let mut events = runtime.subscribe();
+    let (a, b) = tokio::join!(
+        call(&app, &s, "POST", &path, Some("race-a"), body.clone()),
+        call(&app, &s, "POST", &path, Some("race-b"), body.clone())
+    );
+    assert_eq!(
+        [a.0, b.0]
+            .iter()
+            .filter(|s| **s == StatusCode::ACCEPTED)
+            .count(),
+        1
+    );
+    assert_eq!(
+        [a.0, b.0]
+            .iter()
+            .filter(|s| **s == StatusCode::CONFLICT)
+            .count(),
+        1
+    );
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/v2/codex/{path}"))
+        .header("authorization", "Bearer test-key")
+        .header("content-type", "application/json")
+        .header("x-proxy-instance-id", &s.store.instance)
+        .header("x-proxy-recovery-generation", "old-generation")
+        .header("idempotency-key", "old-answer")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(req).await.unwrap().status(),
+        StatusCode::CONFLICT
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let mut count = 0;
+    while let Ok(e) = events.try_recv() {
+        if e["method"] == "test/serverReply" {
+            count += 1;
+        }
+    }
+    assert_eq!(count, 1);
     runtime.shutdown().await.unwrap();
 }

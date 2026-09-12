@@ -28,13 +28,25 @@
 - `cargo fmt --all -- --check`、`git diff --check`、変更したMarkdownの相対リンク検査：成功。
 - PIPEの8件も成功。通常のシステムPythonにはhttpxがなかったため、`uv run --no-project --cache-dir /tmp/hoshikage-test-uv-cache --with httpx --with pydantic --with pillow python -m unittest discover -s tests -p test_openwebui_pipe.py -q` の隔離環境で実施。模擬App Serverを使った実Proxy HTTP承認往復を含む。稼働中のOpenWebUI・Gateway・Proxyは変更していない。
 
-新たな有料モデル実行、実Discord投稿、常駐サービス再起動は実施していない。
+上記の初回修正では新たな有料モデル実行、実Discord投稿、常駐サービス再起動は実施していない。続く対話中継の実モデル試験は下記を参照。
 
 ## 残る作業
 
-- 質問・MCP・権限専用承認の対話中継APIとGatewayの表示・認可の連携。現状は待機防止まで。[責務・API具体化案](gateway-interaction-relay-proposal.ja.md)を作成したが、現行APIとは区別する。通常承認のAPIやCapabilityを、これらも利用可能という意味に変更しない。
+- Gateway側の質問・MCP・権限専用承認UIと認可の連携。Proxy側は[追加API契約](interaction-api.ja.md)を実装済み。実行要求ごとの対応宣言が必要で、未宣言の既存クライアントの動作は維持する。
 - クライアント定義Function Callingと、正確なリクエスト単位usageの変換。Codex内部のツール実行を外部クライアントへの実行依頼に誤変換せず、Thread累計や最後のモデル呼出しの値をTurn全体の使用量と推測しない。
 - 実ディスク容量枯渇・fsync失敗、長時間の混合負荷、別ホストの切断・Range再開、Gatewayと連動する正式復元・配信結果不明の結合試験。
 - 容量・保持既定値の最終合意、他のモデル／Codex版の受入。
 
 v2全体の `acceptance_pending` は維持する。既存の正常系画像表示の受入を取り消すものではない。
+
+## 同日追加：v2対話中継
+
+質問、MCPフォーム／URL確認、権限要求を対応宣言したv2クライアントへ中継する。要求はResponse・Thread・Turnへ紐付け、回答期限・revision・操作キーを照合する。送信意思を先に保存し、送信結果不明の回答を再送しない。回答本文は永続化せず、解消した要求本文も破棄する。停止・期限切れ・上流での解消・イベント欠落・再起動で古いUIを失効させる。
+
+模擬上流とSQLite試験では、回答スキーマ、権限の拡大禁止、二重回答の競合、同一キーの再取得、旧復元世代の拒否、停止後・期限切れの回答拒否、モデルidle timeoutとの分離、再起動後の送信結果不明の維持を確認した。
+
+隔離Proxyと実Codex（gpt-5.6-luna）、テスト専用のローカルMCPで、MCPツール実行承認→フォーム回答→最終出力 `ELICITATION_ACCEPTED` まで成功した。最初の2回は試験側がフォーム前のツール実行承認を想定しておらず中止し、二段階を明示的に照合する試験へ修正後に成功した。これは質問・URL・権限要求すべての実モデル受入を意味しない。
+
+常駐Proxy・Gateway・OpenWebUIは変更していない。対話UIのクライアント対応と配備後の結合受入が必要。基本契約2.0と `acceptance_pending` を維持する。
+
+追加後の自動試験：Rust全対象132件成功・3件ignored、その後追加した開始前受付／期限切れrevisionの回帰試験を含む対話6件も成功（現在の成功対象は計133件）。Clippyの警告0、fmt・差分空白検査成功。PIPE既存8件も成功。HTTP切断直後の回答送信継続は所有タスクによって実装しているが、実TCP切断による専用受入は未実施。

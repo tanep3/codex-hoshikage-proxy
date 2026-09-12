@@ -38,6 +38,19 @@ fn main() {
         };
         if request.get("method").is_none() && id == "unsupported_fake" {
             write_json(&json!({"method":"test/serverReply","params":request}));
+            if request.get("result").is_some() {
+                write_json(
+                    &json!({"method":"serverRequest/resolved","params":{"threadId":thread_id,"requestId":"unsupported_fake"}}),
+                );
+                turn_status = "completed";
+                turns.insert(turn_id.clone(), (thread_id.clone(), turn_status.into()));
+                write_json(
+                    &json!({"method":"item/agentMessage/delta","params":{"threadId":thread_id,"turnId":turn_id,"delta":"interaction handled"}}),
+                );
+                write_json(
+                    &json!({"method":"turn/completed","params":{"threadId":thread_id,"turnId":turn_id,"turn":{"id":turn_id,"status":"completed"}}}),
+                );
+            }
             continue;
         }
         if request.get("method").is_none() && id == "artifact_fake" {
@@ -194,7 +207,7 @@ fn main() {
                     .find_map(|arg| arg.strip_prefix("--server-request=").map(str::to_owned))
                 {
                     write_json(&json!({"id":"unsupported_fake","method":method,"params":{
-                        "threadId":thread_id,"turnId":turn_id,"questions":[],"permissions":{"network":{"enabled":true}}
+                        "threadId":thread_id,"turnId":turn_id,"itemId":"question_1","isBlocking":true,"questions":[{"id":"color","header":"Color","question":"Which color?","isOther":false,"options":[{"label":"Blue","description":"Blue"}]}],"permissions":{"network":{"enabled":true}},"mode":"form","serverName":"test","message":"Choose","requestedSchema":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}
                     }}));
                     continue;
                 }

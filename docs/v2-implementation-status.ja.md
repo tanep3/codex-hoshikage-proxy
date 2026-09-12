@@ -1,5 +1,7 @@
 # v2実装・受入記録
 
+- [v2 interaction relay / 対話要求の取得・回答API](interaction-api.ja.md)：2026-09-13の追加実装。常駐未反映、Gateway UI・結合受入は未完了。
+
 2026-09-11。契約0.2の実装を追加し、ローカル自動試験と実Codex試験を実施。**本番受入は未完了**。常駐サービスには同日21:05 JSTに反映済み。設定は継承し、OpenAI互換APIと拡張APIを標準で同時提供する。配備確認は[常駐運用記録](server-operations.md)を参照。v2は既定で有効、Capabilityの`implementation_status`は`acceptance_pending`。
 
 規範: [ワーク・成果物・回答復旧API](workspace-artifact-api-v2.ja.md)。設定と管理CLIは[運用手順](v2-operations.ja.md)。内部構造は[実装設計](v2-system-design.ja.md)。

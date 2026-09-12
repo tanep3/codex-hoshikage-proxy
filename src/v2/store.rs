@@ -105,6 +105,7 @@ impl Store {
                 put(&tx, "legacy_hold", h["response_id"].as_str().unwrap(), &h)?;
             }
         }
+        super::interactions::recover(&tx)?;
         tx.commit()?;
         for dir in ["blobs", "staging"] {
             std::fs::create_dir_all(root.join(dir))?;

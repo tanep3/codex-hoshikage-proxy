@@ -46,6 +46,8 @@ pub fn stream(state: AppState, s: Arc<Service>, rid: String) -> Result<Response>
             }
                            if last["generated_images"]["revision"] != r["generated_images"]["revision"]
                              && !send(&tx,"response.generated_images_changed",&json!({"response_id":rid,"revision":r["generated_images"]["revision"]})) { return; }
+                           if last["interactions_revision"] != r["interactions_revision"] && r["interactions_revision"].is_u64()
+                              && !send(&tx,"response.interactions_changed",&json!({"response_id":rid,"revision":r["interactions_revision"]})) { return; }
                            last=r;
                           }
                           let svc=s.clone();
@@ -108,12 +110,16 @@ fn send(
     tx.try_send(Ok(event(name, v.clone()))).is_ok()
 }
 pub fn start_maintenance(state: AppState, s: Arc<Service>) -> tokio::task::JoinHandle<()> {
+    state.approvals.attach_interaction_relay(&s);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         loop {
             interval.tick().await;
             if state.runtime.snapshot().await == crate::domain::RuntimeState::Stopped {
                 return;
+            }
+            if let Err(error) = super::interactions::refresh(&s) {
+                tracing::error!(code = error.code, "interaction expiry persistence failed");
             }
             if let Ok(records) = s.store.list("response") {
                 for r in records {

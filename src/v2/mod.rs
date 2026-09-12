@@ -1,5 +1,6 @@
 //! Managed conversation and immutable output services. Isolated from legacy v1 state.
 pub mod files;
+pub mod interactions;
 pub mod store;
 use axum::{
     Json,
@@ -40,7 +41,7 @@ impl IntoResponse for Error {
         let retry = match self.code {
             "capture_capacity_busy" | "download_capacity_busy" => "repeat_same_request",
             "source_changed" | "capture_timeout" => "new_operation",
-            "output_not_ready" => "poll_operation",
+            "output_not_ready" | "interaction_binding_pending" => "poll_operation",
             "store_unavailable"
             | "store_corrupt"
             | "content_corrupt"

@@ -33,7 +33,7 @@ App Server異常終了時のProxy終了とsystemdによる再起動に対応し�
 
 制御API v1（要求IDの永続照会、Steer／中断、承認制御、snapshot SSE）と同一Provider内の会話モデル変更も実装し、実Codexで検証した。
 現行の標準構成ではv2のSQLiteへ会話・実行・停止・成果物・リース・監査を保存し、旧v1台帳も移行する。JSONLのイベントジャーナルと移行元の退避は継続する。本文の旧Draftテーブル構想をそのまま実装したものではなく、現行構造は[v2実装設計](v2-system-design.ja.md)を参照する。
-質問・MCP追加確認・権限専用承認の対話中継は未実装。2026-09-13の修正では未対応の要求にエラーを返し、対象Turnの停止を要求する。詳細と配備状況は[追加修正・受入記録](proxy-hardening-2026-09-13.ja.md)を参照する。
+質問・MCP追加確認・権限専用承認は、対応を宣言したv2クライアント向けに[対話中継API](interaction-api.ja.md)を実装した。GatewayのUI実装・結合受入は未完了。未宣言・未対応の要求にはエラーを返し、対象Turnの停止を要求する。詳細と配備状況は[追加修正・受入記録](proxy-hardening-2026-09-13.ja.md)を参照する。
 正確な契約・責務境界は[制御API v1](control-api.ja.md)と[v2契約](workspace-artifact-api-v2.ja.md)、適用済みの構成は[常駐設定](server-operations.md)を参照する。
 
 ---

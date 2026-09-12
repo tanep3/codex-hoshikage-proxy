@@ -22,8 +22,8 @@
 | コマンド実行・ファイル変更の承認 | 対応済み。文字列ID・通知遅延・ワークスペース内判定を修正済み |
 | ローカル画像、skill入力、toolOutput | 未対応。ローカルパス境界やツール結果の対応付けが必要 |
 | review/start、手動compact、Thread管理API | 未公開 |
-| tool/requestUserInput、MCP elicitation | 対話応答の中継は未対応。要求へJSON-RPCエラーを返し、`unsupported_interaction`を通知して対象Turnの停止を要求する |
-| permissions/requestApproval | 対話承認は未対応。通常承認の応答を流用せず、JSON-RPCエラーと対象Turnの停止で処理する |
+| tool/requestUserInput、MCP elicitation | 対応を宣言したv2クライアントへ[対話API](interaction-api.ja.md)で中継。スキーマの対応範囲に制限あり。未宣言・未対応はエラーと対象Turn停止 |
+| permissions/requestApproval | 対応を宣言したv2クライアントへ専用の権限応答として中継。要求カテゴリの完全一致または不許可に限定。未宣言・未対応はエラーと対象Turn停止 |
 | usage・ツール実行イベントの完全なOpenAI互換変換 | 未完成。クライアント定義のツール指定・呼出し履歴は実行前に400 `unsupported_parameter`で拒否。usageは推測しない |
 
 今回の自動テストは模擬App ServerとのHTTP往復と送信パラメータを検証する。

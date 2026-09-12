@@ -32,3 +32,5 @@ design, and task records are internal project references and remain Japanese-fir
 - [Gatewayへの生成画像自動配信修正依頼（対応済み・履歴）](gateway-generated-image-delivery-change-request.ja.md)
 
 - [2026-09-13 Proxy追加修正・受入記録](proxy-hardening-2026-09-13.ja.md)
+
+- [v2 interaction relay / 対話要求の取得・回答API](interaction-api.ja.md)：Proxy実装済み。Gateway UI・結合受入は未完了。

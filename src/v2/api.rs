@@ -69,8 +69,10 @@ async fn checked(
             "recovery_state":s.store.metadata("recovery_state")?,
             "instance_id":s.store.instance,
             "recovery_generation":s.store.generation,
-            "features":{ "managed_conversations":true,"durable_execution":true,"stop_by_request":true,"stop_before_acceptance":true,"administrative_hold_release":"local_operator","workspace_selection":true,"artifact_capture":true,"artifact_listing":true,"artifact_range_download":true,"retention_leases":true,"artifact_registration_tool":true,"response_output_retrieval":true,"generated_image_artifacts":true,"response_generated_images":true},
+            "features":{ "managed_conversations":true,"durable_execution":true,"stop_by_request":true,"stop_before_acceptance":true,"administrative_hold_release":"local_operator","workspace_selection":true,"artifact_capture":true,"artifact_listing":true,"artifact_range_download":true,"retention_leases":true,"artifact_registration_tool":true,"response_output_retrieval":true,"generated_image_artifacts":true,"response_generated_images":true,"interaction_relay":true},
             "limits":limits,
+            "interaction_kinds":super::interactions::KINDS,
+            "interaction_limits":{"max_count":super::interactions::MAX_COUNT,"max_bytes":super::interactions::MAX_BYTES,"timeout_seconds":super::interactions::TIMEOUT_MS/1000,"schema_profile":"flat-primitives-v1","permission_profile":"whole-category-v1"},
             "registration_models":["chatgpt/gpt-5.6-luna","chatgpt/gpt-5.6-terra"],
             "server_time":super::retention::wire(json!({ "server_at_ms":super::now()} ))["server_at"]
         })).into_response());
@@ -153,7 +155,18 @@ async fn checked(
         && parts[0] == "conversations"
         && parts[2] == "responses"
     {
-        fields(&body, &["input", "model", "metadata", "reasoning", "text"])?;
+        fields(
+            &body,
+            &[
+                "input",
+                "model",
+                "metadata",
+                "reasoning",
+                "text",
+                "interaction_capabilities",
+            ],
+        )?;
+        super::interactions::validate_capabilities(body.get("interaction_capabilities"))?;
         if let Some(op) = replay(
             &s,
             &key,
@@ -296,6 +309,44 @@ async fn checked(
     if method == Method::GET && parts.len() == 3 && parts[0] == "responses" && parts[2] == "events"
     {
         return super::events::stream(state, s, parts[1].to_owned());
+    }
+    if (parts.len() == 2 || parts.len() == 3) && parts[0] == "interactions" {
+        let iid = parts[1].to_owned();
+        let record = s.store.get("interaction", &iid)?;
+        state
+            .cwd_policy
+            .validate(s.workspace_path(string(&record, "conversation_id")?)?)
+            .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
+        if method == Method::GET && parts.len() == 2 {
+            return blocking(move || super::interactions::read(&s, &iid))
+                .await
+                .map(|v| Json(super::retention::wire(v)).into_response());
+        }
+        if method == Method::POST && parts.len() == 3 && parts[2] == "reply" {
+            // Own the send independently of the HTTP observer. An aborted HTTP
+            // future must not discard a durably accepted reply.
+            let result = tokio::spawn(async move {
+                super::interactions::reply(&s, &state.runtime, &iid, &key, &body).await
+            })
+            .await
+            .map_err(|_| Error::code(503, "store_unavailable"))??;
+            return Ok((StatusCode::ACCEPTED, Json(super::retention::wire(result))).into_response());
+        }
+    }
+    if method == Method::GET
+        && parts.len() == 3
+        && parts[0] == "responses"
+        && parts[2] == "interactions"
+    {
+        let rid = parts[1].to_owned();
+        let record = s.store.get("response", &rid)?;
+        state
+            .cwd_policy
+            .validate(s.workspace_path(string(&record, "conversation_id")?)?)
+            .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
+        return blocking(move || super::interactions::list(&s, &rid))
+            .await
+            .map(|v| Json(super::retention::wire(v)).into_response());
     }
     if method != Method::GET {
         return Err(Error::code(404, "resource_not_found"));

@@ -247,6 +247,7 @@ impl Service {
         body: &Value,
         provider_limit: Option<usize>,
     ) -> Result<(Value, Option<String>)> {
+        super::interactions::validate_capabilities(body.get("interaction_capabilities"))?;
         self.store.transaction(|tx| {
             let (mut op, fresh) =
                 store::reserve(tx, key, "response.create", &json!({ "conversation_id":cid,"request":body}))?;
@@ -342,6 +343,7 @@ impl Service {
                 "operation_id":op["operation_id"],
                 "model":model,
                 "generated_images":super::images::initial(&self.limits),
+                "interaction_capabilities":body.get("interaction_capabilities").cloned().unwrap_or_else(||json!([])),
                 "output_policy":{"max_bytes":self.limits.output_max_bytes,"retention_seconds":self.limits.output_retention_seconds,"lease_max_lifetime_seconds":self.limits.lease_max_lifetime_seconds},
                 "phase":if cancelled{ "cancelled"} else{ "accepted"},
                 "execution_status":"not_started",

@@ -1,5 +1,7 @@
 # ワーク・成果物・回答復旧 API v2 契約案
 
+
+追加契約：[対話要求の取得・回答API](interaction-api.ja.md)。`interaction_capabilities` と対話取得・回答エンドポイントは対応クライアント向けの任意拡張。
 版: 0.2 / 2026-09-11。状態: **Gateway・Proxy間で合意済み。実装・このサーバーへの配備済み。Gatewayの生成画像配信・表示の正常系は2026-09-13に確認済み。障害時のGateway結合・負荷などの製品受入は未完了。**
 
 Gatewayの[調整案0.3](../../codex-hoshikage-gateway/docs/proxy-workspace-artifact-flow-proposal.ja.md)と、その後合意した4点へのProxy回答。

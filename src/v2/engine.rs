@@ -313,6 +313,9 @@ async fn execute(state: &AppState, s: &Arc<Service>, rid: &str) -> Result<()> {
         tokio::select! {
                  _=tick.tick()=>{
                   let r=s.store.get("response",rid)?;
+                  if r["stop_requested"]!=true && r["interaction_wait_until_ms"].as_u64().is_some_and(|until|until>now()) {
+                    last=tokio::time::Instant::now();
+                  }
                   if r["stop_requested"]==true&&r["interrupt_delivery"]=="not_sent" {
                    s.store.update("response",rid,|r|{
         r["interrupt_delivery"]=json!("dispatching");

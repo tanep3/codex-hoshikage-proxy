@@ -59,6 +59,7 @@ struct TurnApprovalContext {
 
 pub struct ApprovalManager {
     runtime: Arc<CodexRuntime>,
+    relay: std::sync::RwLock<Option<std::sync::Weak<crate::v2::service::Service>>>,
     turn_contexts: Mutex<HashMap<String, TurnApprovalContext>>,
     records: Mutex<HashMap<String, ApprovalRecord>>,
     file_change_paths: Mutex<HashMap<String, Vec<String>>>,
@@ -74,6 +75,7 @@ impl ApprovalManager {
     ) -> Arc<Self> {
         Arc::new(Self {
             runtime,
+            relay: Default::default(),
             turn_contexts: Mutex::new(HashMap::new()),
             records: Mutex::new(HashMap::new()),
             file_change_paths: Mutex::new(HashMap::new()),
@@ -91,11 +93,39 @@ impl ApprovalManager {
                     Ok(event) => event,
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                         tracing::warn!(skipped, "approval listener missed runtime events");
+                        let relay = manager
+                            .relay
+                            .read()
+                            .unwrap()
+                            .as_ref()
+                            .and_then(std::sync::Weak::upgrade);
+                        if let Some(s) = relay
+                            && let Err(error) = crate::v2::interactions::event_loss(&s)
+                        {
+                            tracing::error!(
+                                code = error.code,
+                                "interaction gap persistence failed"
+                            );
+                        }
                         continue;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 };
+                let relay = manager
+                    .relay
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(std::sync::Weak::upgrade);
                 if event.get("kind").and_then(Value::as_str) != Some("server_request") {
+                    if let Some(s) = relay.as_ref()
+                        && let Err(error) = crate::v2::interactions::observe(s, &event)
+                    {
+                        tracing::error!(
+                            code = error.code,
+                            "interaction observation persistence failed"
+                        );
+                    }
                     if event["method"] == "serverRequest/resolved" {
                         let params = &event["params"];
                         let mut records = manager.records.lock().await;
@@ -141,6 +171,15 @@ impl ApprovalManager {
                     continue;
                 };
                 let mut params = event.get("params").cloned().unwrap_or_else(|| json!({}));
+                if let Some(s) = relay.as_ref() {
+                    match crate::v2::interactions::receive(s, &rpc_id, method, &params) {
+                        Ok(true) => continue,
+                        Ok(false) => {}
+                        Err(error) => {
+                            tracing::warn!(code = error.code, "interaction relay rejected request")
+                        }
+                    }
+                }
                 if !matches!(
                     method,
                     "item/commandExecution/requestApproval" | "item/fileChange/requestApproval"
@@ -213,6 +252,10 @@ impl ApprovalManager {
                 .await
                 .insert(item_id.to_owned(), paths);
         }
+    }
+
+    pub fn attach_interaction_relay(&self, s: &Arc<crate::v2::service::Service>) {
+        *self.relay.write().unwrap() = Some(Arc::downgrade(s));
     }
 
     async fn attach_known_file_change_paths(&self, params: &mut Value) {
