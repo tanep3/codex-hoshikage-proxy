@@ -13,6 +13,10 @@ use std::{
 fn io_fault_fixture() {
     let root = PathBuf::from(std::env::var("HOSHIKAGE_IO_ROOT").unwrap());
     let mode = std::env::var("HOSHIKAGE_IO_MODE").unwrap();
+    if mode.starts_with("sqlite_") {
+        sqlite_failure(&root);
+        return;
+    }
     let s = Service::open(&root.join("state"), &root.join("work")).unwrap();
     let c = s
         .conversation(
@@ -97,6 +101,8 @@ fn storage_faults_do_not_publish_unconfirmed_data() {
         "sync_staging",
         "sync_manifest",
         "sync_directory",
+        "sqlite_write",
+        "sqlite_sync",
     ] {
         let case = root.join(mode);
         std::fs::create_dir_all(&case).unwrap();
@@ -122,4 +128,65 @@ fn storage_faults_do_not_publish_unconfirmed_data() {
         }
     }
     std::fs::remove_dir_all(root).unwrap();
+}
+
+fn sqlite_failure(root: &std::path::Path) {
+    use codex_hoshikage_proxy::v2::store;
+    let s = Service::open(&root.join("state"), &root.join("work")).unwrap();
+    let identity = (s.store.instance.clone(), s.store.generation.clone());
+    let c = s
+        .conversation(
+            "c",
+            &json!({"workspace":{"mode":"automatic"},"model":"chatgpt/test"}),
+        )
+        .unwrap();
+    let cid = c["resource"]["id"].as_str().unwrap();
+    let (_, rid) = s
+        .accept(cid, "run", &json!({"input":"one execution"}))
+        .unwrap();
+    let rid = rid.unwrap();
+    s.store
+        .update("response", &rid, |r| {
+            r["phase"] = json!("dispatching");
+            Ok(())
+        })
+        .unwrap();
+    std::fs::write(root.join("armed"), b"active").unwrap();
+    let outcome = s.store.transaction(|tx| {
+        store::reserve(tx, "uncertain-commit", "test", &json!({}))?;
+        store::put(
+            tx,
+            "test",
+            "atomic-pair",
+            &json!({"payload":"x".repeat(32768)}),
+        )?;
+        Ok(())
+    });
+    assert!(outcome.is_err());
+    assert!(root.join("hit").exists());
+    std::fs::remove_file(root.join("armed")).unwrap();
+    drop(s);
+    let s = Service::open(&root.join("state"), &root.join("work")).unwrap();
+    assert_eq!(
+        (s.store.instance.clone(), s.store.generation.clone()),
+        identity
+    );
+    s.store
+        .transaction(|tx| {
+            let integrity: String = tx.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+            assert_eq!(integrity, "ok");
+            // Failed sync may leave an uncertain commit. It must still be atomic.
+            assert_eq!(
+                store::operation(tx, "uncertain-commit")?.is_some(),
+                store::get(tx, "test", "atomic-pair").is_ok()
+            );
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(s.store.get("response", &rid).unwrap()["phase"], "unknown");
+    let (op, launch) = s
+        .accept(cid, "run", &json!({"input":"one execution"}))
+        .unwrap();
+    assert_eq!(op["resource"]["id"], rid);
+    assert!(launch.is_none());
 }
