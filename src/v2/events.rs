@@ -44,6 +44,8 @@ pub fn stream(state: AppState, s: Arc<Service>, rid: String) -> Result<Response>
             return;
             }
             }
+                           if last["generated_images"]["revision"] != r["generated_images"]["revision"]
+                             && !send(&tx,"response.generated_images_changed",&json!({"response_id":rid,"revision":r["generated_images"]["revision"]})) { return; }
                            last=r;
                           }
                           let svc=s.clone();
@@ -115,6 +117,7 @@ pub fn start_maintenance(state: AppState, s: Arc<Service>) -> tokio::task::JoinH
             }
             if let Ok(records) = s.store.list("response") {
                 for r in records {
+                    super::images::schedule(state.clone(), s.clone(), &r);
                     let Some(rid) = r["response_id"].as_str() else {
                         continue;
                     };

@@ -69,7 +69,7 @@ async fn checked(
             "recovery_state":s.store.metadata("recovery_state")?,
             "instance_id":s.store.instance,
             "recovery_generation":s.store.generation,
-            "features":{ "managed_conversations":true,"durable_execution":true,"stop_by_request":true,"stop_before_acceptance":true,"administrative_hold_release":"local_operator","workspace_selection":true,"artifact_capture":true,"artifact_listing":true,"artifact_range_download":true,"retention_leases":true,"artifact_registration_tool":true,"response_output_retrieval":true},
+            "features":{ "managed_conversations":true,"durable_execution":true,"stop_by_request":true,"stop_before_acceptance":true,"administrative_hold_release":"local_operator","workspace_selection":true,"artifact_capture":true,"artifact_listing":true,"artifact_range_download":true,"retention_leases":true,"artifact_registration_tool":true,"response_output_retrieval":true,"generated_image_artifacts":true,"response_generated_images":true},
             "limits":limits,
             "registration_models":["chatgpt/gpt-5.6-luna","chatgpt/gpt-5.6-terra"],
             "server_time":super::retention::wire(json!({ "server_at_ms":super::now()} ))["server_at"]
@@ -299,6 +299,19 @@ async fn checked(
     }
     if method != Method::GET {
         return Err(Error::code(404, "resource_not_found"));
+    }
+    if parts.len() == 3 && parts[0] == "responses" && parts[2] == "generated-images" {
+        let rid = parts[1].to_owned();
+        let policy = state.cwd_policy.clone();
+        let v = blocking(move || {
+            let r = s.store.get("response", &rid)?;
+            policy
+                .validate(s.workspace_path(string(&r, "conversation_id")?)?)
+                .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
+            super::images::read(&s, &rid)
+        })
+        .await?;
+        return Ok(Json(super::retention::wire(v)).into_response());
     }
     let owned = parts.iter().map(|p| p.to_string()).collect::<Vec<_>>();
     if parts.len() == 3

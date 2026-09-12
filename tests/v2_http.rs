@@ -391,3 +391,76 @@ async fn durable_acceptance_is_dispatched_even_if_http_worker_was_lost() {
     );
     runtime.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn generated_images_are_discovered_without_sse_and_download_as_artifacts() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let (app, s, runtime) = app_args(&["--generated-image"]).await;
+    let (_, cap) = call(&app, &s, "GET", "capabilities", None, json!({})).await;
+    assert_eq!(cap["features"]["response_generated_images"], true);
+    let (_, c) = call(
+        &app,
+        &s,
+        "POST",
+        "conversations",
+        Some("images-c"),
+        json!({"workspace":{"mode":"automatic"},"model":"hoshikage/test"}),
+    )
+    .await;
+    let cid = c["resource"]["id"].as_str().unwrap();
+    let (_, op) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("conversations/{cid}/responses"),
+        Some("images-r"),
+        json!({"input":"draw"}),
+    )
+    .await;
+    let rid = op["resource"]["id"].as_str().unwrap();
+    let path = format!("responses/{rid}/generated-images");
+    let mut manifest = Value::Null;
+    for _ in 0..200 {
+        let (status, m) = call(&app, &s, "GET", &path, None, json!({})).await;
+        assert_eq!(status, StatusCode::OK, "{m}");
+        if m["state"] == "complete" {
+            manifest = m;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(manifest["items"][0]["state"], "ready", "{manifest}");
+    assert!(manifest["expires_at"].is_string());
+    assert!(manifest.get("policy").is_none());
+    let aid = manifest["items"][0]["artifact_id"].as_str().unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v2/codex/artifacts/{aid}/content"))
+                .header("authorization", "Bearer test-key")
+                .header("x-proxy-instance-id", &s.store.instance)
+                .header("x-proxy-recovery-generation", &s.store.generation)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "image/png");
+    let data = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(data.as_ref(),STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGZkAAAAASUVORK5CYII=").unwrap());
+    let missing = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v2/codex/{path}"))
+                .header("authorization", "Bearer test-key")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::PRECONDITION_REQUIRED);
+    runtime.shutdown().await.unwrap();
+}

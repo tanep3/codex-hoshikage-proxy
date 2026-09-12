@@ -104,3 +104,5 @@ pub mod backup;
 pub mod listing;
 
 pub mod migration;
+
+pub mod images;

@@ -122,7 +122,7 @@ fn main() {
                 if std::env::args().any(|arg| arg == "--read-unavailable") {
                     json!({"id":id,"error":{"code":-32602,"message":"thread unavailable"}})
                 } else {
-                    json!({"id":id,"result":{"thread":{"id":request["params"]["threadId"],"status": if std::env::args().any(|arg|arg == "--upstream-waiting") { json!({"type":"active","activeFlags":["waitingOnApproval"]}) } else { json!({"type":"idle"}) },"turns": turns.iter().filter(|(_, (thread, _))| Some(thread.as_str()) == request["params"]["threadId"].as_str()).map(|(id, (_, status))| json!({"id":id,"status":status})).collect::<Vec<_>>()}}})
+                    json!({"id":id,"result":{"thread":{"id":request["params"]["threadId"],"status": if std::env::args().any(|arg|arg == "--upstream-waiting") { json!({"type":"active","activeFlags":["waitingOnApproval"]}) } else { json!({"type":"idle"}) },"turns": turns.iter().filter(|(_, (thread, _))| Some(thread.as_str()) == request["params"]["threadId"].as_str()).map(|(id, (_, status))| json!({"id":id,"status":status,"itemsView":"full","items": if std::env::args().any(|arg|arg=="--generated-image") {json!([{"type":"imageGeneration","id":"image_fake","status":"completed","result":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGZkAAAAASUVORK5CYII="}])} else {json!([])}})).collect::<Vec<_>>()}}})
                 }
             }
             "turn/steer" => {

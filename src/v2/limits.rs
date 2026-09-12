@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Limits {
+    pub generated_image_max_bytes: u64,
+    pub generated_images_max_count: usize,
+    pub generated_images_settle_seconds: u64,
     pub artifact_max_bytes: u64,
     pub artifact_store_max_bytes: u64,
     pub capture_concurrency: usize,
@@ -21,6 +24,9 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            generated_image_max_bytes: 10485760,
+            generated_images_max_count: 16,
+            generated_images_settle_seconds: 600,
             artifact_max_bytes: 268435456,
             artifact_store_max_bytes: 8589934592,
             capture_concurrency: 2,
@@ -41,7 +47,11 @@ impl Default for Limits {
 }
 impl Limits {
     pub fn validate(&self) -> super::Result<()> {
-        if self.capture_concurrency == 0
+        if self.generated_image_max_bytes == 0
+            || self.generated_image_max_bytes > 16777216
+            || self.generated_images_max_count == 0
+            || self.generated_images_max_count > 64
+            || self.capture_concurrency == 0
             || self.capture_concurrency > 64
             || self.download_concurrency == 0
             || self.download_concurrency > 256
@@ -55,6 +65,7 @@ impl Limits {
             return Err(super::Error::code(400, "invalid_v2_limits"));
         }
         for seconds in [
+            self.generated_images_settle_seconds,
             self.capture_timeout_seconds,
             self.download_timeout_seconds,
             self.artifact_retention_seconds,

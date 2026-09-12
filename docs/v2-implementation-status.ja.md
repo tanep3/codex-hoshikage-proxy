@@ -42,3 +42,18 @@
 - 候補の容量・保持既定値の最終合意。他のモデル／Codex版の受入。未確認モデルを`registration_models`へ追加しない。
 
 上の未確認項目を「異常なし」や「製品として保証済み」と読み替えない。未完成の試作として品質要件を縮小するのではなく、契約の受入条件を満たした証拠を追加して本番受入を判断する。
+
+## 2026-09-12：生成画像の自動登録
+
+[生成画像API契約](generated-image-api.ja.md)に対応。対応版で受理したResponseについて、記録済みThread/Turnの完全な履歴から画像を不変成果物へ登録する。回答保存、登録状況、Gateway配信を分離し、SSE欠落・登録結果記録前の停止・予約結果不明を扱う。
+
+- `cargo test --locked --all-targets --quiet`：116件成功、2件ignored（容量測定と実画像fixture試験）。
+- `cargo clippy --locked --all-targets -- -D warnings`：成功。
+- 新規9件の回帰試験で、PNGのHTTP取得、元バイト列・MIME、画像なし、部分失敗、別Turn・不完全一覧の拒否、件数・サイズ制限、再起動、予約済みUNKNOWNの再コピー禁止、保持期限・アクセス撤回を確認。
+- 実App Serverから再取得した画像項目のPNG 3,400,858 bytesを、隔離したストアへ保存して元バイト列との一致を確認。専用fixture試験はignoredを明示解除して成功。
+
+常駐サービスへの配備とGatewayによるDiscord実表示は、この追加機能の実装試験とは別の確認項目。
+
+`python3 scripts/live_v2_images.py` も成功。隔離したProxyと実Codex Lunaで新規画像生成を実行し、返された3画像（1,045,451／1,028,899／998,828 bytes）の自動登録、PNGのHTTP取得、サイズ・SHA-256一致、Proxy再起動後の同じ画像一覧・成果物ID・本体の再取得を確認した。常駐サービスとDiscordには操作していない。
+
+最初の隔離試験は親サンドボックス内で起動したため、Codexのスキル読取りが `codex-bwrap-synthetic-mount-targets-1000/lock: Read-only file system` で停止し、画像生成には到達しなかった。これは成功に数えていない。実行許可を得て親サンドボックス外から同じ隔離試験を起動し、上記を確認した。試験はモデル実行を伴うため、要求結果不明時の自動再実行は行わない。

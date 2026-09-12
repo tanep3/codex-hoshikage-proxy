@@ -83,6 +83,9 @@ max_concurrent_turns = 4
 
 # v2 storage limits (initial candidates; validate on the deployment host).
 [v2]
+generated_images_max_count = 16
+generated_image_max_bytes = 10485760
+generated_images_settle_seconds = 600
 artifact_max_bytes = 268435456
 artifact_store_max_bytes = 8589934592
 capture_concurrency = 2

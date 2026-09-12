@@ -72,6 +72,12 @@ cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
 cargo build --bin codex-hoshikage-proxy
 python3 scripts/live_v2_smoke.py
+# 生成画像の実接続受入（別の実モデル試験）
+python3 scripts/live_v2_images.py
 ```
 
-最後の試験は実モデルを使用する。現在の認証を一時領域へコピーし、隔離したProxyを起動する。常駐サービスを操作しない。実行にはモデル利用量が発生する。生のCodexログ・認証内容は標準出力に表示しない。
+上記のPython試験は実モデルを使用する。現在の認証を一時領域へコピーし、隔離したProxyを起動する。常駐サービスを操作しない。実行にはモデル利用量が発生する。生のCodexログ・認証内容は標準出力に表示しない。
+
+## 生成画像の登録状況
+
+capabilitiesの `response_generated_images` を確認し、`GET /v2/codex/responses/{id}/generated-images` で登録状況を照会する。設定上限、期限、状態とエラーは[生成画像API契約](generated-image-api.ja.md)を参照。画像登録失敗時にAIを再実行しない。画像一覧の期限と成果物本体のリース期限は独立する。対応前に受け付けたResponseの409は、画像なしやAI失敗の意味ではない。

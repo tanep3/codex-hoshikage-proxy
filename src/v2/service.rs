@@ -16,6 +16,7 @@ pub struct Service {
     pub copies: Arc<tokio::sync::Semaphore>,
     pub downloads: Arc<tokio::sync::Semaphore>,
     pub workers: std::sync::Mutex<std::collections::HashSet<String>>,
+    pub image_workers: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 impl Service {
     pub fn open(root: &Path, work_root: &Path) -> Result<Self> {
@@ -48,6 +49,7 @@ impl Service {
             downloads: Arc::new(tokio::sync::Semaphore::new(limits.download_concurrency)),
             limits,
             workers: Default::default(),
+            image_workers: Default::default(),
         };
         if super::coordination::overlapping(service.protected_root(), &service.work_root) {
             return Err(Error::code(400, "unsafe_store_location"));
@@ -82,6 +84,7 @@ impl Service {
             }
         }
         super::recovery::recover(&service)?;
+        super::images::recover(&service)?;
         Ok(service)
     }
     pub fn conversation(&self, key: &str, body: &Value) -> Result<Value> {
@@ -338,6 +341,7 @@ impl Service {
                 "request_key":key,
                 "operation_id":op["operation_id"],
                 "model":model,
+                "generated_images":super::images::initial(&self.limits),
                 "output_policy":{"max_bytes":self.limits.output_max_bytes,"retention_seconds":self.limits.output_retention_seconds,"lease_max_lifetime_seconds":self.limits.lease_max_lifetime_seconds},
                 "phase":if cancelled{ "cancelled"} else{ "accepted"},
                 "execution_status":"not_started",
@@ -530,6 +534,14 @@ impl Service {
         Ok((store::public_operation(op), fresh))
     }
     pub fn finish_capture(&self, aid: &str, key: &str) -> Result<Value> {
+        self.finish_capture_data(aid, key, None)
+    }
+    pub(crate) fn finish_capture_data(
+        &self,
+        aid: &str,
+        key: &str,
+        data: Option<&[u8]>,
+    ) -> Result<Value> {
         let a = self.store.get("artifact", aid)?;
         let cid = string(&a, "conversation_id")?;
         let op = self.store.transaction(|tx| {
@@ -539,30 +551,48 @@ impl Service {
             return Ok(store::public_operation(op));
         }
         let outcome = (|| {
-            let root = self.workspace_path(cid)?;
-            let c = self.store.get("conversation", cid)?;
-            let w = self.store.get("workspace", string(&c, "workspace_id")?)?;
-            let mut source = files::open_source_at(
-                &root,
-                string(&a, "source_path")?,
-                (
-                    w["device"]
-                        .as_u64()
-                        .ok_or_else(|| Error::code(503, "store_corrupt"))?,
-                    w["inode"]
-                        .as_u64()
-                        .ok_or_else(|| Error::code(503, "store_corrupt"))?,
-                ),
-            )?;
+            self.workspace_path(cid)?;
             let staging = self.store.root.join("staging").join(aid);
-            let (size, hash) = files::copy_with_timeout(
-                &mut source,
-                &staging,
-                self.limits.artifact_max_bytes,
-                self.limits.capture_timeout_seconds,
-            )?;
+            let (size, hash) = if let Some(data) = data {
+                use sha2::{Digest, Sha256};
+                use std::{io::Write, os::unix::fs::OpenOptionsExt};
+                if data.len() as u64 > self.limits.artifact_max_bytes {
+                    return Err(Error::code(413, "artifact_too_large"));
+                }
+                let mut file = std::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .mode(0o600)
+                    .open(&staging)?;
+                file.write_all(data)?;
+                file.sync_all()?;
+                (data.len() as u64, format!("{:x}", Sha256::digest(data)))
+            } else {
+                let root = self.workspace_path(cid)?;
+                let c = self.store.get("conversation", cid)?;
+                let w = self.store.get("workspace", string(&c, "workspace_id")?)?;
+                let mut source = files::open_source_at(
+                    &root,
+                    string(&a, "source_path")?,
+                    (
+                        w["device"]
+                            .as_u64()
+                            .ok_or_else(|| Error::code(503, "store_corrupt"))?,
+                        w["inode"]
+                            .as_u64()
+                            .ok_or_else(|| Error::code(503, "store_corrupt"))?,
+                    ),
+                )?;
+                files::copy_with_timeout(
+                    &mut source,
+                    &staging,
+                    self.limits.artifact_max_bytes,
+                    self.limits.capture_timeout_seconds,
+                )?
+            };
             let metadata = json!({
                 "state":"ready",
+                "media_type":if data.is_some() {"image/png"} else {"application/octet-stream"},
                 "ready_at_ms":now(),
                 "expires_at_ms":now()+self.limits.artifact_retention_seconds*1000,
                 "max_hold_until_ms":now()+self.limits.lease_max_lifetime_seconds*1000,
@@ -579,6 +609,9 @@ impl Service {
             match outcome {
                 Ok((size, hash)) => {
                     a["state"] = json!("ready");
+                    if data.is_some() {
+                        a["media_type"] = json!("image/png");
+                    }
                     a["ready_at_ms"] = json!(now());
                     a["max_hold_until_ms"] =
                         json!(now() + self.limits.lease_max_lifetime_seconds * 1000);
