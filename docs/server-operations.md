@@ -102,3 +102,13 @@ OpenAI互換APIとGateway拡張API v2を同時に標準提供する。既存の�
 22:40 JSTに`a6eded43651381ecbbe6dd55a9762dbfca1bc458`のreleaseバイナリへ更新。設定・認証・LAN待受を維持し、旧版を`~/.cargo/bin/codex-hoshikage-proxy.before-images-20260911T134017Z`へ退避した。Gatewayは常駐したまま正常に再接続している。
 
 Proxyテスト107件とClippy、PIPEテスト8件を通過。実画像入力による識別、生成画像APIの元PNGとのバイト一致、OpenWebUI利用者所有ファイルへの保存・画像リンク生成を確認。PIPE 0.6.0を登録済み。旧登録内容は`/home/tane/tools/docker/open-webui/pipe-backup-20260911T134107Z/`、復旧した作画回答の変更前内容は`/home/tane/tools/docker/open-webui/image-chat-backup-20260911T134257Z/`に権限を制限して保存している。
+
+## 2026-09-12 v2生成画像対応の反映記録
+
+21:23 JSTに実装コミット `09b75a9` を常駐サービスへ反映した。`cargo build --locked --release --bin codex-hoshikage-proxy` のバイナリを退避付きで原子的に置換した。更新直前と停止後に実行中・UNKNOWNの依頼、保存中の成果物がないことを確認。設定・APIキーは変更していない。
+
+旧バイナリは `~/.cargo/bin/codex-hoshikage-proxy.before-v2-images-20260912T122346Z`、適用記録は `~/.config/codex-hoshikage-proxy/last-update.json`。
+
+LAN IP経由でready、認証なし401、v1モデル一覧、新しい `response_generated_images / generated_image_artifacts` capabilityを確認。instance・復元世代と既存の保存済み回答が更新前と一致した。専用の検証依頼を実行受付前に取り消し、新しい画像一覧APIで `complete / items: []`、同一キー再送で同じResponse IDとなることを確認した。この配備検証ではAIを起動していない。実画像生成・再起動試験は[受入記録](v2-implementation-status.ja.md)を参照。
+
+Gatewayの管理状態も接続済み、Proxy ready、復元待ち・占有保留なしを確認した。Gateway自体のバイナリ・サービスは変更していない。Discordへの画像自動添付はGateway側の実装・配備後に結合確認する。

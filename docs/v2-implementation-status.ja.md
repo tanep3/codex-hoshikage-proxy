@@ -57,3 +57,5 @@
 `python3 scripts/live_v2_images.py` も成功。隔離したProxyと実Codex Lunaで新規画像生成を実行し、返された3画像（1,045,451／1,028,899／998,828 bytes）の自動登録、PNGのHTTP取得、サイズ・SHA-256一致、Proxy再起動後の同じ画像一覧・成果物ID・本体の再取得を確認した。常駐サービスとDiscordには操作していない。
 
 最初の隔離試験は親サンドボックス内で起動したため、Codexのスキル読取りが `codex-bwrap-synthetic-mount-targets-1000/lock: Read-only file system` で停止し、画像生成には到達しなかった。これは成功に数えていない。実行許可を得て親サンドボックス外から同じ隔離試験を起動し、上記を確認した。試験はモデル実行を伴うため、要求結果不明時の自動再実行は行わない。
+
+この生成画像対応は2026-09-12 21:23 JSTに常駐Proxyへ反映済み。配備後の確認は[常駐運用記録](server-operations.md)を参照。Discord実表示の結合確認は別途行う。
