@@ -118,3 +118,22 @@ Gatewayの管理状態も接続済み、Proxy ready、復元待ち・占有保�
 Gateway側の改定・常駐サービス反映が完了し、利用者からDiscord画像表示のユーザーテスト成功の報告を受けた。Gateway側の[運用・試験記録](../../codex-hoshikage-gateway/docs/implementation-status.ja.md)でもサービス反映と実Discordでの正常動作確認が記録されている。画像表示対応は双方で完了し、Gateway対応待ちは解消した。
 
 この記録更新に伴うProxyの再配備・再起動は行っていない。残る障害復旧・負荷等の確認は[v2受入記録](v2-implementation-status.ja.md)を参照。
+
+
+## 2026-09-13：対話中継・保存復旧の常駐反映
+
+08:40 JSTに `4446dbb9587674855c315ad3ffada2c63188fc0f` のrelease版を反映した。対話不能時の待機防止、承認失効、v2対話中継API、保存復旧時の同期確認を含む。更新前と停止直後に実行中・UNKNOWN・成果物作成中の依頼がないことを確認。設定・APIキー・環境変数ファイルはハッシュ一致で維持を確認した。
+
+停止中のProxyホームを `~/.config/codex-hoshikage-proxy.before-hardening-20260912T234012Z/`（権限700）へ、旧バイナリを `~/.cargo/bin/codex-hoshikage-proxy.before-hardening-20260912T234012Z` へ退避してから、同じディレクトリ内で実行ファイルを原子的に置換した。管理ソケットは再作成されるためコピー対象外。初回の退避はソケットのコピーで停止し、旧サービスを再開してから取り直した。初回の不完全な退避（`20260912T233930Z`）は復元に使用しない。
+
+適用記録は `~/.config/codex-hoshikage-proxy/last-update.json`。反映したバイナリとrelease成果物のSHA-256は `61586f45742d7c5cdee0e13103254abf79874db48325590165db51a5376fbf1d` で一致。
+
+確認結果：
+
+- LAN経由のready、認証なし401、v1モデル一覧、v2の `interaction_relay` と4対話種別のCapabilityが正常。
+- インスタンスID・復元世代、更新前に取得した保存済み回答のバイト列が一致。
+- 実行前停止・同一キー再要求・空の画像一覧と新しい対話一覧を検証。
+- 常駐Proxyでgpt-5.6-lunaへ短い検証依頼を送り、`DEPLOY_OK`、completed、回答保存readyを確認。同一キーの再要求は同じResponse・Turnを返した。Response IDは `resp_af6aa51e-7a3b-4059-b530-d44633c166f2`。
+- systemdはactive/running、確認時の自動再起動回数0、待受は `0.0.0.0:4040`。
+
+Gateway・OpenWebUIのサービスや設定は変更していない。新しい質問／MCP／権限の対話UIは、クライアント側の対応宣言・実装が必要。基本契約2.0と `acceptance_pending` は維持する。
