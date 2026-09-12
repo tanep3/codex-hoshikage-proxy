@@ -219,3 +219,9 @@ Use `Idempotency-Key` on Responses for request-ID lookup. Repeating the same key
 execution metadata, not replayed output or SSE. Observer SSE reconnects provide snapshots, not
 historical event replay. Disconnecting generation interrupts the Turn; disconnecting observation does not.
 Control APIs assume a shared operator API key and do not isolate individual users.
+
+## Unsupported interactions and client tools
+
+Unsupported user questions, MCP elicitation and permission-specific approval requests return `unsupported_interaction` and trigger interruption of the affected Turn. The proxy never invents an answer or grants permission. Check the actual Turn status; an error is not proof of completed interruption and must not trigger automatic AI replay. Standard command/file approvals remain supported. Network, additional-permission and policy-amendment requests are excluded from workspace auto-approval.
+
+Client-defined `tools` / `functions`, `tool_choice` / `function_call`, `parallel_tool_calls` and tool-call history relay are not implemented. Meaningful tool specifications are rejected before execution with HTTP 400 `unsupported_parameter`. Empty tool lists, `null`, choice `none`, and parallel `false` are accepted as no-tool settings. Codex internal tools and the v2 artifact registration tool are unaffected. See the [acceptance/deployment record](proxy-hardening-2026-09-13.ja.md).

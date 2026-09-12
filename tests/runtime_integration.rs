@@ -119,3 +119,44 @@ async fn approval_listener_survives_notification_overflow() {
     .expect("approval listener remains active after lag and was subscribed at start");
     runtime.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn upstream_resolved_request_cannot_be_approved_from_stale_ui() {
+    use codex_hoshikage_proxy::approval_manager::{ApprovalCapability, ApprovalManager};
+    use serde_json::json;
+    let runtime = CodexRuntime::launch(&fake_config(&[])).await.unwrap();
+    let manager = ApprovalManager::new(runtime.clone(), Duration::from_secs(30), false);
+    manager.start();
+    manager
+        .register_turn(
+            "t",
+            ApprovalCapability::Interactive,
+            std::path::Path::new("/tmp"),
+            true,
+        )
+        .await;
+    let mut events = runtime.subscribe();
+    runtime.publish(json!({"kind":"server_request","rpc_id":"rpc-1","method":"item/commandExecution/requestApproval","params":{"threadId":"t","turnId":"turn"}}));
+    let id = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let e = events.recv().await.unwrap();
+            if e["kind"] == "approval_requested" {
+                break e["approval_id"].as_str().unwrap().to_owned();
+            }
+        }
+    })
+    .await
+    .unwrap();
+    runtime.publish(
+        json!({"method":"serverRequest/resolved","params":{"threadId":"t","requestId":"rpc-1"}}),
+    );
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while manager.get(&id).await.unwrap().state == "pending" {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(manager.decide(&id, "accept").await.is_err());
+    runtime.shutdown().await.unwrap();
+}

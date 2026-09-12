@@ -67,3 +67,7 @@ Gateway側の改定と常駐サービスへの反映が完了し、利用者か�
 Gatewayの[実装・受入記録](../../codex-hoshikage-gateway/docs/implementation-status.ja.md)にも、実Codex生成PNGを常駐Proxy経由でDiscordへ添付し、CDNから再取得したSHA-256・PNGデコード・画像内容を確認した結果と、2026-09-13のサービス反映・利用者確認が記録されている。配信契約はGatewayの[生成画像配信仕様](../../codex-hoshikage-gateway/docs/generated-image-delivery-contract.ja.md)を参照する。
 
 今回の確認で画像表示の対応待ちは解消した。上記「本番受入として残る確認」の障害・容量・負荷などをすべて完了した扱いにはせず、Capabilityの `acceptance_pending` は維持する。
+
+## 2026-09-13：対話待機・互換入力・障害境界の追加確認
+
+対話不能時の待機防止、承認失効、未対応ツール指定の明示拒否を追加した。実プロセス強制終了、書込失敗、HTTPボディ切断・Range再開の検証範囲と配備状況は[追加受入記録](proxy-hardening-2026-09-13.ja.md)を参照する。上記の別ホスト実通信・長時間負荷・Gateway障害結合を全件完了した扱いにはしない。

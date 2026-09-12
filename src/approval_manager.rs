@@ -96,6 +96,18 @@ impl ApprovalManager {
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 };
                 if event.get("kind").and_then(Value::as_str) != Some("server_request") {
+                    if event["method"] == "serverRequest/resolved" {
+                        let params = &event["params"];
+                        let mut records = manager.records.lock().await;
+                        for record in records.values_mut() {
+                            if params["threadId"] == record.request.thread_id
+                                && params["requestId"] == record.request.rpc_id
+                                && matches!(record.state, ApprovalState::Pending { .. })
+                            {
+                                record.state = ApprovalState::Cancelled;
+                            }
+                        }
+                    }
                     if event.get("method").and_then(Value::as_str) == Some("turn/completed") {
                         let params = &event["params"];
                         if let Some(thread) = params.get("threadId").and_then(Value::as_str)
@@ -121,9 +133,6 @@ impl ApprovalManager {
                 let Some(method) = event.get("method").and_then(Value::as_str) else {
                     continue;
                 };
-                if !method.contains("requestApproval") {
-                    continue;
-                }
                 let Some(rpc_id) = event
                     .get("rpc_id")
                     .filter(|id| id.is_string() || id.is_i64() || id.is_u64())
@@ -132,6 +141,38 @@ impl ApprovalManager {
                     continue;
                 };
                 let mut params = event.get("params").cloned().unwrap_or_else(|| json!({}));
+                if !matches!(
+                    method,
+                    "item/commandExecution/requestApproval" | "item/fileChange/requestApproval"
+                ) {
+                    // The managed execution worker owns the one registered dynamic tool.
+                    if method == "item/tool/call" && params["tool"] == "hoshikage_publish_artifact"
+                    {
+                        continue;
+                    }
+                    if params["turnId"].as_str().is_none()
+                        && let Some(thread) = params["threadId"].as_str()
+                        && let Some(turn) = manager
+                            .turn_contexts
+                            .lock()
+                            .await
+                            .get(thread)
+                            .and_then(|c| c.turn_id.clone())
+                    {
+                        params["turnId"] = json!(turn);
+                    }
+                    // Publish before replying: upstream can finish immediately after an error.
+                    // Never fabricate answers or use command-approval decisions for other schemas.
+                    manager.runtime.publish(json!({
+                        "kind":"interaction_unavailable", "threadId":params["threadId"],
+                        "turnId":params["turnId"], "method_name":method,
+                        "code":"unsupported_interaction"
+                    }));
+                    if let Err(error) = manager.runtime.reject_server_request(rpc_id).await {
+                        tracing::warn!(%error, method, "server request rejection delivery unknown");
+                    }
+                    continue;
+                }
                 manager.attach_known_file_change_paths(&mut params).await;
                 let _ = manager.handle_request(rpc_id, method, params).await;
             }
@@ -506,6 +547,18 @@ fn preferred_accept(decisions: &[ApprovalDecision]) -> ApprovalDecision {
 }
 
 fn request_is_in_workspace(method: &str, params: &Value, cwd: &Path) -> bool {
+    // A cwd inside the workspace does not authorize a network grant or an
+    // additional sandbox permission. These need an explicit interactive decision.
+    if [
+        "networkApprovalContext",
+        "additionalPermissions",
+        "proposedExecpolicyAmendment",
+    ]
+    .iter()
+    .any(|key| params.get(*key).is_some_and(|v| !v.is_null()))
+    {
+        return false;
+    }
     if cwd.as_os_str().is_empty()
         || !matches!(
             method,
@@ -785,5 +838,28 @@ mod tests {
             &json!({"command": "printf /home/tane/work > /tmp/outside"}),
             cwd
         ));
+    }
+
+    #[test]
+    fn workspace_cwd_does_not_auto_grant_additional_permissions() {
+        for (key, value) in [
+            (
+                "networkApprovalContext",
+                json!({"host":"example.com","protocol":"https"}),
+            ),
+            (
+                "additionalPermissions",
+                json!({"fileSystem":{"write":["/var/outside"]}}),
+            ),
+            ("proposedExecpolicyAmendment", json!(["curl"])),
+        ] {
+            let mut params = json!({"cwd":"/tmp","command":"tool"});
+            params[key] = value;
+            assert!(!request_is_in_workspace(
+                "item/commandExecution/requestApproval",
+                &params,
+                Path::new("/tmp")
+            ));
+        }
     }
 }

@@ -464,3 +464,53 @@ async fn generated_images_are_discovered_without_sse_and_download_as_artifacts()
     assert_eq!(missing.status(), StatusCode::PRECONDITION_REQUIRED);
     runtime.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn unsupported_interaction_stops_only_the_accepted_execution() {
+    let (app, s, runtime) = app_args(&["--server-request=item/permissions/requestApproval"]).await;
+    let (_, c) = call(
+        &app,
+        &s,
+        "POST",
+        "conversations",
+        Some("interaction-c"),
+        json!({"workspace":{"mode":"automatic"},"model":"hoshikage/test"}),
+    )
+    .await;
+    let cid = c["resource"]["id"].as_str().unwrap();
+    let (_, r) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("conversations/{cid}/responses"),
+        Some("interaction-r"),
+        json!({"input":"hello"}),
+    )
+    .await;
+    let rid = r["resource"]["id"].as_str().unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let record = s.store.get("response", rid).unwrap();
+            if record["phase"] == "finished" {
+                assert_eq!(record["error"]["code"], "unsupported_interaction");
+                assert_eq!(record["execution_status"], "interrupted");
+                assert_eq!(record["hold_state"], "released");
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (_, replay) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("conversations/{cid}/responses"),
+        Some("interaction-r"),
+        json!({"input":"hello"}),
+    )
+    .await;
+    assert_eq!(replay["resource"]["id"], rid);
+    runtime.shutdown().await.unwrap();
+}

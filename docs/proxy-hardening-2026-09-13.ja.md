@@ -1,0 +1,40 @@
+# 2026-09-13 Proxy追加修正・受入記録
+
+状態：実装・ローカル検証完了。常駐サービスには未反映。本書の変更は、2026-09-13に確認済みのDiscord画像表示に対する追加の安定化である。
+
+## 修正内容
+
+- 質問・MCP elicitationなどのserver requestを無視して待機する経路を修正。権限専用承認へ通常承認の `decision` を送る誤った処理も修正した。未対応メソッドには同じRPC IDで `-32601` を返し、`unsupported_interaction` を対象Thread/Turnに通知する。回答や権限許可は捏造しない。
+- v1のResponses／Chat Completions、ストリーム／非ストリームの各経路で対話不能を通知し、対象Turnの停止を要求する。v2は停止意思・理由を永続化し、実際の終端状態を確認してから占有を解放する。停止結果不明を停止成功と扱わず、同一要求を自動再実行しない。
+- `serverRequest/resolved` を受け取った通常承認は失効させ、古いUIからの許可を拒否する。Thread IDとRPC IDを両方照合する。
+- コマンドの作業ディレクトリがワーク内でも、`networkApprovalContext`、`additionalPermissions`、`proposedExecpolicyAmendment` がある場合はワーク内自動承認を適用しない。
+- クライアント定義ツールの指定や呼出し履歴を黙って無視する経路を修正。未対応の指定はCodex起動前に400 `unsupported_parameter`で拒否する。これはクライアント定義Function Callingの実装完了を意味しない。
+- 要件・設計書の「SQLite未実装」と、英日READMEの範囲を限定しない「最終出力を再取得できない」を修正。現行v2と旧v1の提供範囲を区別した。
+
+参照：[公式App Server仕様](https://learn.chatgpt.com/docs/app-server)、Codex CLI 0.153.4から生成した `ToolRequestUserInputResponse`、`PermissionsRequestApprovalResponse`、`McpServerElicitationRequestResponse` のJSON Schema。質問・権限・MCPの応答形状を通常承認と共通化しない。
+
+## 検証内容
+
+- `tests/http_integration.rs`：4種類の未対応server request × Responses／Chat × stream／non-streamの16通りで、idle timeoutを待たずエラーが返る。上流へは許可や回答ではなくJSON-RPCエラーを返す。クライアントツール指定は実行前に拒否する。
+- `tests/runtime_integration.rs`：上流で解消された承認への古い回答を拒否する。
+- `tests/v2_http.rs`：対話不能で停止意思が記録され、終端確認後に占有を解放し、同じ要求キーの再送が同じResponseを指す。
+- `tests/v2_crash.rs`：受付保存後、上流送信意思保存後、成果物予約後、本体・manifest公開後、実ファイル書込失敗後の5境界で、隔離プロセスを強制終了する。未commitのSQLite変更のrollback、ID・復元世代維持、要求キーの重複防止、元ファイル再コピー禁止、公開済み成果物の復旧を確認する。書込失敗は子プロセスだけの `RLIMIT_FSIZE` で発生させ、共有ディスクを埋めない。これはENOSPCやfsync失敗そのものの試験ではない。
+- `tests/v2_store.rs`：配信枠を使い切った際の429、本文読取途中の切断による枠解放、Range再開による同一バイト列の復元、原本更新の不変成果物への非伝播、読取参照の解放を確認する。HTTPボディ層の試験であり、別PC・低速LANの実通信試験ではない。
+
+実行結果：
+
+- `cargo test --locked --all-targets --quiet`：123件成功、失敗0件、3件ignored。ignoredの内訳は容量測定、私有画像fixture、強制終了試験の子プロセス専用fixture。最後のfixtureは親試験から5回明示起動して確認済み。
+- `cargo clippy --locked --all-targets -- -D warnings`：成功。
+- `cargo fmt --all -- --check`、`git diff --check`、変更したMarkdownの相対リンク検査：成功。
+- PIPEの8件も成功。通常のシステムPythonにはhttpxがなかったため、`uv run --no-project --cache-dir /tmp/hoshikage-test-uv-cache --with httpx --with pydantic --with pillow python -m unittest discover -s tests -p test_openwebui_pipe.py -q` の隔離環境で実施。模擬App Serverを使った実Proxy HTTP承認往復を含む。稼働中のOpenWebUI・Gateway・Proxyは変更していない。
+
+新たな有料モデル実行、実Discord投稿、常駐サービス再起動は実施していない。
+
+## 残る作業
+
+- 質問・MCP・権限専用承認の対話中継APIとGatewayの表示・認可の連携。現状は待機防止まで。[責務・API具体化案](gateway-interaction-relay-proposal.ja.md)を作成したが、現行APIとは区別する。通常承認のAPIやCapabilityを、これらも利用可能という意味に変更しない。
+- クライアント定義Function Callingと、正確なリクエスト単位usageの変換。Codex内部のツール実行を外部クライアントへの実行依頼に誤変換せず、Thread累計や最後のモデル呼出しの値をTurn全体の使用量と推測しない。
+- 実ディスク容量枯渇・fsync失敗、長時間の混合負荷、別ホストの切断・Range再開、Gatewayと連動する正式復元・配信結果不明の結合試験。
+- 容量・保持既定値の最終合意、他のモデル／Codex版の受入。
+
+v2全体の `acceptance_pending` は維持する。既存の正常系画像表示の受入を取り消すものではない。

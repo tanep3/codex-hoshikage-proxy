@@ -701,3 +701,83 @@ async fn legacy_writer_cannot_invalidate_v2_read_modify_write_snapshot() {
     writer.join().unwrap();
     assert_eq!(s.store.get("conversation", &cid).unwrap()["checked"], true);
 }
+
+#[tokio::test]
+async fn disconnected_download_releases_capacity_and_range_resumes_same_blob() {
+    use axum::http::{HeaderMap, StatusCode};
+    use http_body_util::BodyExt;
+    use std::sync::Arc;
+    let r = root();
+    let s = Arc::new(Service::open(&r.join("state"), &r.join("work")).unwrap());
+    let cid = conversation(&s);
+    let original: Vec<u8> = (0..2 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+    std::fs::write(
+        s.workspace_path(&cid).unwrap().join("download.bin"),
+        &original,
+    )
+    .unwrap();
+    let op = s
+        .capture(&cid, "download-capture", &json!({"path":"download.bin"}))
+        .unwrap();
+    let aid = op["resource"]["id"].as_str().unwrap().to_owned();
+    let mut held = Vec::new();
+    for _ in 0..s.limits.download_concurrency {
+        held.push(
+            codex_hoshikage_proxy::v2::download::content(
+                s.clone(),
+                "artifact",
+                aid.clone(),
+                HeaderMap::new(),
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    let error = codex_hoshikage_proxy::v2::download::content(
+        s.clone(),
+        "artifact",
+        aid.clone(),
+        HeaderMap::new(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, "download_capacity_busy");
+    let mut body = held.pop().unwrap().into_body();
+    let frame = body.frame().await.unwrap().unwrap().into_data().unwrap();
+    let offset = frame.len();
+    assert!(offset > 0 && offset < original.len());
+    let mut received = frame.to_vec();
+    drop(body); // Emulate client disconnect before the next chunk is requested.
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while s.downloads.available_permits() != 1 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("download worker releases capacity after disconnect");
+    let mut headers = HeaderMap::new();
+    headers.insert("range", format!("bytes={offset}-").parse().unwrap());
+    // Mutable workspace content is never consulted by a resumed artifact read.
+    std::fs::write(
+        s.workspace_path(&cid).unwrap().join("download.bin"),
+        b"replacement",
+    )
+    .unwrap();
+    let resumed = codex_hoshikage_proxy::v2::download::content(s.clone(), "artifact", aid, headers)
+        .await
+        .unwrap();
+    assert_eq!(resumed.status(), StatusCode::PARTIAL_CONTENT);
+    received.extend_from_slice(&resumed.into_body().collect().await.unwrap().to_bytes());
+    assert_eq!(received, original);
+    drop(held);
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while s.downloads.available_permits() != s.limits.download_concurrency {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("all abandoned downloads release capacity");
+    assert!(s.store.list("read_pin").unwrap().is_empty());
+    drop(s);
+    std::fs::remove_dir_all(r).unwrap();
+}

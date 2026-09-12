@@ -552,6 +552,7 @@ async fn create_response(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
+    reject_client_tools(&body)?;
     let request: ResponsesRequest = serde_json::from_value(body.clone()).map_err(|e| {
         ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -698,8 +699,16 @@ async fn create_response(
 
 async fn create_chat_completion(
     State(state): State<AppState>,
-    Json(request): Json<ChatCompletionsRequest>,
+    Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
+    reject_client_tools(&body)?;
+    let request: ChatCompletionsRequest = serde_json::from_value(body).map_err(|error| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            error.to_string(),
+        )
+    })?;
     let input = chat_messages_to_input(&request.messages)?;
     let internal = ResponsesRequest {
         model: request.model.clone(),
@@ -801,11 +810,11 @@ async fn collect_turn_text(
             )
         })?
         .map_err(|error| runtime_error(RuntimeError::Protocol(error.to_string())))?;
-        if is_approval_required(&event, thread_id) {
+        if let Some(code) = interaction_error(&event, thread_id) {
             return Err(ApiError::new(
                 StatusCode::CONFLICT,
-                "approval_required",
-                "client does not provide interactive approval capability",
+                code,
+                "client cannot handle the requested interaction",
             ));
         }
         let method = event
@@ -935,9 +944,10 @@ async fn run_chat_stream(
                 return;
             }
         };
-        if is_approval_required(&event, &thread_id) {
+        if let Some(code) = interaction_error(&event, &thread_id) {
+            interrupt_turn(&state.runtime, &thread_id, turn_id.as_deref()).await;
             let _ = sender
-                .send(sse_data(&json!({"error": {"code": "approval_required"}})))
+                .send(sse_data(&json!({"error": {"code": code}})))
                 .await;
             let _ = sender.send(sse_done()).await;
             return;
@@ -1677,7 +1687,8 @@ async fn run_stream(
                 break;
             }
         };
-        if is_approval_required(&event, &thread_id) {
+        if let Some(code) = interaction_error(&event, &thread_id) {
+            interrupt_turn(&state.runtime, &thread_id, turn_id.as_deref()).await;
             let _ = sender
                 .send(
                     sse_json(
@@ -1685,7 +1696,7 @@ async fn run_stream(
                         &json!({
                             "id": response_id,
                             "status": "failed",
-                            "error": {"code": "approval_required"}
+                            "error": {"code": code}
                         }),
                     )
                     .unwrap_or_else(|_| Event::default()),
@@ -1963,6 +1974,48 @@ fn unsupported_input(message: &str) -> ApiError {
     ApiError::new(StatusCode::BAD_REQUEST, "unsupported_parameter", message)
 }
 
+// Codex executes its own tools. It does not hand a client-defined function call
+// back to the OpenAI caller. Silently dropping these fields would execute a
+// different request and can produce a false successful response.
+fn reject_client_tools(body: &Value) -> Result<(), ApiError> {
+    for key in [
+        "tools",
+        "functions",
+        "tool_choice",
+        "function_call",
+        "parallel_tool_calls",
+    ] {
+        if let Some(value) = body.get(key).filter(|v| !v.is_null()) {
+            let no_op = match key {
+                "tools" | "functions" => value.as_array().is_some_and(Vec::is_empty),
+                "tool_choice" | "function_call" => value == "none",
+                "parallel_tool_calls" => value == false,
+                _ => false,
+            };
+            if !no_op {
+                return Err(unsupported_input(&format!(
+                    "client-defined tool calling is not supported: {key}"
+                )));
+            }
+        }
+    }
+    for key in ["messages", "input"] {
+        if let Some(items) = body[key].as_array() {
+            for item in items {
+                if item.get("tool_calls").is_some_and(|v| !v.is_null())
+                    || item.get("function_call").is_some_and(|v| !v.is_null())
+                    || item.get("tool_call_id").is_some()
+                {
+                    return Err(unsupported_input(
+                        "client tool-call history is not supported",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn normalize_message(role: &str, content: &Value) -> Result<Vec<Value>, ApiError> {
     if !matches!(role, "system" | "developer" | "user" | "assistant") {
         return Err(unsupported_input(
@@ -2124,6 +2177,8 @@ async fn recv_turn_event(
             return Err(broadcast::error::RecvError::Closed);
         }
         if matches_thread_and_turn(&event, thread_id, turn_id)
+            || (interaction_error(&event, thread_id).is_some()
+                && event["turnId"].as_str().is_none())
             || event
                 .get("params")
                 .is_some_and(|params| matches_thread_and_turn(params, thread_id, turn_id))
@@ -2150,6 +2205,16 @@ fn is_thread_not_found(error: &RuntimeError) -> bool {
 fn is_approval_required(event: &Value, thread_id: &str) -> bool {
     event.get("kind").and_then(Value::as_str) == Some("approval_required")
         && event.get("threadId").and_then(Value::as_str) == Some(thread_id)
+}
+
+pub(crate) fn interaction_error(event: &Value, thread_id: &str) -> Option<&'static str> {
+    if is_approval_required(event, thread_id) {
+        Some("approval_required")
+    } else if event["kind"] == "interaction_unavailable" && event["threadId"] == thread_id {
+        Some("unsupported_interaction")
+    } else {
+        None
+    }
 }
 
 fn matches_turn_event(event: &Value, turn_id: &str) -> bool {

@@ -30,3 +30,5 @@ design, and task records are internal project references and remain Japanese-fir
 
 - [v2生成画像の自動登録API](generated-image-api.ja.md)
 - [Gatewayへの生成画像自動配信修正依頼（対応済み・履歴）](gateway-generated-image-delivery-change-request.ja.md)
+
+- [2026-09-13 Proxy追加修正・受入記録](proxy-hardening-2026-09-13.ja.md)

@@ -74,12 +74,14 @@ streaming, disconnect interruption, approval cancellation/expiry, and errors aft
 
 - This model misidentified an image color with `detail=low`, including when the proxy was bypassed.
   Use `high` for images in this configuration for now.
-- Full OpenAI tool-call/result and usage conversion, user-input questions, and MCP elicitation relay remain incomplete.
+- Client-defined tool-call/result and full usage conversion, user-input questions, MCP elicitation, and permission-specific approval relay remain incomplete. Unsupported client tool specifications are rejected before execution; unsupported interactions receive an error and trigger interruption of the affected Turn.
 - App Server failure causes the proxy to exit with an error. The bundled systemd service restarts it
   after five seconds; interrupted requests are not automatically replayed.
-- Final-output retrieval and historical SSE replay are unsupported. Control APIs use a shared
+- Saved final answers can be retrieved through extension API v2. Final-output retrieval in v1 and historical SSE replay remain unsupported. Control APIs use a shared
   operator scope without per-user isolation.
 - Long-running/high-load operation and compatibility with every model/client have not been validated.
+
+See the [2026-09-13 hardening and acceptance record (Japanese)](docs/proxy-hardening-2026-09-13.ja.md) for the latest changes and deployment status.
 
 See [coverage](docs/app-server-coverage.md), [live validation](docs/live-codex-validation.md), and
 [development checks](docs/development.md).

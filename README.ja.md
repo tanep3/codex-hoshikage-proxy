@@ -56,7 +56,7 @@ ollama/gemma4:e4b
 - [OpenWebUI登録ガイド](docs/openwebui.ja.md)
 
 Codex CLI/App Server `0.147.0`以降を対象とし、今回の実接続検証は`0.153.4`＋`gpt-5.6-luna`で実施しました。
-OpenWebUI `v0.11.0`の過去の受入記録はありますが、今回の画像・構造化出力はProxy APIへの直接接続で検証しています。
+OpenWebUI `v0.11.0`の過去の受入記録はありますが、画像・構造化出力はProxy APIへの直接接続で検証しています。OpenWebUI画像対応とGatewayによるDiscord画像表示の最新結果は[クライアント受入記録](docs/client-acceptance.ja.md)を参照してください。
 
 制御APIの要求照会・重複防止・Steer・中断、および`gpt-5.6-luna`から`gpt-5.6-terra`への同一Thread内変更と再起動後の継承も実接続確認済みです。
 
@@ -65,10 +65,12 @@ OpenWebUI `v0.11.0`の過去の受入記録はありますが、今回の画像�
 通常応答、会話継続、画像入力（`detail=high`）、JSON Schema、ストリーミング、切断時の中断、承認キャンセル／期限切れ、App Server異常終了時のエラー通知を実環境で確認しました。
 
 - `detail=low`で画像の色を誤認する現象が、このモデルではApp Serverへの直接接続でも再現しています。画像には当面`high`を使用してください。
-- ツール呼び出し／結果・usageの完全なOpenAI形式変換、ユーザーへの質問やMCP elicitationの対話中継は未対応です。
+- クライアント定義のツール呼び出し／結果・usageの完全なOpenAI形式変換、質問・MCP elicitation・権限専用承認の対話中継は未対応です。未対応のツール指定は受付前に拒否し、対話要求は理由を返して対象Turnの停止を要求します。
 - App Server異常終了時はProxyも異常終了します。付属systemdサービスでは5秒後に再起動します。実行中の処理は自動再実行しません。
-- 最終出力の再取得とSSEの過去イベント再生は未対応です。制御APIは共有運用者向けで、利用者ごとの分離はありません。
+- 保存済み回答は拡張API v2から再取得できます。v1の最終出力再取得とSSEの過去イベント再生は未対応です。制御APIは共有運用者向けで、利用者ごとの分離はありません。
 - 長時間・高負荷運転や、全モデル／全クライアントの互換性は未検証です。
+
+2026-09-13の追加修正と検証・配備状況は[追加受入記録](docs/proxy-hardening-2026-09-13.ja.md)を参照してください。
 
 詳細は[対応表](docs/app-server-coverage.md)、[実接続テスト結果](docs/live-codex-validation.md)、[開発時の検証手順](docs/development.md)を参照してください。
 

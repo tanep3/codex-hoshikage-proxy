@@ -36,6 +36,10 @@ fn main() {
         let Some(id) = request.get("id").cloned() else {
             continue;
         };
+        if request.get("method").is_none() && id == "unsupported_fake" {
+            write_json(&json!({"method":"test/serverReply","params":request}));
+            continue;
+        }
         if request.get("method").is_none() && id == "artifact_fake" {
             write_json(
                 &json!({"method":"item/agentMessage/delta","params":{"threadId":thread_id,"turnId":turn_id,"delta":if request["result"]["success"]==true{"artifact published"}else{"artifact failed"}}}),
@@ -186,6 +190,14 @@ fn main() {
                 }
                 let response = json!({"jsonrpc":"2.0","id":id,"result":{"turn":{"id":turn_id}}});
                 write_json(&response);
+                if let Some(method) = std::env::args()
+                    .find_map(|arg| arg.strip_prefix("--server-request=").map(str::to_owned))
+                {
+                    write_json(&json!({"id":"unsupported_fake","method":method,"params":{
+                        "threadId":thread_id,"turnId":turn_id,"questions":[],"permissions":{"network":{"enabled":true}}
+                    }}));
+                    continue;
+                }
                 if std::env::args().any(|arg| arg == "--artifact-tool") {
                     let cwd = request["params"]["cwd"].as_str().unwrap();
                     std::fs::write(

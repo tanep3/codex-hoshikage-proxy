@@ -303,6 +303,14 @@ impl CodexRuntime {
         self.write_line(&bytes).await
     }
 
+    pub async fn reject_server_request(&self, rpc_id: Value) -> Result<(), RuntimeError> {
+        let bytes = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0", "id": rpc_id,
+            "error": {"code": -32601, "message": "Proxy client does not support this server request"}
+        })).map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+        self.write_line(&bytes).await
+    }
+
     fn spawn_process_monitor(self: &Arc<Self>) {
         let child = Arc::clone(&self.child);
         let state = Arc::clone(&self.state);

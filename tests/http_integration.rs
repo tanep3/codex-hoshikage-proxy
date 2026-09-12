@@ -1225,3 +1225,91 @@ async fn generated_images_are_authenticated_and_bound_to_execution_time_and_thre
     runtime.shutdown().await.unwrap();
     fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+async fn unsupported_interactions_fail_promptly_in_all_v1_modes() {
+    for method in [
+        "item/tool/requestUserInput",
+        "mcpServer/elicitation/request",
+        "item/permissions/requestApproval",
+        "future/unknownRequest",
+    ] {
+        for endpoint in ["/v1/responses", "/v1/chat/completions"] {
+            for stream in [false, true] {
+                let arg = format!("--server-request={method}");
+                let (app, runtime) = test_app_with_runtime(&[&arg], Duration::from_secs(30)).await;
+                let mut events = runtime.subscribe();
+                let body = if endpoint == "/v1/responses" {
+                    serde_json::json!({"model":"hoshikage/unsloth-gemma4-12b-qat-thinking-off","input":"hello", "stream":stream})
+                } else {
+                    serde_json::json!({"model":"hoshikage/unsloth-gemma4-12b-qat-thinking-off","messages":[{"role":"user","content":"hello"}], "stream":stream})
+                };
+                let text = tokio::time::timeout(Duration::from_secs(3), async {
+                    let response = api(&app, endpoint, Some(body), None).await;
+                    if !stream {
+                        assert_eq!(response.status(), StatusCode::CONFLICT);
+                    }
+                    response_text(response).await
+                })
+                .await
+                .expect("unsupported interaction must not wait for idle timeout");
+                assert!(
+                    text.contains("unsupported_interaction"),
+                    "{method} {endpoint}: {text}"
+                );
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    loop {
+                        let event = events.recv().await.unwrap();
+                        if event["method"] == "test/serverReply" {
+                            assert_eq!(event["params"]["error"]["code"], -32601);
+                            assert!(
+                                event["params"].get("result").is_none(),
+                                "must not grant permissions or invent answers"
+                            );
+                            break;
+                        }
+                    }
+                })
+                .await
+                .unwrap();
+                runtime.shutdown().await.unwrap();
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn client_tools_are_rejected_before_starting_codex() {
+    let (app, runtime) = test_app_with_runtime(&[], Duration::from_secs(30)).await;
+    let mut events = runtime.subscribe();
+    for path in ["/v1/responses", "/v1/chat/completions"] {
+        for (key, value) in [
+            (
+                "tools",
+                serde_json::json!([{"type":"function","name":"send_mail"}]),
+            ),
+            ("tool_choice", serde_json::json!("required")),
+            ("functions", serde_json::json!([{"name":"delete_file"}])),
+            ("function_call", serde_json::json!({"name":"delete_file"})),
+        ] {
+            let mut body =
+                serde_json::json!({"input":"hello","messages":[{"role":"user","content":"hello"}]});
+            body[key] = value;
+            let response = api(&app, path, Some(body), None).await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                json_body(response).await["error"]["code"],
+                "unsupported_parameter"
+            );
+        }
+        let body = serde_json::json!({"input":[{"role":"assistant","content":"x","tool_calls":[]}],"messages":[{"role":"assistant","content":"x","tool_calls":[{"id":"call_1"}]}]});
+        assert_eq!(
+            api(&app, path, Some(body), None).await.status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    while let Ok(event) = events.try_recv() {
+        assert_ne!(event["method"], "turn/started");
+    }
+    runtime.shutdown().await.unwrap();
+}

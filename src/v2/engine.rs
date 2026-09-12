@@ -334,10 +334,11 @@ async fn execute(state: &AppState, s: &Arc<Service>, rid: &str) -> Result<()> {
                   if event["kind"]=="transport_closed"{
         return Err(Error::code(502,"execution_unknown"));
         }
-                  if event["kind"]=="approval_required" && event["threadId"]==thread {
+                  if let Some(code)=crate::http::interaction_error(&event,&thread)
+                    && event["turnId"].as_str().is_none_or(|id|id==turn) {
                     s.store.update("response",rid,|r|{
         r["stop_requested"]=json!(true);
-        r["error"]=json!({ "code":"approval_required"});
+        r["error"]=json!({ "code":code});
         Ok(())}
         )?;
                     continue;

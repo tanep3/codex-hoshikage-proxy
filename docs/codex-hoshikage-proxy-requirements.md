@@ -23,7 +23,7 @@ SQLiteによる会話・操作・占有・停止意思・保存物・リース�
 以下の旧Draft記述と競合する場合はv2契約を優先する。既存v1の提供範囲は維持し、v2の実装・受入状況は
 [v2実装記録](v2-implementation-status.ja.md)で別管理する。実装構造は[v2実装設計](v2-system-design.ja.md)、管理操作は[v2運用手順](v2-operations.ja.md)を参照する。未検証機能を利用可能と表示しない。
 
-### 実装・検証状況（2026-09-11）
+### 実装・検証状況（2026-09-13更新）
 
 本書には未実装の要求・設計を含むため、全体の状態はDraftのままとする。現在の提供範囲は
 [App Server対応表](app-server-coverage.md)、実機で確認した範囲は[実接続テスト結果](live-codex-validation.md)を参照する。
@@ -32,8 +32,9 @@ Codex 0.153.4＋gpt-5.6-lunaで主要APIと切断・承認キャンセル／期�
 App Server異常終了時のProxy終了とsystemdによる再起動に対応した。完全なtool call／usage変換、長時間・高負荷検証などは未完了である。
 
 制御API v1（要求IDの永続照会、Steer／中断、承認制御、snapshot SSE）と同一Provider内の会話モデル変更も実装し、実Codexで検証した。
-現行の永続化はJSONL（`mappings.jsonl`／`executions.jsonl`）であり、本文中のSQLite構想は未実装である。
-正確な契約・責務境界は[制御API v1](control-api.ja.md)、適用済みの構成は[常駐設定](server-operations.md)を参照する。
+現行の標準構成ではv2のSQLiteへ会話・実行・停止・成果物・リース・監査を保存し、旧v1台帳も移行する。JSONLのイベントジャーナルと移行元の退避は継続する。本文の旧Draftテーブル構想をそのまま実装したものではなく、現行構造は[v2実装設計](v2-system-design.ja.md)を参照する。
+質問・MCP追加確認・権限専用承認の対話中継は未実装。2026-09-13の修正では未対応の要求にエラーを返し、対象Turnの停止を要求する。詳細と配備状況は[追加修正・受入記録](proxy-hardening-2026-09-13.ja.md)を参照する。
+正確な契約・責務境界は[制御API v1](control-api.ja.md)と[v2契約](workspace-artifact-api-v2.ja.md)、適用済みの構成は[常駐設定](server-operations.md)を参照する。
 
 ---
 
