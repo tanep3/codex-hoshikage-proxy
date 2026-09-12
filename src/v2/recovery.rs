@@ -19,14 +19,16 @@ pub fn recover(s: &Service) -> Result<()> {
             let content = if kind == "response" { &r["output"] } else { &r };
             if !matches!(
                 content["state"].as_str(),
-                Some("creating" | "saving" | "ready" | "failed")
+                Some("creating" | "saving" | "ready" | "failed" | "unknown")
             ) {
                 continue;
             }
             let manifest = s.store.root.join("blobs").join(format!("{rid}.manifest"));
-            if content["state"] == "failed" && !manifest.exists() {
+            if matches!(content["state"].as_str(), Some("failed" | "unknown")) && !manifest.exists()
+            {
                 continue;
             }
+            let mut verified = false;
             let recovered = (|| -> Result<Value> {
                 let metadata: Value = serde_json::from_slice(&std::fs::read(&manifest)?)?;
                 let blob = s.store.root.join("blobs").join(&rid);
@@ -37,10 +39,15 @@ pub fn recover(s: &Service) -> Result<()> {
                     metadata["size_bytes"].as_u64().unwrap_or(0),
                     string(&metadata, "sha256")?,
                 )?;
+                verified = true;
+                // Hash verification can read unsynced page-cache data after a
+                // failed publish. Confirm durability again before exposing it.
+                std::fs::File::open(source)?.sync_all()?;
+                std::fs::File::open(&manifest)?.sync_all()?;
                 if !blob.exists() {
                     std::fs::rename(&staging, &blob)?;
-                    files::sync_directory(&s.store.root.join("blobs"))?;
                 }
+                files::sync_directory(&s.store.root.join("blobs"))?;
                 Ok(metadata)
             })();
             match recovered {
@@ -54,7 +61,7 @@ pub fn recover(s: &Service) -> Result<()> {
                     }
                 }
                 Err(_) => {
-                    let state = if content["state"] == "ready" {
+                    let state = if content["state"] == "ready" && !verified {
                         "corrupt"
                     } else {
                         "unknown"
@@ -82,6 +89,9 @@ pub fn recover(s: &Service) -> Result<()> {
                             } else {
                                 "unknown"
                             });
+                            if r["state"] == "ready" {
+                                op["error"] = Value::Null;
+                            }
                             store::save_operation(tx, &op)?;
                         }
                     }

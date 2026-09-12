@@ -26,7 +26,7 @@ GatewayはDiscord認可、会話の待機列、配信意思・結果、結果不
 
 Linux `openat2`で登録ルートを基点に開き、symlink・別mount・特殊ファイル・hardlinkを拒否する。開いたルートの実体識別情報を照合する。読取前後のサイズ・mtime・ctime等を比較し、コピー中の更新を検出する。これは外部書込みの原子的snapshot保証ではない。
 
-完成バイト列を同期した後、ハッシュ・サイズ・期限のmanifestを同期し、同一filesystem内で本体をrenameしてからDBをreadyへ確定する。再起動は同じmanifestとバイト列だけで復旧し、元ファイルを読み直して別内容を同じartifact IDにしない。
+完成バイト列を同期した後、ハッシュ・サイズ・期限のmanifestを同期し、同一filesystem内で本体をrenameしてからDBをreadyへ確定する。再起動は同じmanifestとバイト列だけで復旧し、元ファイルを読み直して別内容を同じartifact IDにしない。ハッシュ一致だけでは永続化を保証できないため、復旧時も本体・manifest・保存先ディレクトリを同期してからreadyへ戻す。検証後の同期失敗は取得不可の状態を維持し、保存済みmanifestがあるunknown成果物も次回起動時の復旧対象とする。これは元要求や原本コピーの再実行ではない。
 
 実行completedと回答readyは別状態。最終回答の保存失敗・上限超過は実行成功を失敗へ書き換えず、AI再実行の根拠にしない。SSEは永続状態のsnapshotと補助通知を提供し、欠落時はgapを通知する。
 
