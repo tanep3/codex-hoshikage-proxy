@@ -143,3 +143,11 @@ Gateway・OpenWebUIのサービスや設定は変更していない。新しい�
 `ff019ee` を22:22 JSTに常駐反映。共通CodexホームのMCP・Skill・プラグインを既定で取り込み、認証・会話DB・実行方針は専用のまま維持する。稼働中の依頼の完了を確認して旧バイナリと永続ホームをバックアップした。コピーはシンボリックリンクを保持し、ライブUnix socketを除外した。
 
 配備後は `active/running`、`NRestarts=0`、既存回答と認証・instance／復元世代の維持を確認。実モデルによるMCP呼び出しと共有Skill読込も成功した。[設定・検証記録](codex-user-extensions.ja.md)を参照。
+
+## 2026-09-15 MCP自動再読込の反映
+
+22:45 JST、`630f0d8` を常駐反映。SHA-256 `ff06b86855b76abed78dd5e29ff276aec5fa5661367848b6ad82e232f23c2ec3`。実行中・結果不明の依頼がないことを確認して、旧バイナリと永続ホームをバックアップした。
+
+反映後は `active/running`、`NRestarts=0`。LAN readiness、認証、v1モデル一覧、v2機能・停止先着・重複抑止、既存保存済み回答、instance／復元世代、APIキー／Proxy設定／環境ファイルの保持を確認。反映前の検証用会話をThread `01a0a53c-862b-7bc3-aa59-3915e42183d6` のまま継続し、実モデル回答・永続保存・同一要求キーの重複抑止も成功した（Response `resp_f7de6c5f-20cc-4422-837d-83522c314449`）。
+
+MCP追加・呼出し・削除の無再起動試験は[隔離環境の実モデル記録](codex-user-extensions.ja.md)を参照。Gatewayへの[承認UI改定依頼](gateway-mcp-approval-change-request.ja.md)は作成済み。Gateway本体の実装・配備と実Discordでの承認結合受入は未完了。
