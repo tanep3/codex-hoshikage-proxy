@@ -37,6 +37,7 @@ port = {port}
 default_cwd = {json.dumps(str(work))}
 turn_idle_timeout_seconds = 600
 [codex]
+inherit_global_config = false
 command = {json.dumps(shutil.which('codex'))}
 args = ["app-server", "--listen", "stdio://"]
 [codex.sandbox]

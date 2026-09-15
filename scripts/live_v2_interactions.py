@@ -39,6 +39,7 @@ def main():
 port = {port}
 default_cwd = {json.dumps(str(work))}
 [codex]
+inherit_global_config = false
 command = {json.dumps(shutil.which('codex'))}
 args = {json.dumps(args)}
 [codex.sandbox]

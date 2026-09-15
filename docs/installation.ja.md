@@ -172,3 +172,7 @@ App Serverの終了・通信切断を検知すると、Proxyはリクエスト�
 
 LAN公開時は`server.host = "0.0.0.0"`とAPIキーを設定します。APIキーを環境変数で指定する場合は、サービスに`EnvironmentFile`も設定してください。
 このサーバーの配置・操作方法は[サーバー運用メモ](server-operations.md)を参照してください。
+
+## 共通のMCP・Skill
+
+起動時に通常のCodexホームからMCP・Skill・プラグインを取り込みます（既定で有効）。認証・会話DBはProxy専用です。登録変更後は実行完了を待ってProxyを再起動してください。OAuthの追加ログインやクライアント側の対話UIが必要になる場合があります。[継承範囲と運用](codex-user-extensions.ja.md)を参照してください。

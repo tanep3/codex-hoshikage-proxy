@@ -27,3 +27,5 @@
 - [v2実装設計](v2-system-design.ja.md)
 
 - [v2 interaction relay / 対話要求の取得・回答API](interaction-api.ja.md)：Proxy実装済み。Gateway UI・結合受入は未完了。
+
+- [共通CodexのMCP・Skill・プラグイン継承](codex-user-extensions.ja.md)

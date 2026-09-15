@@ -56,6 +56,7 @@ default_cwd = {json.dumps(str(workspace))}
 turn_idle_timeout_seconds = 120
 turn_heartbeat_seconds = 2
 [codex]
+inherit_global_config = false
 command = {json.dumps(shutil.which('codex'))}
 args = ["app-server", "--listen", "stdio://"]
 [codex.sandbox]

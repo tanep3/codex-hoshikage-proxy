@@ -95,6 +95,8 @@ impl Default for RawServerConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct RawCodexConfig {
+    pub inherit_global_config: bool,
+    pub user_home: Option<PathBuf>,
     pub command: String,
     pub args: Vec<String>,
     pub compatibility: RawCompatibilityConfig,
@@ -104,6 +106,8 @@ pub struct RawCodexConfig {
 impl Default for RawCodexConfig {
     fn default() -> Self {
         Self {
+            inherit_global_config: true,
+            user_home: None,
             command: "codex".into(),
             args: vec!["app-server".into(), "--listen".into(), "stdio://".into()],
             compatibility: RawCompatibilityConfig::default(),
@@ -269,6 +273,7 @@ pub struct ValidatedConfig {
     pub tested_codex_version: String,
     pub models: RawModelRegistryConfig,
     pub codex_home: PathBuf,
+    pub codex_user_home: Option<PathBuf>,
     pub api_key: Option<String>,
     pub approval_timeout_seconds: u64,
     pub auto_approve_workspace: bool,
@@ -457,6 +462,27 @@ impl ValidatedConfig {
             tested_codex_version: raw.codex.compatibility.tested_version,
             models: registry,
             codex_home: proxy_home().join("codex-home"),
+            codex_user_home: if raw.codex.inherit_global_config {
+                Some(raw.codex.user_home.unwrap_or_else(|| {
+                    env::var_os("CODEX_HOME")
+                        .map(PathBuf::from)
+                        // Installation/login instructions may leave the private
+                        // CODEX_HOME exported. It is not an inheritance source.
+                        .filter(|path| {
+                            let private = proxy_home().join("codex-home");
+                            path != &private
+                                && match (path.canonicalize(), private.canonicalize()) {
+                                    (Ok(a), Ok(b)) => a != b,
+                                    _ => true,
+                                }
+                        })
+                        .unwrap_or_else(|| {
+                            PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".codex")
+                        })
+                }))
+            } else {
+                None
+            },
             api_key,
             approval_timeout_seconds: raw.approval.timeout_seconds,
             auto_approve_workspace: raw.approval.auto_approve_workspace,
@@ -523,12 +549,7 @@ impl ValidatedConfig {
             }
             content.push('\n');
         }
-        fs::write(self.codex_home.join("config.toml"), content).map_err(|source| {
-            ConfigError::Read {
-                path: self.codex_home.join("config.toml"),
-                source,
-            }
-        })?;
+        crate::user_config::prepare(&self.codex_home, self.codex_user_home.as_deref(), &content)?;
         Ok(())
     }
 }

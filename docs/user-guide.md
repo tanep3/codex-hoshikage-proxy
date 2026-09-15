@@ -17,6 +17,8 @@ Important settings:
 
 | Setting | Meaning |
 | --- | --- |
+| `codex.inherit_global_config` | Import user MCP, skill and plugin settings; default `true`. Restart the Proxy after changes. |
+| `codex.user_home` | Absolute source home; defaults to `CODEX_HOME` or `$HOME/.codex`, excluding an environment value pointing to the Proxy home. |
 | `server.host`, `server.port` | Listener address |
 | `server.default_cwd` | Existing default working directory |
 | `server.turn_idle_timeout_seconds` | Maximum silence between Codex App Server events for one Turn; default `600`. This is not a total task limit. |

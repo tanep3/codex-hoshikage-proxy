@@ -15,3 +15,5 @@ pub mod turn;
 pub mod v2;
 
 pub mod generated_images;
+
+mod user_config;

@@ -34,3 +34,5 @@ design, and task records are internal project references and remain Japanese-fir
 - [2026-09-13 Proxy追加修正・受入記録](proxy-hardening-2026-09-13.ja.md)
 
 - [v2 interaction relay / 対話要求の取得・回答API](interaction-api.ja.md)：Proxy実装済み。Gateway UI・結合受入は未完了。
+
+- [Shared Codex MCP, skills and plugins (Japanese)](codex-user-extensions.ja.md)

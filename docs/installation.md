@@ -185,3 +185,7 @@ In-flight requests are not replayed. A subsequent request for a persisted Respon
 For LAN access, set `server.host = "0.0.0.0"` and configure an API key. If the key comes from an
 environment variable, configure the service's `EnvironmentFile` too. See [server operations](server-operations.md)
 for this server's deployment.
+
+## Shared MCP servers and skills
+
+The Proxy imports MCP, skill and plugin settings from the user Codex home at startup (enabled by default). Login and conversation databases remain private. Wait for active work to finish, then restart after registration changes. OAuth login and client interaction UI may still be required. See [inheritance and operations (Japanese)](codex-user-extensions.ja.md).
