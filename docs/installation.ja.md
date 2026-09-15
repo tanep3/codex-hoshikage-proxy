@@ -175,4 +175,4 @@ LAN公開時は`server.host = "0.0.0.0"`とAPIキーを設定します。APIキ�
 
 ## 共通のMCP・Skill
 
-起動時に通常のCodexホームからMCP・Skill・プラグインを取り込みます（既定で有効）。認証・会話DBはProxy専用です。登録変更後は実行完了を待ってProxyを再起動してください。OAuthの追加ログインやクライアント側の対話UIが必要になる場合があります。[継承範囲と運用](codex-user-extensions.ja.md)を参照してください。
+起動時に通常のCodexホームからMCP・Skill・プラグインを取り込みます（既定で有効）。認証・会話DBはProxy専用です。MCP設定は次の依頼時に自動再読込します。Skill・プラグインの登録変更は実行完了後にProxyを再起動してください。OAuthの追加ログインやクライアント側の対話UIが必要になる場合があります。[継承範囲と運用](codex-user-extensions.ja.md)を参照してください。

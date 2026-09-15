@@ -15,7 +15,7 @@
 
 | 設定 | 意味 |
 | --- | --- |
-| `codex.inherit_global_config` | 共通CodexのMCP・Skill・プラグイン設定を取り込む。既定 `true`、変更後はProxy再起動 |
+| `codex.inherit_global_config` | 共通CodexのMCP・Skill・プラグイン設定を取り込む。既定 `true`。MCP設定は次の依頼時に自動再読込。他の拡張設定はProxy再起動 |
 | `codex.user_home` | 参照元Codexホームの絶対パス。省略時は `CODEX_HOME` または `$HOME/.codex`。専用ホームを指す環境変数は除外 |
 | `server.host`, `server.port` | 待受アドレス |
 | `server.default_cwd` | 実在するデフォルト作業ディレクトリ |

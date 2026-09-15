@@ -77,6 +77,7 @@ pub struct CodexRuntime {
     stdin: Arc<Mutex<ChildStdin>>,
     pending: Pending,
     next_id: AtomicU64,
+    mcp_refresh: Mutex<Option<crate::user_config::McpRefresh>>,
     transport_closed: Arc<AtomicBool>,
     notifications: broadcast::Sender<Value>,
     child: Arc<Mutex<Option<Child>>>,
@@ -105,6 +106,11 @@ impl CodexRuntime {
                 ));
             }
         }
+        let mcp_refresh = crate::user_config::McpRefresh::new(
+            &config.codex_home,
+            config.codex_user_home.as_deref(),
+        )
+        .map_err(|e| RuntimeError::Initialization(e.to_string()))?;
         let mut command = Command::new(&config.codex_command);
         command
             .kill_on_drop(true)
@@ -128,6 +134,7 @@ impl CodexRuntime {
             stdin: Arc::new(Mutex::new(stdin)),
             pending: Arc::new(Mutex::new(HashMap::new())),
             next_id: AtomicU64::new(1),
+            mcp_refresh: Mutex::new(mcp_refresh),
             transport_closed: Arc::new(AtomicBool::new(false)),
             notifications,
             child: Arc::new(Mutex::new(Some(child))),
@@ -178,6 +185,27 @@ impl CodexRuntime {
     }
 
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, RuntimeError> {
+        if matches!(method, "thread/start" | "thread/resume" | "turn/start") {
+            // Serialize refresh acknowledgement with execution boundaries. Never
+            // restart the process or replace a conversation to refresh tools.
+            let mut refresh = self.mcp_refresh.lock().await;
+            if let Some(refresh) = refresh.as_mut() {
+                let desired = refresh.prepare().map_err(|e| {
+                    RuntimeError::Protocol(format!("MCP configuration refresh failed: {e}"))
+                })?;
+                if let Some(desired) = desired {
+                    self.request_raw("config/mcpServer/reload", Value::Null)
+                        .await?;
+                    refresh.acknowledge(desired);
+                    tracing::info!("MCP configuration reloaded for subsequent turns");
+                }
+            }
+            return self.request_raw(method, params).await;
+        }
+        self.request_raw(method, params).await
+    }
+
+    async fn request_raw(&self, method: &str, params: Value) -> Result<Value, RuntimeError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = oneshot::channel();
         {

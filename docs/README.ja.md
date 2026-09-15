@@ -29,3 +29,5 @@
 - [v2 interaction relay / 対話要求の取得・回答API](interaction-api.ja.md)：Proxy実装済み。Gateway UI・結合受入は未完了。
 
 - [共通CodexのMCP・Skill・プラグイン継承](codex-user-extensions.ja.md)
+
+- [Gateway改定依頼：MCP承認・対話と停止理由](gateway-mcp-approval-change-request.ja.md)

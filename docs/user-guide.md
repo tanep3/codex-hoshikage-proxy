@@ -17,7 +17,7 @@ Important settings:
 
 | Setting | Meaning |
 | --- | --- |
-| `codex.inherit_global_config` | Import user MCP, skill and plugin settings; default `true`. Restart the Proxy after changes. |
+| `codex.inherit_global_config` | Import user MCP, skill and plugin settings; default `true`. MCP settings reload before the next request; other extension settings require a Proxy restart. |
 | `codex.user_home` | Absolute source home; defaults to `CODEX_HOME` or `$HOME/.codex`, excluding an environment value pointing to the Proxy home. |
 | `server.host`, `server.port` | Listener address |
 | `server.default_cwd` | Existing default working directory |

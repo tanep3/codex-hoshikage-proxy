@@ -188,4 +188,4 @@ for this server's deployment.
 
 ## Shared MCP servers and skills
 
-The Proxy imports MCP, skill and plugin settings from the user Codex home at startup (enabled by default). Login and conversation databases remain private. Wait for active work to finish, then restart after registration changes. OAuth login and client interaction UI may still be required. See [inheritance and operations (Japanese)](codex-user-extensions.ja.md).
+The Proxy imports MCP, skill and plugin settings from the user Codex home at startup (enabled by default). Login and conversation databases remain private. MCP changes reload before the next request without recreating the conversation. For skill/plugin registration changes, wait for active work to finish and restart the Proxy. OAuth login and client interaction UI may still be required. See [inheritance and operations (Japanese)](codex-user-extensions.ja.md).

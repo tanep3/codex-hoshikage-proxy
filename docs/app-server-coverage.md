@@ -32,3 +32,7 @@
 汎用制御APIの契約・認証範囲・モデル変更制限は[制御API v1](control-api.ja.md)を参照。
 
 2026-09-13の対話要求・承認失効の修正、回帰試験、常駐反映状況は[追加受入記録](proxy-hardening-2026-09-13.ja.md)を参照。上流の応答契約はCodex CLI 0.153.4の生成JSON Schemaと[公式仕様](https://learn.chatgpt.com/docs/app-server)を照合した。
+
+### User MCP configuration refresh (2026-09-15)
+
+`config/mcpServer/reload` is invoked before thread/start, thread/resume or turn/start when inherited MCP settings change. The same conversation and App Server process are retained. Acknowledgement failures block the new upstream operation and leave reload pending; AI requests are not automatically replayed. Live acceptance added, called and removed a local MCP across three turns of the same thread. This does not implement Gateway MCP approval UI or hot-reload skill/plugin registration changes.

@@ -35,6 +35,7 @@ fn main() {
     let mut thread_id = "thread_fake_1".to_string();
     let mut turn_id = "turn_fake_1".to_string();
     let mut next_thread = 0;
+    let mut mcp_reloads = 0;
     let mut next_turn = 0;
     let mut rejected_interrupt = false;
     let mut turns = std::collections::HashMap::<String, (String, String)>::new();
@@ -100,6 +101,17 @@ fn main() {
                     return;
                 }
                 continue;
+            }
+            "config/mcpServer/reload" => {
+                mcp_reloads += 1;
+                if std::env::args().any(|a| a == "--fail-first-mcp-reload") && mcp_reloads == 1 {
+                    json!({"id":id,"error":{"code":-32603,"message":"reload failed"}})
+                } else {
+                    json!({"id":id,"result":{}})
+                }
+            }
+            "test/reload-status" => {
+                json!({"id":id,"result":{"reloads":mcp_reloads,"threads":next_thread,"turns":next_turn}})
             }
             "test/null" => json!({"id": id, "result": null}),
             "test/server-request" => {
