@@ -49,3 +49,15 @@ MCPの実行コマンドと参照する環境変数はsystemdの環境でも利�
 実環境プローブは `cargo test --locked --test live_user_extensions -- --ignored --nocapture`。この試験は当サーバーの共通設定・Proxy認証を読み、隔離ホームから登録済みMCPへ接続します。モデル実行・Discord投稿は行いません。通常の自動試験からは除外しています。sandbox内ではMCP依存キャッシュにアクセスできずSerena起動を確認できなかったため、常駐相当の権限で再検証しました。
 
 参照：[Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)、[Skill](https://learn.chatgpt.com/docs/build-skills)、[設定項目](https://learn.chatgpt.com/docs/config-file/config-reference)。
+
+## 常駐反映結果
+
+2026-09-15 22:22 JST、実装コミット `ff019ee` を常駐反映済み。配備バイナリSHA-256は `6dddaf5083580fa2f755f235e45c0620d95756b16b953445bea793d9a313e62f`。
+
+- サービス `active/running`、`NRestarts=0`。LAN readiness、認証必須、v1モデル一覧、v2機能、停止先着・重複抑止を確認。
+- APIキー・Proxy設定・環境ファイルのハッシュ、instance／復元世代、既存保存済み回答を維持。専用Skill `l13-packet-jam-recovery` も保持。
+- 実モデル `chatgpt/gpt-5.6-luna` が `lightpanda.session_list` を1回実行し、共有 `talmon-browser/SKILL.md` を読み込んで `EXTENSIONS_OK` を回答。最終文面だけでなくTurn内の完了した `mcpToolCall` と終了コード0の `commandExecution` を照合。Skillのブラウザー操作・投稿ワークフローは実行していない。
+- 検証Response `resp_0b83a15f-5e99-4e08-bd24-f67f71c36bd1`、Turn `01a0a53c-8723-7893-a39b-3bd841d75ead`。保存済み回答の再取得と同一要求キーでの重複抑止も成功。この呼び出しでは対話承認要求は発生していない。
+- 通常Rustテスト全件、設定テスト9件、追加継承テスト3件、Clippy（warnings禁止）、fmtを通過。実MCP／Skill試験は別途明示実行。
+
+Gatewayサービス・Discord投稿は変更していない。Discord画面からの利用者操作や、各MCPの全機能の受入とは区別する。

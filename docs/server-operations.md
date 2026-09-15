@@ -137,3 +137,9 @@ Gateway側の改定・常駐サービス反映が完了し、利用者からDisc
 - systemdはactive/running、確認時の自動再起動回数0、待受は `0.0.0.0:4040`。
 
 Gateway・OpenWebUIのサービスや設定は変更していない。新しい質問／MCP／権限の対話UIは、クライアント側の対応宣言・実装が必要。基本契約2.0と `acceptance_pending` は維持する。
+
+## 2026-09-15 共通MCP・Skill設定の反映
+
+`ff019ee` を22:22 JSTに常駐反映。共通CodexホームのMCP・Skill・プラグインを既定で取り込み、認証・会話DB・実行方針は専用のまま維持する。稼働中の依頼の完了を確認して旧バイナリと永続ホームをバックアップした。コピーはシンボリックリンクを保持し、ライブUnix socketを除外した。
+
+配備後は `active/running`、`NRestarts=0`、既存回答と認証・instance／復元世代の維持を確認。実モデルによるMCP呼び出しと共有Skill読込も成功した。[設定・検証記録](codex-user-extensions.ja.md)を参照。
