@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Limits {
+    pub mcp_turn_approval_enabled: bool,
+    pub mcp_turn_grant_tools: std::collections::BTreeMap<String, Vec<String>>,
     pub generated_image_max_bytes: u64,
     pub generated_images_max_count: usize,
     pub generated_images_settle_seconds: u64,
@@ -24,6 +26,8 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            mcp_turn_approval_enabled: false,
+            mcp_turn_grant_tools: Default::default(),
             generated_image_max_bytes: 10485760,
             generated_images_max_count: 16,
             generated_images_settle_seconds: 600,

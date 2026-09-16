@@ -173,7 +173,49 @@ impl ApprovalManager {
                 let mut params = event.get("params").cloned().unwrap_or_else(|| json!({}));
                 if let Some(s) = relay.as_ref() {
                     match crate::v2::interactions::receive(s, &rpc_id, method, &params) {
-                        Ok(true) => continue,
+                        Ok(true) => {
+                            if s.limits.mcp_turn_approval_enabled {
+                                let pending = s
+                                    .store
+                                    .list("interaction")
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .find(|i| {
+                                        i["rpc_id"] == rpc_id
+                                            && i["thread_id"] == params["threadId"]
+                                            && i["state"] == "pending"
+                                    });
+                                if let Some(i) = pending {
+                                    let iid = i["interaction_id"].as_str().unwrap().to_owned();
+                                    let service = s.clone();
+                                    let runtime = manager.runtime.clone();
+                                    tokio::spawn(async move {
+                                        if let Ok(Some(grant)) =
+                                            crate::v2::mcp_grants::await_auto_grant(&service, &iid)
+                                                .await
+                                        {
+                                            let body = json!({"expected_revision":i["revision"],"response":{"action":"accept","content":{}}});
+                                            if let Err(e) = crate::v2::interactions::reply_inner(
+                                                &service,
+                                                &runtime,
+                                                &iid,
+                                                &format!("auto-{iid}"),
+                                                &body,
+                                                Some(&grant),
+                                            )
+                                            .await
+                                            {
+                                                tracing::warn!(
+                                                    code = e.code,
+                                                    "MCP grant application not delivered"
+                                                );
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                            continue;
+                        }
                         Ok(false) => {}
                         Err(error) => {
                             tracing::warn!(code = error.code, "interaction relay rejected request")

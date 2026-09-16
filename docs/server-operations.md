@@ -151,3 +151,18 @@ Gateway・OpenWebUIのサービスや設定は変更していない。新しい�
 反映後は `active/running`、`NRestarts=0`。LAN readiness、認証、v1モデル一覧、v2機能・停止先着・重複抑止、既存保存済み回答、instance／復元世代、APIキー／Proxy設定／環境ファイルの保持を確認。反映前の検証用会話をThread `01a0a53c-862b-7bc3-aa59-3915e42183d6` のまま継続し、実モデル回答・永続保存・同一要求キーの重複抑止も成功した（Response `resp_f7de6c5f-20cc-4422-837d-83522c314449`）。
 
 MCP追加・呼出し・削除の無再起動試験は[隔離環境の実モデル記録](codex-user-extensions.ja.md)を参照。Gatewayへの[承認UI改定依頼](gateway-mcp-approval-change-request.ja.md)は作成済み。Gateway本体の実装・配備と実Discordでの承認結合受入は未完了。
+
+## 2026-09-16 20:31 JST：MCPターン限定許可の接続試験用配備
+
+利用者から「フラグをONにして、常駐環境に反映」「接続テストをする」と明示指示を受け、総合受入前の接続試験用として対応版を配備した。従来の受入後有効化という予定に対し、今回の指示を適用した。総合受入完了を意味しない。
+
+- 未コミットの0.3実装をreleaseビルドして常駐へ反映。基点HEADは77c9991であり、そのコミット単体の配備ではない。
+- `[v2] mcp_turn_approval_enabled = true`、`mcp_turn_grant_tools = { playwright = ["browser_find"] }`。他ツールの包括許可は有効にしていない。
+- 活動実行・hold・成果物作成がないことを切替前と停止後に確認。停止中の状態・設定一式と旧バイナリを退避。
+- 20:31:56 JSTに再起動。active/running、NRestarts=0、`0.0.0.0:4040`、起動エラーなし（既存private extension優先の警告あり）。
+- LAN経由readiness、両MCP capabilityのenabled=true／native-item-id-v1、認証なし401、v1モデル一覧、既存回答バイト列一致、instance／復元世代維持を確認。
+- AI実行前の停止予約を用いた試験Responseで、受付冪等性・not_started/cancelled・空のinteraction／生成画像一覧を確認。Discordへの試験投稿やAI実行は行っていない。
+- バイナリSHA-256：`981a3e257e9f37903031c0ec3a0532dc6cf3f60e11e41416970f2110304da4f7`。
+- 配備情報：`~/.config/codex-hoshikage-proxy/last-update.json`。状態退避：`~/.config/codex-hoshikage-proxy.before-mcp-turn-approval-20260916T113154Z`。稼働後の状態を安易に巻き戻さない。
+
+次はGateway／実Discordで操作詳細・単発／ターン許可・取消・次発言での失効を結合確認する。

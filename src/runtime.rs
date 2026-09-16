@@ -112,6 +112,11 @@ impl CodexRuntime {
         )
         .map_err(|e| RuntimeError::Initialization(e.to_string()))?;
         let mut command = Command::new(&config.codex_command);
+        if config.v2_limits.mcp_turn_approval_enabled {
+            command
+                .arg("-c")
+                .arg("features.tool_call_mcp_elicitation=false");
+        }
         command
             .kill_on_drop(true)
             .args(&config.codex_args)

@@ -1,5 +1,7 @@
 # v2実装・受入記録
 
+2026-09-16追記：[MCP操作詳細・単一Run限定許可0.3](mcp-turn-approval-api.ja.md)はProxy提示用文書の完成版。Gatewayによる0.3受入・5指摘解消を確認し、[工程の開始条件](development-process.ja.md)を充足。0.3基準で実装再開可能となった。先行コードは未完了であり、実装・受入の完了とは区別する。以下の過去の常駐反映記録に今回の自動許可機能は含まれない。
+
 - [v2 interaction relay / 対話要求の取得・回答API](interaction-api.ja.md)：2026-09-13の追加実装。2026-09-13 08:40 JSTに常駐反映済み。Gateway UI・結合受入は未完了。
 
 2026-09-11。契約0.2の実装を追加し、ローカル自動試験と実Codex試験を実施。**本番受入は未完了**。常駐サービスには同日21:05 JSTに反映済み。設定は継承し、OpenAI互換APIと拡張APIを標準で同時提供する。配備確認は[常駐運用記録](server-operations.md)を参照。v2は既定で有効、Capabilityの`implementation_status`は`acceptance_pending`。
@@ -73,3 +75,13 @@ Gatewayの[実装・受入記録](../../codex-hoshikage-gateway/docs/implementat
 ## 2026-09-13：対話待機・互換入力・障害境界の追加確認
 
 対話不能時の待機防止、承認失効、未対応ツール指定の明示拒否を追加した。実プロセス強制終了、書込失敗、HTTPボディ切断・Range再開の検証範囲と配備状況は[追加受入記録](proxy-hardening-2026-09-13.ja.md)を参照する。上記の別ホスト実通信・長時間負荷・Gateway障害結合を全件完了した扱いにはしない。
+
+## MCP単一Run限定許可（2026-09-16）
+
+双方合意と実装再開指示を受け、0.3基準のProxy実装・自動試験・隔離実モデル試験を実施。[検証記録](mcp-turn-approval-validation.ja.md)に結果と残る総合受入を記載した。常駐環境には未反映、自動許可は未有効化。
+
+Proxy単独の追加受入では、HTTP Steerの保存失敗時未送信、並列Response・停止／取消競合、正式復元・上流切断、引数容量、許可TTLの時計後退対策を確認。実ブラウザーのbrowser_find 5回は明示確認5回から1回へ削減でき、次発言では再確認された（navigateの個別確認1回は別）。Gatewayは実装・常駐反映済みで、残る新機能の接続受入は実Gateway／Discordで行う。Proxy常駐未反映の状態は変わらない。
+
+### 2026-09-16 20:31 JST：接続試験用の常駐反映
+
+利用者の明示指示でProxyを常駐反映し、本機能をON、対象をplaywright.browser_findに設定した。上記の未反映・未有効化は配備前時点の記録。現在は結合試験可能で、実Discord受入は未完了。[配備記録](server-operations.md)を参照。

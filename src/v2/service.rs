@@ -10,6 +10,7 @@ use std::{
 };
 
 pub struct Service {
+    pub mcp: Arc<std::sync::Mutex<super::mcp_grants::State>>,
     pub store: Store,
     pub limits: super::limits::Limits,
     pub work_root: PathBuf,
@@ -47,6 +48,7 @@ impl Service {
             work_root,
             copies: Arc::new(tokio::sync::Semaphore::new(limits.capture_concurrency)),
             downloads: Arc::new(tokio::sync::Semaphore::new(limits.download_concurrency)),
+            mcp: Default::default(),
             limits,
             workers: Default::default(),
             image_workers: Default::default(),
@@ -248,6 +250,7 @@ impl Service {
         provider_limit: Option<usize>,
     ) -> Result<(Value, Option<String>)> {
         super::interactions::validate_capabilities(body.get("interaction_capabilities"))?;
+        super::mcp_grants::validate_context(body.get("approval_context"))?;
         self.store.transaction(|tx| {
             let (mut op, fresh) =
                 store::reserve(tx, key, "response.create", &json!({ "conversation_id":cid,"request":body}))?;
@@ -336,6 +339,8 @@ impl Service {
                 return Err(Error::code(409, "cross_provider_model_change_unsupported"));
             }
             let record = json!({
+                "approval_context":body.get("approval_context").cloned().unwrap_or(Value::Null),
+                "input_generation":0,
                 "response_id":rid,
                 "conversation_id":cid,
                 "workspace_id":c["workspace_id"],

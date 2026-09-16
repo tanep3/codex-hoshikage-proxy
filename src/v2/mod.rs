@@ -107,3 +107,5 @@ pub mod listing;
 pub mod migration;
 
 pub mod images;
+
+pub mod mcp_grants;

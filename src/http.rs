@@ -2810,6 +2810,20 @@ async fn control_steer(
             "turn is inactive, unknown, awaiting approval, or interrupt requested",
         ));
     }
+    if let Some(service) = &state.v2 {
+        crate::v2::mcp_grants::steer(
+            service,
+            record.thread_id.as_deref().unwrap_or_default(),
+            &id,
+        )
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                e.code,
+                "could not invalidate prior turn grants",
+            )
+        })?;
+    }
     let result = state
         .runtime
         .request(

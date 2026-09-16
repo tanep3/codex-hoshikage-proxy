@@ -37,6 +37,7 @@ fn main() {
     let mut next_thread = 0;
     let mut mcp_reloads = 0;
     let mut next_turn = 0;
+    let mut mcp_call = 0;
     let mut rejected_interrupt = false;
     let mut turns = std::collections::HashMap::<String, (String, String)>::new();
     for line in stdin.lock().lines().map_while(Result::ok) {
@@ -46,6 +47,39 @@ fn main() {
         let Some(id) = request.get("id").cloned() else {
             continue;
         };
+        if request.get("method").is_none()
+            && id.as_str().is_some_and(|v| v.starts_with("mcp_fake_"))
+        {
+            let q = format!("mcp_tool_call_approval_call_{mcp_call}");
+            assert_eq!(
+                request["result"],
+                json!({"answers":{q:{"answers":["Allow"]}}})
+            );
+            write_json(&json!({"method":"test/serverReply","params":request}));
+            if std::env::args().any(|arg| arg == "--exit-after-mcp-reply") {
+                return;
+            }
+            write_json(
+                &json!({"method":"serverRequest/resolved","params":{"threadId":thread_id,"requestId":id}}),
+            );
+            if mcp_call == 1 && std::env::args().any(|arg| arg == "--pause-after-first-mcp") {
+                continue;
+            }
+            if mcp_call < 5 {
+                mcp_call += 1;
+                mcp_request(&thread_id, &turn_id, mcp_call);
+            } else {
+                turn_status = "completed";
+                turns.insert(turn_id.clone(), (thread_id.clone(), turn_status.into()));
+                write_json(
+                    &json!({"method":"item/agentMessage/delta","params":{"threadId":thread_id,"turnId":turn_id,"delta":"five tools completed"}}),
+                );
+                write_json(
+                    &json!({"method":"turn/completed","params":{"threadId":thread_id,"turnId":turn_id,"turn":{"id":turn_id,"status":"completed"}}}),
+                );
+            }
+            continue;
+        }
         if request.get("method").is_none() && id == "unsupported_fake" {
             write_json(&json!({"method":"test/serverReply","params":request}));
             if request.get("result").is_some() {
@@ -224,6 +258,11 @@ fn main() {
                 }
                 let response = json!({"jsonrpc":"2.0","id":id,"result":{"turn":{"id":turn_id}}});
                 write_json(&response);
+                if std::env::args().any(|arg| arg == "--native-mcp-five") {
+                    mcp_call = 1;
+                    mcp_request(&thread_id, &turn_id, mcp_call);
+                    continue;
+                }
                 if let Some(method) = std::env::args()
                     .find_map(|arg| arg.strip_prefix("--server-request=").map(str::to_owned))
                 {
@@ -317,4 +356,14 @@ fn write_json(value: &Value) {
         }
         panic!("failed to write fake Codex response: {error}");
     }
+}
+
+fn mcp_request(thread: &str, turn: &str, n: usize) {
+    let item = format!("call_{n}");
+    write_json(
+        &json!({"method":"item/started","params":{"threadId":thread,"turnId":turn,"item":{"id":item,"type":"mcpToolCall","server":"test","tool":"read_test","arguments":{"query":n}}}}),
+    );
+    write_json(
+        &json!({"id":format!("mcp_fake_{n}"),"method":"item/tool/requestUserInput","params":{"threadId":thread,"turnId":turn,"itemId":item,"questions":[{"id":format!("mcp_tool_call_approval_{item}"),"header":"Tool","question":"Allow?","isOther":false,"isSecret":false,"options":[{"label":"Allow"},{"label":"Cancel"}]}]}}),
+    );
 }

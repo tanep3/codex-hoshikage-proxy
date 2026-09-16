@@ -31,3 +31,10 @@
 - [共通CodexのMCP・Skill・プラグイン継承](codex-user-extensions.ja.md)
 
 - [Gateway改定依頼：MCP承認・対話と停止理由](gateway-mcp-approval-change-request.ja.md)
+
+- [MCP操作詳細・単一Run限定許可 API（接続合意版・受入未完了）](mcp-turn-approval-api.ja.md)
+- [要件・設計を先行させる開発工程](development-process.ja.md)
+
+- [MCP単一Run限定許可の実装・検証記録](mcp-turn-approval-validation.ja.md)
+
+- [Discordで使うMCPの許可：利用者・管理者ガイド](mcp-turn-approval-guide.ja.md)

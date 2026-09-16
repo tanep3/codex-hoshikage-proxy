@@ -88,3 +88,19 @@ capabilitiesの `response_generated_images` を確認し、`GET /v2/codex/respon
 保存本体・manifest・保存先ディレクトリの同期に失敗した場合、保存成功とは扱わない。ハッシュが一致していても、再起動時に再度同期が成功するまで公開しない。ストレージの障害を解消した後、保存済みmanifestと本体が残っていれば、通常のサービス再起動で同じID・バイト列から復旧する。原本を再コピーしたり、AIの依頼を再実行したりして復旧を代用しない。同期が通らない間の再起動だけで障害が解消するとは保証しない。
 
 本体・manifestが不完全な場合は取得不可のまま維持する。実行状態のUNKNOWNと成果物保存のunknownは別の状態であり、この保存復旧は実行占有の管理解除や実行の再送を意味しない。[障害試験記録](proxy-hardening-2026-09-13.ja.md)を参照。
+
+## MCP操作詳細・Run限定許可（総合受入前）
+
+利用者の選択肢と管理者の導入手順・設定例・トラブル対処は[利用者・管理者ガイド](mcp-turn-approval-guide.ja.md)を参照。Gatewayマニュアルへの反映事項も同文書に記載する。
+
+[合意契約0.3](mcp-turn-approval-api.ja.md)に対応する設定。既定では無効。受入前の常駐環境で有効にしない。v2全体の有効／無効とは別で、OpenAI互換APIを置き換えない。
+
+```toml
+[v2]
+mcp_turn_approval_enabled = false
+mcp_turn_grant_tools = {}
+```
+
+隔離試験ではmcp_turn_approval_enabledをtrueにし、運用者が評価したサーバーとツールを `mcp_turn_grant_tools = { turn_test = ["read_test"] }` のように指定する。名前一致だけで安全と認定しない。browser_evaluate／unsafe等はallowlistに書いても対象外。設定はProxy起動時に読み込み、上流のネイティブ承認形式をプロセス全体で選ぶため、Runごとに切り替えない。設定世代や上流接続を跨いで許可を復活させない。
+
+Gatewayはcapabilitiesトップレベルのmcp_operation_detailsとmcp_turn_approvalをそれぞれ確認する。本人限定の操作詳細画面から返信する場合はrevisionとscope_fingerprintを付ける。取消と/stopを混同しない。試験結果と残項目は[実装・検証記録](mcp-turn-approval-validation.ja.md)を参照。

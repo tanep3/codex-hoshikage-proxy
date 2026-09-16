@@ -88,6 +88,10 @@ max_concurrent_turns = 4
 
 # v2 storage limits (initial candidates; validate on the deployment host).
 [v2]
+# MCP run-scoped approval: keep disabled until acceptance is complete.
+mcp_turn_approval_enabled = false
+# Operator-reviewed server/tool allowlist (empty by default).
+mcp_turn_grant_tools = {}
 generated_images_max_count = 16
 generated_image_max_bytes = 10485760
 generated_images_settle_seconds = 600

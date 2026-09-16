@@ -72,6 +72,8 @@ async fn checked(
             "features":{ "managed_conversations":true,"durable_execution":true,"stop_by_request":true,"stop_before_acceptance":true,"administrative_hold_release":"local_operator","workspace_selection":true,"artifact_capture":true,"artifact_listing":true,"artifact_range_download":true,"retention_leases":true,"artifact_registration_tool":true,"response_output_retrieval":true,"generated_image_artifacts":true,"response_generated_images":true,"interaction_relay":true},
             "limits":limits,
             "interaction_kinds":super::interactions::KINDS,
+            "mcp_operation_details":{"enabled":s.limits.mcp_turn_approval_enabled,"profile":"native-item-id-v1","max_argument_bytes":65536,"disclosure":"requester_only"},
+            "mcp_turn_approval":{"enabled":s.limits.mcp_turn_approval_enabled,"profile":"native-item-id-v1","max_grants":16,"ttl_seconds":600,"max_records":super::mcp_grants::MAX_RECORDS},
             "interaction_limits":{"max_count":super::interactions::MAX_COUNT,"max_bytes":super::interactions::MAX_BYTES,"timeout_seconds":super::interactions::TIMEOUT_MS/1000,"schema_profile":"flat-primitives-v1","permission_profile":"whole-category-v1"},
             "registration_models":["chatgpt/gpt-5.6-luna","chatgpt/gpt-5.6-terra"],
             "server_time":super::retention::wire(json!({ "server_at_ms":super::now()} ))["server_at"]
@@ -164,6 +166,7 @@ async fn checked(
                 "reasoning",
                 "text",
                 "interaction_capabilities",
+                "approval_context",
             ],
         )?;
         super::interactions::validate_capabilities(body.get("interaction_capabilities"))?;
@@ -309,6 +312,52 @@ async fn checked(
     if method == Method::GET && parts.len() == 3 && parts[0] == "responses" && parts[2] == "events"
     {
         return super::events::stream(state, s, parts[1].to_owned());
+    }
+    if method == Method::GET
+        && parts.len() == 3
+        && parts[0] == "interactions"
+        && parts[2] == "operation"
+    {
+        let record = s.store.get("interaction", parts[1])?;
+        state
+            .cwd_policy
+            .validate(s.workspace_path(string(&record, "conversation_id")?)?)
+            .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
+        return Ok(Json(super::mcp_grants::operation(&s, parts[1])?).into_response());
+    }
+    if method == Method::GET
+        && parts.len() == 3
+        && parts[0] == "responses"
+        && parts[2] == "mcp-grants"
+    {
+        let record = s.store.get("response", parts[1])?;
+        state
+            .cwd_policy
+            .validate(s.workspace_path(string(&record, "conversation_id")?)?)
+            .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
+        return Ok(Json(super::retention::wire(super::mcp_grants::list(
+            &s, parts[1],
+        )?))
+        .into_response());
+    }
+    if method == Method::POST
+        && parts.len() == 3
+        && parts[0] == "mcp-grants"
+        && parts[2] == "revoke"
+    {
+        fields(&body, &[])?;
+        let record = s.store.get("mcp_grant", parts[1])?;
+        state
+            .cwd_policy
+            .validate(s.workspace_path(string(&record["scope"], "conversation_id")?)?)
+            .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(super::retention::wire(super::mcp_grants::revoke(
+                &s, parts[1], &key,
+            )?)),
+        )
+            .into_response());
     }
     if (parts.len() == 2 || parts.len() == 3) && parts[0] == "interactions" {
         let iid = parts[1].to_owned();

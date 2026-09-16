@@ -451,6 +451,18 @@ pub fn validate_reply(i: &Value, reply: &Value) -> Result<()> {
 
 /// Returns false for requests not owned by this relay (legacy clients included).
 pub fn receive(s: &Service, rpc_id: &Value, method: &str, p: &Value) -> Result<bool> {
+    if let Some(adapted) = super::mcp_grants::adapt(s, method, p)? {
+        return receive_inner(s, rpc_id, "mcpServer/elicitation/request", &adapted, true);
+    }
+    receive_inner(s, rpc_id, method, p, false)
+}
+fn receive_inner(
+    s: &Service,
+    rpc_id: &Value,
+    method: &str,
+    p: &Value,
+    native: bool,
+) -> Result<bool> {
     let Some(kind) = kind(method, p) else {
         return Ok(false);
     };
@@ -475,12 +487,14 @@ pub fn receive(s: &Service, rpc_id: &Value, method: &str, p: &Value) -> Result<b
             if existing["state"]!="pending" {return Err(Error::code(409,"interaction_closed"));}
             return Ok(true);
         }
-        if store::list(tx,"interaction")?.iter().filter(|i| i["response_id"]==rid).count()>=MAX_COUNT { return Err(Error::code(429,"interaction_limit_exceeded")); }
+        if store::list(tx,"interaction")?.iter().filter(|i| i["response_id"]==rid && (!s.limits.mcp_turn_approval_enabled || matches!(i["state"].as_str(),Some("pending"|"sending")))).count()>=MAX_COUNT || store::list(tx,"interaction")?.iter().filter(|i|i["response_id"]==rid).count()>=super::mcp_grants::MAX_RECORDS { return Err(Error::code(429,"interaction_limit_exceeded")); }
         let mut request=p.clone();
         for k in ["threadId","turnId"] { request.as_object_mut().unwrap().remove(k); }
-        let i=json!({"interaction_id":iid,"response_id":rid,"conversation_id":r["conversation_id"],"workspace_id":r["workspace_id"],
+        let mut i=json!({"interaction_id":iid,"response_id":rid,"conversation_id":r["conversation_id"],"workspace_id":r["workspace_id"],
             "thread_id":thread,"turn_id":turn,"rpc_id":rpc_id,"request_fingerprint":fingerprint,"kind":kind,"state":"pending","revision":1,
             "created_at_ms":now(),"expires_at_ms":now()+TIMEOUT_MS,"request":request,"reply_status":"not_sent","error":null});
+        if native {super::mcp_grants::attach(s,r,&mut i,p)?;}
+        super::mcp_grants::bounded_response(public(i.clone()), super::mcp_grants::SINGLE_BYTES)?;
         store::put(tx,"interaction",&iid,&i)?;
         update_wait(tx, rid)?;
         Ok(true)
@@ -493,6 +507,7 @@ fn public(mut i: Value) -> Value {
         "turn_id",
         "reply_key",
         "request_fingerprint",
+        "native_question_id",
     ] {
         i.as_object_mut().unwrap().remove(key);
     }
@@ -505,7 +520,7 @@ pub fn read(s: &Service, iid: &str) -> Result<Value> {
     refresh(s)?;
     let i = s.store.get("interaction", iid)?;
     s.workspace_path(string(&i, "conversation_id")?)?;
-    Ok(public(i))
+    super::mcp_grants::bounded_response(public(i), super::mcp_grants::SINGLE_BYTES)
 }
 pub fn list(s: &Service, rid: &str) -> Result<Value> {
     refresh(s)?;
@@ -524,7 +539,10 @@ pub fn list(s: &Service, rid: &str) -> Result<Value> {
             i["interaction_id"].as_str().unwrap_or("").to_owned(),
         )
     });
-    Ok(json!({"response_id":rid,"data":data}))
+    super::mcp_grants::bounded_response(
+        json!({"response_id":rid,"data":data}),
+        super::mcp_grants::LIST_BYTES,
+    )
 }
 fn change(tx: &Transaction<'_>, i: &mut Value, state: &str, reason: &str) -> Result<()> {
     i["state"] = json!(state);
@@ -578,6 +596,7 @@ pub fn refresh(s: &Service) -> Result<()> {
 }
 
 pub fn event_loss(s: &Service) -> Result<()> {
+    super::mcp_grants::observe(s, &json!({"kind":"transport_closed"}))?;
     s.store.transaction(|tx| {
         for mut r in store::list(tx, "response")? {
             if matches!(r["phase"].as_str(), Some("dispatching" | "started"))
@@ -595,6 +614,7 @@ pub fn event_loss(s: &Service) -> Result<()> {
     refresh(s)
 }
 pub fn observe(s: &Service, event: &Value) -> Result<()> {
+    super::mcp_grants::observe(s, event)?;
     let closed = event["kind"] == "transport_closed";
     if !closed && event["method"] != "serverRequest/resolved" && event["method"] != "turn/completed"
     {
@@ -677,7 +697,25 @@ pub async fn reply(
     key: &str,
     body: &Value,
 ) -> Result<Value> {
-    fields(body, &["expected_revision", "response"])?;
+    reply_inner(s, runtime, iid, key, body, None).await
+}
+pub(crate) async fn reply_inner(
+    s: &Service,
+    runtime: &CodexRuntime,
+    iid: &str,
+    key: &str,
+    body: &Value,
+    automatic: Option<&str>,
+) -> Result<Value> {
+    fields(
+        body,
+        &[
+            "expected_revision",
+            "response",
+            "grant_scope",
+            "expected_scope_fingerprint",
+        ],
+    )?;
     if !bounded(body) {
         return Err(invalid());
     }
@@ -714,8 +752,15 @@ pub async fn reply(
             return Err(Error::code(409, "revision_conflict"));
         }
         validate_reply(&i, &body["response"])?;
-        let rpc = i["rpc_id"].clone();
+        super::mcp_grants::check_display(s,&i,body)?;
+        super::mcp_grants::check_scope(s,&r,&i)?;
+        let mut wire = body["response"].clone();
+        if let Some(question)=i["native_question_id"].as_str() {
+            wire=json!({"answers":{question:{"answers":[if body["response"]["action"]=="accept" {"Allow"}else{"Cancel"}]}}});
+        }
+        let rpc = json!({"id":i["rpc_id"],"response":wire});
         let mut i = i;
+        if let Some(id)=automatic {super::mcp_grants::apply(s,tx,&r,&mut i,id)?;}else{super::mcp_grants::create(s,tx,&r,&mut i,body)?;}
         i["reply_key"] = json!(key);
         i["reply_status"] = json!("unknown");
         change(tx, &mut i, "sending", "interaction_reply_pending")?;
@@ -730,7 +775,7 @@ pub async fn reply(
     // runs this function in an owned task. No retry after any write attempt.
     let written = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        runtime.respond_to_server_request(rpc, body["response"].clone()),
+        runtime.respond_to_server_request(rpc["id"].clone(), rpc["response"].clone()),
     )
     .await
     .is_ok_and(|r| r.is_ok());
@@ -754,6 +799,7 @@ pub async fn reply(
             store::put(tx, "interaction", iid, &i)?;
             update_wait(tx, string(&i, "response_id")?)?;
         }
+        super::mcp_grants::finish(tx, &i, written)?;
         op["state"] = json!(if written { "succeeded" } else { "unknown" });
         store::save_operation(tx, &op)?;
         Ok(store::public_operation(op))

@@ -51,3 +51,7 @@ python3 scripts/test_v2_full_fs.py
 実際にENOSPCになるまで埋め、成果物保存の失敗とSQLiteのSQLITE_FULLを確認する。空きを戻してストアを開き直し、`integrity_check`、インスタンス・世代、保存済み要求キー、未commit操作のrollback、UNKNOWNの再送禁止、失敗した原本の再コピー禁止を検証する。専用テスト `actual_full_filesystem_preserves_committed_state` は通常のcargo testではignoredであり、このスクリプトから明示実行する。
 
 tmpfsは実ファイルシステムだがRAM上の領域であり、ext4のディスクイメージや実デバイスを満杯にする試験とは異なる。ブロックデバイスの故障・電源断・実ディスクの永続化特性は保証範囲に含めない。
+
+## 要件・設計の開始条件
+
+仕様変更では[要件・設計を先行させる開発工程](development-process.ja.md)を必須とする。契約文書の完成・提示と対向接続の指摘解消より先に製品実装へ着手しない。

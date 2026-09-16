@@ -152,3 +152,7 @@ fileSystemは旧read/write絶対パス配列、およびentries（read/write/den
 Proxy側の試験は `tests/v2_http.rs`、`tests/v2_interactions.rs`、隔離した実Codex用の `scripts/live_v2_interactions.py` を参照。実モデル試験はローカルのテストMCPだけを用い、MCP実行承認とフォーム回答の二段階、同一キーのoperation再取得、最終出力を確認した。質問・権限・URLは模擬上流・検証器で確認しており、実クライアントUIの受入とは区別する。
 
 回答送信中のHTTP切断は、Linux上で上流パイプの書込みを止めたままTCP RSTを発生させる試験も実施済み。切断後の送信継続・最終完了・同一キー再取得・上流への回答1回を確認した。[受入記録](proxy-hardening-2026-09-13.ja.md)を参照。
+
+## 文書先行の追加契約（未配備）
+
+[MCP操作詳細・単一Run限定許可0.3](mcp-turn-approval-api.ja.md)に、本人限定詳細、表示版の照合、明示的なRun限定許可を定義する。この追加契約はProxy提示版で、現行常駐の利用可能機能ではない。有効化後のinteraction一覧上限は履歴256件・未回答16件に分かれる。現在の16件制限を黙って変更せず、追加capabilityで判定する。

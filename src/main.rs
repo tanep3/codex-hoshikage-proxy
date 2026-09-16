@@ -129,6 +129,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     state.generated_images_root = Some(config.codex_home.join("generated_images"));
     if let Some(service) = v2_service {
+        service.mcp.lock().unwrap().config_paths =
+            std::iter::once(config.codex_home.join("config.toml"))
+                .chain(
+                    config
+                        .codex_user_home
+                        .as_ref()
+                        .map(|p| p.join("config.toml")),
+                )
+                .collect();
         state.v2 = Some(service.clone());
         let _maintenance =
             codex_hoshikage_proxy::v2::events::start_maintenance(state.clone(), service.clone());

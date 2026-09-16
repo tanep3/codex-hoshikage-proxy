@@ -57,7 +57,15 @@ async fn app_args(args: &[&str]) -> (Router, Arc<Service>, Arc<CodexRuntime>) {
         journal,
         store,
     );
-    let service = Arc::new(Service::open(&root.join("v2"), &root.join("work")).unwrap());
+    let mut limits = codex_hoshikage_proxy::v2::limits::Limits::default();
+    if args.contains(&"--native-mcp-five") {
+        limits.mcp_turn_approval_enabled = true;
+        limits
+            .mcp_turn_grant_tools
+            .insert("test".into(), vec!["read_test".into()]);
+    }
+    let service =
+        Arc::new(Service::open_with_limits(&root.join("v2"), &root.join("work"), limits).unwrap());
     state.v2 = Some(service.clone());
     codex_hoshikage_proxy::v2::events::start_maintenance(state.clone(), service.clone());
     (router(state), service, runtime)
@@ -536,7 +544,7 @@ async fn interactive_request(app: &Router, s: &Service, kind: &str) -> (String, 
         "POST",
         &format!("conversations/{cid}/responses"),
         Some("relay-r"),
-        json!({"input":"hello","interaction_capabilities":[kind]}),
+        json!({"input":"hello","interaction_capabilities":[kind],"approval_context":{"principal_id":"test-user","channel_id":"test-channel","run_id":"test-run"}}),
     )
     .await;
     let rid = r["resource"]["id"].as_str().unwrap().to_owned();
@@ -843,4 +851,313 @@ async fn tcp_disconnect_during_answer_write_does_not_lose_or_resend_reply() {
     runtime.shutdown().await.unwrap();
     server.abort();
     std::fs::remove_file(gate).unwrap();
+}
+
+#[tokio::test]
+async fn native_mcp_five_calls_need_one_explicit_grant_and_exact_single_wire_answers() {
+    let (app, s, runtime) = app_args(&["--native-mcp-five"]).await;
+    let mut events = runtime.subscribe();
+    let (rid, iid) = interactive_request(&app, &s, "mcp_form").await;
+    let (status, details) = call(
+        &app,
+        &s,
+        "GET",
+        &format!("interactions/{iid}/operation"),
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{details}");
+    assert_eq!(details["arguments"], json!({"query":1}));
+    assert_eq!(details["input_generation"], 0);
+    assert_eq!(details["turn_grant_eligible"], true);
+    assert!(details.get("unavailable_reason").is_some());
+    let body = json!({"expected_revision":details["revision"],"expected_scope_fingerprint":details["scope_fingerprint"],"grant_scope":"turn_tool","response":{"action":"accept","content":{}}});
+    let (status, op) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("explicit-turn"),
+        body.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+    let (_, replayed) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("explicit-turn"),
+        body,
+    )
+    .await;
+    assert_eq!(op, replayed);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while s.store.get("response", &rid).unwrap()["phase"] != "finished" {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("auto-approval must finish all five calls");
+    let mut replies = 0;
+    while let Ok(e) = events.try_recv() {
+        if e["method"] == "test/serverReply" {
+            replies += 1;
+        }
+    }
+    assert_eq!(replies, 5);
+    let (_, grants) = call(
+        &app,
+        &s,
+        "GET",
+        &format!("responses/{rid}/mcp-grants"),
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(grants["data"].as_array().unwrap().len(), 1);
+    assert_eq!(grants["data"][0]["application_count"], 5);
+    assert_eq!(grants["data"][0]["state"], "expired");
+    let gid = grants["data"][0]["grant_id"].as_str().unwrap();
+    let (status, revoked) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("mcp-grants/{gid}/revoke"),
+        Some("revoke-once"),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(revoked["resource"], json!({"type":"mcp_grant","id":gid}));
+    assert_eq!(revoked["in_flight_or_unknown_count"], 0);
+    let (_, by_key) = call(
+        &app,
+        &s,
+        "GET",
+        "operations/by-key/revoke-once",
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(by_key, revoked);
+    let (_, again) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("mcp-grants/{gid}/revoke"),
+        Some("revoke-once"),
+        json!({}),
+    )
+    .await;
+    assert_eq!(again, revoked);
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn native_single_allow_stays_single_for_all_five_calls() {
+    let (app, s, runtime) = app_args(&["--native-mcp-five"]).await;
+    let (rid, _) = interactive_request(&app, &s, "mcp_form").await;
+    let mut clicks = 0;
+    tokio::time::timeout(Duration::from_secs(5),async {
+        while s.store.get("response",&rid).unwrap()["phase"]!="finished" {
+            let (_,list)=call(&app,&s,"GET",&format!("responses/{rid}/interactions"),None,json!({})).await;
+            if let Some(i)=list["data"].as_array().unwrap().iter().find(|i|i["state"]=="pending") {
+                let iid=i["interaction_id"].as_str().unwrap();
+                let (_,d)=call(&app,&s,"GET",&format!("interactions/{iid}/operation"),None,json!({})).await;
+                let (status,result)=call(&app,&s,"POST",&format!("interactions/{iid}/reply"),Some(&format!("once-{clicks}")),json!({"expected_revision":d["revision"],"expected_scope_fingerprint":d["scope_fingerprint"],"response":{"action":"accept","content":{}}})).await;
+                assert_eq!(status,StatusCode::ACCEPTED,"{result}");clicks+=1;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert_eq!(clicks, 5);
+    let (_, g) = call(
+        &app,
+        &s,
+        "GET",
+        &format!("responses/{rid}/mcp-grants"),
+        None,
+        json!({}),
+    )
+    .await;
+    assert!(g["data"].as_array().unwrap().is_empty());
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn mcp_extensions_disabled_are_explicit_and_legacy_reply_survives() {
+    let (app, s, runtime) = app_args(&["--server-request=mcpServer/elicitation/request"]).await;
+    let (_, iid) = interactive_request(&app, &s, "mcp_form").await;
+    let (_, caps) = call(&app, &s, "GET", "capabilities", None, json!({})).await;
+    assert_eq!(caps["mcp_operation_details"]["enabled"], false);
+    assert_eq!(caps["mcp_turn_approval"]["enabled"], false);
+    let (status, e) = call(
+        &app,
+        &s,
+        "GET",
+        &format!("interactions/{iid}/operation"),
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(e["error"]["code"], "operation_details_disabled");
+    let (status,e)=call(&app,&s,"POST",&format!("interactions/{iid}/reply"),Some("disabled-grant"),json!({"expected_revision":1,"response":{"action":"accept","content":{"ok":true}},"grant_scope":"turn_tool"})).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{e}");
+    assert_eq!(e["error"]["code"], "turn_approval_disabled");
+    let (status, e) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("legacy-reply"),
+        json!({"expected_revision":1,"response":{"action":"accept","content":{"ok":true}}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{e}");
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn v1_steer_persists_generation_before_upstream_and_never_sends_on_store_failure() {
+    for fail in [false, true] {
+        let (app, s, runtime) = app_args(&["--native-mcp-five", "--pause-after-first-mcp"]).await;
+        let mut events = runtime.subscribe();
+        let (rid, iid) = interactive_request(&app, &s, "mcp_form").await;
+        let (_, details) = call(
+            &app,
+            &s,
+            "GET",
+            &format!("interactions/{iid}/operation"),
+            None,
+            json!({}),
+        )
+        .await;
+        let (status,result)=call(&app,&s,"POST",&format!("interactions/{iid}/reply"),Some("initial-grant"),json!({"expected_revision":details["revision"],"expected_scope_fingerprint":details["scope_fingerprint"],"grant_scope":"turn_tool","response":{"action":"accept","content":{}}})).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{result}");
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while s.store.get("interaction", &iid).unwrap()["state"] != "resolved" {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let gid = s.store.get("interaction", &iid).unwrap()["grant_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        if fail {
+            s.store.transaction(|tx|{tx.execute_batch("CREATE TRIGGER reject_steer BEFORE UPDATE ON records WHEN NEW.kind='response' BEGIN SELECT RAISE(ABORT, 'injected failure'); END;")?;Ok(())}).unwrap();
+        }
+        let turn = s.store.get("response", &rid).unwrap()["turn_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/codex/turns/{turn}/steer"))
+            .header("x-proxy-instance-id", &s.store.instance)
+            .header("x-proxy-recovery-generation", &s.store.generation)
+            .header("authorization", "Bearer test-key")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({"expected_turn_id":turn,"input":"new instruction"}).to_string(),
+            ))
+            .unwrap();
+        let reply = app.clone().oneshot(request).await.unwrap();
+        let status = reply.status();
+        let bytes = reply.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            status,
+            if fail {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::ACCEPTED
+            },
+            "{}",
+            String::from_utf8_lossy(&bytes)
+        );
+        assert_eq!(
+            s.store.get("response", &rid).unwrap()["input_generation"],
+            if fail { 0 } else { 1 }
+        );
+        assert_eq!(
+            s.store.get("mcp_grant", &gid).unwrap()["state"],
+            if fail { "active" } else { "expired" }
+        );
+        let mut sent = 0;
+        while let Ok(e) = events.try_recv() {
+            if e["method"] == "test/steered" {
+                sent += 1;
+            }
+        }
+        assert_eq!(sent, if fail { 0 } else { 1 });
+        runtime.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn native_grant_transport_loss_fences_replay_and_auto_application() {
+    let (app, s, runtime) = app_args(&["--native-mcp-five", "--exit-after-mcp-reply"]).await;
+    let mut events = runtime.subscribe();
+    let (_, iid) = interactive_request(&app, &s, "mcp_form").await;
+    let (_, d) = call(
+        &app,
+        &s,
+        "GET",
+        &format!("interactions/{iid}/operation"),
+        None,
+        json!({}),
+    )
+    .await;
+    let body = json!({"expected_revision":d["revision"],"expected_scope_fingerprint":d["scope_fingerprint"],"grant_scope":"turn_tool","response":{"action":"accept","content":{}}});
+    let (status, op) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("lost-write"),
+        body.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+    let gid = s.store.get("interaction", &iid).unwrap()["grant_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while s.store.get("mcp_grant", &gid).unwrap()["state"] != "expired" {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (_, again) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("lost-write"),
+        body,
+    )
+    .await;
+    assert_eq!(again["operation_id"], op["operation_id"]);
+    assert_eq!(
+        s.store.get("mcp_grant", &gid).unwrap()["application_count"],
+        1
+    );
+    let mut writes = 0;
+    while let Ok(e) = events.try_recv() {
+        if e["method"] == "test/serverReply" {
+            writes += 1;
+        }
+    }
+    assert_eq!(writes, 1);
+    assert_eq!(
+        codex_hoshikage_proxy::v2::mcp_grants::auto_grant(&s, &iid).unwrap(),
+        None
+    );
+    let _ = runtime.shutdown().await;
 }
