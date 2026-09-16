@@ -43,3 +43,7 @@ design, and task records are internal project references and remain Japanese-fir
 - [MCP単一Run限定許可の実装・検証記録](mcp-turn-approval-validation.ja.md)
 
 - [Discordで使うMCPの許可：利用者・管理者ガイド](mcp-turn-approval-guide.ja.md)
+
+- [MCP公開カード承認 API 0.4（接続合意版）](mcp-inline-approval-api.ja.md)
+
+- [MCP公開カード承認0.4の実装・検証記録](mcp-inline-approval-validation.ja.md)

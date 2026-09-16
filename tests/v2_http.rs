@@ -64,6 +64,11 @@ async fn app_args(args: &[&str]) -> (Router, Arc<Service>, Arc<CodexRuntime>) {
             .mcp_turn_grant_tools
             .insert("test".into(), vec!["read_test".into()]);
     }
+    if args.contains(&"--inline-browser") {
+        limits
+            .mcp_turn_grant_tools
+            .insert("playwright".into(), vec!["browser_find".into()]);
+    }
     let service =
         Arc::new(Service::open_with_limits(&root.join("v2"), &root.join("work"), limits).unwrap());
     state.v2 = Some(service.clone());
@@ -528,6 +533,14 @@ async fn unsupported_interaction_stops_only_the_accepted_execution() {
 }
 
 async fn interactive_request(app: &Router, s: &Service, kind: &str) -> (String, String) {
+    interactive_request_mode(app, s, kind, false).await
+}
+async fn interactive_request_mode(
+    app: &Router,
+    s: &Service,
+    kind: &str,
+    inline: bool,
+) -> (String, String) {
     let (_, c) = call(
         app,
         s,
@@ -538,16 +551,23 @@ async fn interactive_request(app: &Router, s: &Service, kind: &str) -> (String, 
     )
     .await;
     let cid = c["resource"]["id"].as_str().unwrap().to_owned();
+    let mut body = json!({"input":"hello","interaction_capabilities":[kind],"approval_context":{"principal_id":"test-user","channel_id":"test-channel","run_id":"test-run"}});
+    if inline {
+        body["approval_presentation"] = json!({"mode":"source_conversation"});
+    }
     let (_, r) = call(
         app,
         s,
         "POST",
         &format!("conversations/{cid}/responses"),
         Some("relay-r"),
-        json!({"input":"hello","interaction_capabilities":[kind],"approval_context":{"principal_id":"test-user","channel_id":"test-channel","run_id":"test-run"}}),
+        body,
     )
     .await;
-    let rid = r["resource"]["id"].as_str().unwrap().to_owned();
+    let rid = r["resource"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("response acceptance failed: {r}"))
+        .to_owned();
     let iid = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
             let (_, items) = call(
@@ -1160,4 +1180,142 @@ async fn native_grant_transport_loss_fences_replay_and_auto_application() {
         None
     );
     let _ = runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn inline_http_display_bound_reply_replay_and_five_call_grant() {
+    let (app, s, runtime) = app_args(&["--native-mcp-five", "--inline-browser"]).await;
+    let mut events = runtime.subscribe();
+    let (_, cap) = call(&app, &s, "GET", "capabilities", None, json!({})).await;
+    assert_eq!(
+        cap["mcp_inline_approval"]["profile"],
+        "source-conversation-v1"
+    );
+    assert_eq!(cap["mcp_inline_approval"]["enabled"], true);
+    let (rid, iid) = interactive_request_mode(&app, &s, "mcp_form", true).await;
+    let (status, v) = call(
+        &app,
+        &s,
+        "GET",
+        &format!("interactions/{iid}/presentation"),
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["state"], "inline", "{v}");
+    assert_eq!(v["display"]["fields"][2]["value"], "query 1");
+    let mut body = json!({"expected_revision":v["revision"],"expected_scope_fingerprint":v["scope_fingerprint"],"approval_view":"source_conversation","expected_presentation_fingerprint":"wrong-token","grant_scope":"turn_tool","response":{"action":"accept","content":{}}});
+    let (status, error) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("bad-inline"),
+        body.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{error}");
+    assert_eq!(error["error"]["code"], "presentation_conflict");
+    while let Ok(e) = events.try_recv() {
+        assert_ne!(e["method"], "test/serverReply");
+    }
+    body["expected_presentation_fingerprint"] = v["presentation_fingerprint"].clone();
+    let (status, op) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("inline-ok"),
+        body.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while s.store.get("response", &rid).unwrap()["phase"] != "finished" {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (_, replay) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("inline-ok"),
+        body,
+    )
+    .await;
+    assert_eq!(op, replay);
+    let (_, by_key) = call(
+        &app,
+        &s,
+        "GET",
+        "operations/by-key/inline-ok",
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(op, by_key);
+    let mut count = 0;
+    while let Ok(e) = events.try_recv() {
+        if e["method"] == "test/serverReply" {
+            count += 1;
+        }
+    }
+    assert_eq!(count, 5);
+    let (_, list) = call(
+        &app,
+        &s,
+        "GET",
+        &format!("responses/{rid}/mcp-grants"),
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(list["data"][0]["application_count"], 5);
+    assert_eq!(list["data"][0]["state"], "expired");
+    let (_, expired) = call(
+        &app,
+        &s,
+        "GET",
+        &format!("interactions/{iid}/presentation"),
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(expired["state"], "unavailable");
+    assert_eq!(expired["actions"]["allow_once"], false);
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn inline_disabled_and_legacy_response_are_not_public() {
+    let (app, s, runtime) = app().await;
+    let (status, _) = call(
+        &app,
+        &s,
+        "GET",
+        "interactions/anything/presentation",
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    runtime.shutdown().await.unwrap();
+    let (app, s, runtime) = app_args(&["--native-mcp-five", "--inline-browser"]).await;
+    let (_, iid) = interactive_request(&app, &s, "mcp_form").await;
+    let (status, v) = call(
+        &app,
+        &s,
+        "GET",
+        &format!("interactions/{iid}/presentation"),
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{v}");
+    assert_eq!(v["error"]["code"], "presentation_context_mismatch");
+    runtime.shutdown().await.unwrap();
 }

@@ -156,3 +156,7 @@ Proxy側の試験は `tests/v2_http.rs`、`tests/v2_interactions.rs`、隔離し
 ## 文書先行の追加契約（未配備）
 
 [MCP操作詳細・単一Run限定許可0.3](mcp-turn-approval-api.ja.md)に、本人限定詳細、表示版の照合、明示的なRun限定許可を定義する。この追加契約はProxy提示版で、現行常駐の利用可能機能ではない。有効化後のinteraction一覧上限は履歴256件・未回答16件に分かれる。現在の16件制限を黙って変更せず、追加capabilityで判定する。
+
+## 公開カード承認の次期契約
+
+操作内容と承認を依頼元の会話にまとめる拡張は[0.4接続レビュー案](mcp-inline-approval-api.ja.md)で定義する。現行0.3のrequester_only引数を公開表示へ転用しない。新capability・presentation API・返信照合フィールドを実装した。常駐環境は未反映のため、稼働先のcapabilityを確認して接続する。[検証記録](mcp-inline-approval-validation.ja.md)を参照。

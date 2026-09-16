@@ -104,3 +104,5 @@ mcp_turn_grant_tools = {}
 隔離試験ではmcp_turn_approval_enabledをtrueにし、運用者が評価したサーバーとツールを `mcp_turn_grant_tools = { turn_test = ["read_test"] }` のように指定する。名前一致だけで安全と認定しない。browser_evaluate／unsafe等はallowlistに書いても対象外。設定はProxy起動時に読み込み、上流のネイティブ承認形式をプロセス全体で選ぶため、Runごとに切り替えない。設定世代や上流接続を跨いで許可を復活させない。
 
 Gatewayはcapabilitiesトップレベルのmcp_operation_detailsとmcp_turn_approvalをそれぞれ確認する。本人限定の操作詳細画面から返信する場合はrevisionとscope_fingerprintを付ける。取消と/stopを混同しない。試験結果と残項目は[実装・検証記録](mcp-turn-approval-validation.ja.md)を参照。
+
+公開カード承認の[0.4案](mcp-inline-approval-api.ja.md)は文書レビュー中。新たな設定操作を現行常駐へ加えるものではなく、0.3の設定・公開禁止条件を維持する。

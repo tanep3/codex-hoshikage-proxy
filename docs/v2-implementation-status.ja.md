@@ -85,3 +85,7 @@ Proxy単独の追加受入では、HTTP Steerの保存失敗時未送信、並�
 ### 2026-09-16 20:31 JST：接続試験用の常駐反映
 
 利用者の明示指示でProxyを常駐反映し、本機能をON、対象をplaywright.browser_findに設定した。上記の未反映・未有効化は配備前時点の記録。現在は結合試験可能で、実Discord受入は未完了。[配備記録](server-operations.md)を参照。
+
+## MCP公開カード承認0.4（2026-09-16）
+
+Gateway接続レビュー完了後、専用presentation API・表示拘束返信・公開renderer・秘密情報除外を実装した。[実装・検証記録](mcp-inline-approval-validation.ja.md)を参照。常駐未反映、実Discord受入は未完了。

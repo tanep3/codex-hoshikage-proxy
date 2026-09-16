@@ -76,7 +76,7 @@ pub fn validate_context(v: Option<&Value>) -> Result<()> {
     }
     Ok(())
 }
-fn generation(s: &Service) -> Result<String> {
+pub(crate) fn generation(s: &Service) -> Result<String> {
     let mut m = s.mcp.lock().unwrap();
     let mut parts = vec![];
     for p in &m.config_paths {
@@ -93,7 +93,7 @@ fn generation(s: &Service) -> Result<String> {
     }
     Ok(m.generation.clone())
 }
-fn lease_now(s: &Service) -> u64 {
+pub(crate) fn lease_now(s: &Service) -> u64 {
     s.mcp
         .lock()
         .unwrap()
@@ -104,6 +104,7 @@ fn call_key(thread: &Value, turn: &Value, item: &Value) -> String {
     crate::control::fingerprint(&json!([thread, turn, item]))
 }
 pub fn observe(s: &Service, e: &Value) -> Result<()> {
+    let _gate = s.approval_gate.lock().unwrap();
     if !s.limits.mcp_turn_approval_enabled {
         return Ok(());
     }
@@ -142,6 +143,7 @@ pub fn observe(s: &Service, e: &Value) -> Result<()> {
                 .unwrap_or(0)
         );
         item["binding_nonce"] = json!(uuid::Uuid::new_v4().to_string());
+        item["lease_expires_at_ms"] = json!(lease_now(s).saturating_add(TTL_MS));
         let mut m = s.mcp.lock().unwrap();
         m.calls
             .retain(|_, (t, _)| now().saturating_sub(*t) < TTL_MS);
@@ -350,6 +352,11 @@ pub fn operation(s: &Service, iid: &str) -> Result<Value> {
     super::interactions::refresh(s)?;
     let i = s.store.get("interaction", iid)?;
     s.workspace_path(string(&i, "conversation_id")?)?;
+    let r = s.store.get("response", string(&i, "response_id")?)?;
+    operation_snapshot(s, &i, &r)
+}
+pub(crate) fn operation_snapshot(s: &Service, i: &Value, r: &Value) -> Result<Value> {
+    let iid = string(i, "interaction_id")?;
     let mut out = json!({"interaction_id":iid,"response_id":i["response_id"],"turn_id":i["turn_id"],"revision":i["revision"],"call_id":null,"server":null,"tool":null,"binding_status":"unavailable","unavailable_reason":"stable_call_id_unavailable","config_generation":null,"input_generation":null,"scope":null,"scope_fingerprint":null,"turn_grant_eligible":false,"ineligible_reason":"binding_unavailable","arguments":null,"redacted_paths":[],"disclosure":"requester_only"});
     let Some(operation) = i["operation"].as_object() else {
         return Ok(out);
@@ -378,12 +385,21 @@ pub fn operation(s: &Service, iid: &str) -> Result<Value> {
         out["turn_grant_eligible"] = json!(false);
         out["ineligible_reason"] = json!("config_changed");
     }
-    let r = s.store.get("response", string(&i, "response_id")?)?;
-    if scope(s, &r, &i) != i["operation"]["scope"] {
+    if scope(s, r, i) != i["operation"]["scope"] {
         out["turn_grant_eligible"] = json!(false);
         out["ineligible_reason"] = json!("input_changed");
     }
     bounded_response(out, SINGLE_BYTES)
+}
+pub(crate) fn call_expiry(s: &Service, i: &Value) -> Option<u64> {
+    let key = call_key(&i["thread_id"], &i["turn_id"], &i["operation"]["call_id"]);
+    s.mcp
+        .lock()
+        .unwrap()
+        .calls
+        .get(&key)
+        .filter(|(_, v)| v["binding_nonce"] == i["operation"]["scope_fingerprint"])
+        .and_then(|(_, v)| v["lease_expires_at_ms"].as_u64())
 }
 fn valid(s: &Service, g: &Value, r: &Value, generation: &str) -> bool {
     g["expires_at_ms"].as_u64().unwrap_or(0) > lease_now(s)

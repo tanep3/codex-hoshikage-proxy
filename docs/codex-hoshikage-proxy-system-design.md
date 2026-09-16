@@ -2255,3 +2255,21 @@ Codex側featureはプロセス全体に作用するため、Runごとの切替�
 ### 期限境界の補完（0.3のTTL保証、2026-09-16）
 
 MCP許可の最大10分は、壁時計の後退で延長しない。プロセス内で壁時計とmonotonic経過時間のアンカーを持ち、期限用時刻は後退させない。壁時計前進は期限を早めてよい。再起動・正式復元では旧世代許可を失効する。外部APIは変更せず、期限判定の実装を既定契約へ適合させる。試験は制御した時計入力・仮想経過時間で行い、サーバーのシステム時刻は変更しない。
+
+## MCP公開カード承認の詳細設計（合意0.4）
+
+Wire・型・状態・上限・エラーの正本は[0.4接続レビュー案](mcp-inline-approval-api.ja.md)。既存operation APIへpublic引数を混在させず、presentation APIを追加する。標準OpenAI互換APIに表示フィールドを混入させない。
+
+1. Response受付：任意のapproval_presentationを検証し、contextとともに不変で永続化。新しい冪等fingerprintに含め、後続Responseへ暗黙継承しない。
+2. 表示生成：callキャッシュの信頼できる実引数を、型と作用を確認済みの専用rendererへ渡す。公開方針で許可された検索語・regex・アクセス先URLと固定説明を生成する。browser-find-v1／browser-navigate-v1／browser-tabs-list-v1の許容キーと型を厳密検証し、未知キー・認証候補・秘密形式・コード・上限超過は対象値全体を公開せず補足へ。除外規則は0.4第5.2節。任意自由文の秘密検出を保証する設計にしない。
+3. 表示台帳：interactionに従属する新しいpresentation種別の記録を作る。ID、opaque token、call/scope参照、revision、audience、renderer、公開方針世代、状態、期限、内容HMACを保存。生引数・表示本文は永続化しない。内容とtokenは上限付きメモリの不変snapshotへ対応付ける。
+4. GET：同内容の有効版は再利用。変更時は旧版失効と新版発行を同一DB transactionで行う。1 interaction最大4版、TTLは元callの残存期限以内。保存失敗は有効tokenを返さない。GETはこの表示台帳の発行を伴う例外であり、上流呼出し・承認・許可作成を起こさない。
+5. reply：新規要求は表示token／actions／call／scope／停止／世代を検証し、送信意思と許可を原子的に保存。同一キーの既登録結果は先に照会し、失効後も元operationを返す。private補足は既存0.3照合を維持する。
+6. 失効：公開方針変更はconfig_generationに反映。再起動・正式復元でHMAC鍵を再利用せず全旧表示を失効。snapshotなしの記録から承認可能状態へ復旧しない。期限は単調時計と既存期限を使う。
+7. Gateway：本文・ボタンの表示版を固定し、実message IDへの配信確定後だけ受理可能にする。送信結果不明の重複投稿、旧カードを新内容として許可する処理、DBへの生引数保存を禁止。
+
+presentationの監査レコードも正式backup／restoreに含めるが、復元後に旧tokenを有効化しない。旧版0.3は新しい記録種別を使用しない。新Responseフィールドを無視して公開対応したと偽らないよう、新旧capability組合せを受入で確認する。Gatewayのスキーマ移行・Discord配信実装はGatewayが所有する。
+
+今回のスイッチ整理は既存ON設定を継承する範囲のみで、新たな有効化操作を増やさない。検索語・アクセス先URL等の公開方針は利用者決定済み。R-01対応版にrenderer一覧・除外規則・actionsを反映した。Gatewayの接続再レビューを完了してから公開部分の実装に着手する。
+
+0.4の接続レビュー完了後に実装した。表示発行／返信意思保存と上流callキャッシュ変更を承認処理ロックで直列化し、ロック順序は承認処理→DB→メモリとする。上流通信を待つ間はこれらのロックを保持しない。[実装・検証記録](mcp-inline-approval-validation.ja.md)を参照。

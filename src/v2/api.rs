@@ -72,6 +72,7 @@ async fn checked(
             "features":{ "managed_conversations":true,"durable_execution":true,"stop_by_request":true,"stop_before_acceptance":true,"administrative_hold_release":"local_operator","workspace_selection":true,"artifact_capture":true,"artifact_listing":true,"artifact_range_download":true,"retention_leases":true,"artifact_registration_tool":true,"response_output_retrieval":true,"generated_image_artifacts":true,"response_generated_images":true,"interaction_relay":true},
             "limits":limits,
             "interaction_kinds":super::interactions::KINDS,
+            "mcp_inline_approval":super::presentations::capability(s.limits.mcp_turn_approval_enabled),
             "mcp_operation_details":{"enabled":s.limits.mcp_turn_approval_enabled,"profile":"native-item-id-v1","max_argument_bytes":65536,"disclosure":"requester_only"},
             "mcp_turn_approval":{"enabled":s.limits.mcp_turn_approval_enabled,"profile":"native-item-id-v1","max_grants":16,"ttl_seconds":600,"max_records":super::mcp_grants::MAX_RECORDS},
             "interaction_limits":{"max_count":super::interactions::MAX_COUNT,"max_bytes":super::interactions::MAX_BYTES,"timeout_seconds":super::interactions::TIMEOUT_MS/1000,"schema_profile":"flat-primitives-v1","permission_profile":"whole-category-v1"},
@@ -167,6 +168,7 @@ async fn checked(
                 "text",
                 "interaction_capabilities",
                 "approval_context",
+                "approval_presentation",
             ],
         )?;
         super::interactions::validate_capabilities(body.get("interaction_capabilities"))?;
@@ -312,6 +314,25 @@ async fn checked(
     if method == Method::GET && parts.len() == 3 && parts[0] == "responses" && parts[2] == "events"
     {
         return super::events::stream(state, s, parts[1].to_owned());
+    }
+    if method == Method::GET
+        && parts.len() == 3
+        && parts[0] == "interactions"
+        && parts[2] == "presentation"
+    {
+        if !s.limits.mcp_turn_approval_enabled {
+            return Err(Error::code(503, "inline_approval_disabled"));
+        }
+        let record = s.store.get("interaction", parts[1])?;
+        state
+            .cwd_policy
+            .validate(s.workspace_path(string(&record, "conversation_id")?)?)
+            .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
+        super::presentations::refresh_catalog(&s, &state.runtime).await;
+        let iid = parts[1].to_owned();
+        return blocking(move || super::presentations::get(&s, &iid))
+            .await
+            .map(|v| Json(v).into_response());
     }
     if method == Method::GET
         && parts.len() == 3

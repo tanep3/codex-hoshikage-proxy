@@ -10,6 +10,8 @@ use std::{
 };
 
 pub struct Service {
+    pub(crate) approval_gate: std::sync::Mutex<()>,
+    pub presentations: std::sync::Mutex<super::presentations::State>,
     pub mcp: Arc<std::sync::Mutex<super::mcp_grants::State>>,
     pub store: Store,
     pub limits: super::limits::Limits,
@@ -49,6 +51,8 @@ impl Service {
             copies: Arc::new(tokio::sync::Semaphore::new(limits.capture_concurrency)),
             downloads: Arc::new(tokio::sync::Semaphore::new(limits.download_concurrency)),
             mcp: Default::default(),
+            presentations: Default::default(),
+            approval_gate: Default::default(),
             limits,
             workers: Default::default(),
             image_workers: Default::default(),
@@ -251,11 +255,15 @@ impl Service {
     ) -> Result<(Value, Option<String>)> {
         super::interactions::validate_capabilities(body.get("interaction_capabilities"))?;
         super::mcp_grants::validate_context(body.get("approval_context"))?;
+        super::presentations::validate_request(body)?;
         self.store.transaction(|tx| {
             let (mut op, fresh) =
                 store::reserve(tx, key, "response.create", &json!({ "conversation_id":cid,"request":body}))?;
             if !fresh {
                 return Ok((store::public_operation(op), None));
+            }
+            if body.get("approval_presentation").is_some() && !self.limits.mcp_turn_approval_enabled {
+                return Err(Error::code(503,"inline_approval_disabled"));
             }
             ensure_ready(tx)?;
             let mut c = store::get(tx, "conversation", cid)?;
@@ -339,6 +347,7 @@ impl Service {
                 return Err(Error::code(409, "cross_provider_model_change_unsupported"));
             }
             let record = json!({
+                "approval_presentation":body.get("approval_presentation").cloned().unwrap_or(Value::Null),
                 "approval_context":body.get("approval_context").cloned().unwrap_or(Value::Null),
                 "input_generation":0,
                 "response_id":rid,

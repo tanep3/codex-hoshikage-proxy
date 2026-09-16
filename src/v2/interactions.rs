@@ -714,13 +714,18 @@ pub(crate) async fn reply_inner(
             "response",
             "grant_scope",
             "expected_scope_fingerprint",
+            "approval_view",
+            "expected_presentation_fingerprint",
         ],
     )?;
     if !bounded(body) {
         return Err(invalid());
     }
+    super::presentations::validate_reply(body)?;
     refresh(s)?;
-    let (op, fresh, rpc) = s.store.transaction(|tx| {
+    let (op, fresh, rpc) = {
+        let _gate = s.approval_gate.lock().unwrap();
+        s.store.transaction(|tx| {
         let i = store::get(tx, "interaction", iid)?;
         let (mut op, fresh) = store::reserve(
             tx,
@@ -754,6 +759,7 @@ pub(crate) async fn reply_inner(
         validate_reply(&i, &body["response"])?;
         super::mcp_grants::check_display(s,&i,body)?;
         super::mcp_grants::check_scope(s,&r,&i)?;
+        super::presentations::check_reply(s,tx,&i,&r,body)?;
         let mut wire = body["response"].clone();
         if let Some(question)=i["native_question_id"].as_str() {
             wire=json!({"answers":{question:{"answers":[if body["response"]["action"]=="accept" {"Allow"}else{"Cancel"}]}}});
@@ -767,7 +773,8 @@ pub(crate) async fn reply_inner(
         op["resource"] = json!({"type":"interaction","id":iid});
         store::save_operation(tx, &op)?;
         Ok((op, true, rpc))
-    })?;
+        })
+    }?;
     if !fresh {
         return Ok(store::public_operation(op));
     }

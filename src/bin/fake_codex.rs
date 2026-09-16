@@ -136,6 +136,9 @@ fn main() {
                 }
                 continue;
             }
+            "mcpServerStatus/list" => {
+                json!({"id":id,"result":{"data":[{"name":"playwright","tools":{"browser_find":{"name":"browser_find","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"regex":{"type":"string"}}}}}}],"nextCursor":null}})
+            }
             "config/mcpServer/reload" => {
                 mcp_reloads += 1;
                 if std::env::args().any(|a| a == "--fail-first-mcp-reload") && mcp_reloads == 1 {
@@ -360,8 +363,18 @@ fn write_json(value: &Value) {
 
 fn mcp_request(thread: &str, turn: &str, n: usize) {
     let item = format!("call_{n}");
+    let inline = std::env::args().any(|arg| arg == "--inline-browser");
+    let (server, tool, args) = if inline {
+        (
+            "playwright",
+            "browser_find",
+            json!({"text":format!("query {n}")}),
+        )
+    } else {
+        ("test", "read_test", json!({"query":n}))
+    };
     write_json(
-        &json!({"method":"item/started","params":{"threadId":thread,"turnId":turn,"item":{"id":item,"type":"mcpToolCall","server":"test","tool":"read_test","arguments":{"query":n}}}}),
+        &json!({"method":"item/started","params":{"threadId":thread,"turnId":turn,"item":{"id":item,"type":"mcpToolCall","server":server,"tool":tool,"arguments":args}}}),
     );
     write_json(
         &json!({"id":format!("mcp_fake_{n}"),"method":"item/tool/requestUserInput","params":{"threadId":thread,"turnId":turn,"itemId":item,"questions":[{"id":format!("mcp_tool_call_approval_{item}"),"header":"Tool","question":"Allow?","isOther":false,"isSecret":false,"options":[{"label":"Allow"},{"label":"Cancel"}]}]}}),
