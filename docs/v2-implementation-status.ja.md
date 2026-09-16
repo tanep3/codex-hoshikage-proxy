@@ -88,4 +88,4 @@ Proxy単独の追加受入では、HTTP Steerの保存失敗時未送信、並�
 
 ## MCP公開カード承認0.4（2026-09-16）
 
-Gateway接続レビュー完了後、専用presentation API・表示拘束返信・公開renderer・秘密情報除外を実装した。[実装・検証記録](mcp-inline-approval-validation.ja.md)を参照。常駐未反映、実Discord受入は未完了。
+Gateway接続レビュー完了後、専用presentation API・表示拘束返信・公開renderer・秘密情報除外を実装した。[実装・検証記録](mcp-inline-approval-validation.ja.md)を参照。2026-09-17 04:42 JSTにbc28861を常駐反映済み。実Discord受入は未完了。

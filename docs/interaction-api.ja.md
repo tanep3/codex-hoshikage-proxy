@@ -159,4 +159,4 @@ Proxy側の試験は `tests/v2_http.rs`、`tests/v2_interactions.rs`、隔離し
 
 ## 公開カード承認の次期契約
 
-操作内容と承認を依頼元の会話にまとめる拡張は[0.4接続レビュー案](mcp-inline-approval-api.ja.md)で定義する。現行0.3のrequester_only引数を公開表示へ転用しない。新capability・presentation API・返信照合フィールドを実装した。常駐環境は未反映のため、稼働先のcapabilityを確認して接続する。[検証記録](mcp-inline-approval-validation.ja.md)を参照。
+操作内容と承認を依頼元の会話にまとめる拡張は[0.4接続レビュー案](mcp-inline-approval-api.ja.md)で定義する。現行0.3のrequester_only引数を公開表示へ転用しない。新capability・presentation API・返信照合フィールドを実装した。このサーバーは2026-09-17に常駐反映済み。稼働先のcapabilityを確認して接続する。[検証記録](mcp-inline-approval-validation.ja.md)を参照。

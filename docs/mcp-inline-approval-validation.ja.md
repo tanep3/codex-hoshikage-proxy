@@ -1,6 +1,6 @@
 # MCPインライン承認 0.4：実装・検証記録
 
-2026-09-16。[合意契約0.4](mcp-inline-approval-api.ja.md)とGatewayのR-01解消・接続レビュー完了を確認し、利用者の実装開始指示を受けて着手。文書完成・接続合意後にコードを変更した。**常駐環境は未反映。実Discord結合受入は未完了。**
+2026-09-16。[合意契約0.4](mcp-inline-approval-api.ja.md)とGatewayのR-01解消・接続レビュー完了を確認し、利用者の実装開始指示を受けて着手。文書完成・接続合意後にコードを変更した。**2026-09-17 04:42 JSTに常駐反映済み。実Discord結合受入は未完了。**
 
 ## 実装
 
@@ -47,3 +47,7 @@ cargo test --test v2_presentations live_catalog_matches_evaluated_browser_render
 - 任意の自由文中の未識別・独自形式の秘密まで完全検出できるとは保証しない。公開を許可した操作対象は元会話の閲覧者にも見える。
 
 常駐反映・新機能の接続受入完了・コミット／pushはこの実装記録だけでは宣言しない。
+
+## 常駐反映
+
+利用者指示でbc28861を配備し、新capability有効・新Response宣言受付・既存API互換を確認。[配備記録](server-operations.md)参照。Gateway完成の連絡を受領し、実Discord結合試験へ進める状態。試験投稿やAI実行は今回行っていない。

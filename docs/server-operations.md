@@ -166,3 +166,19 @@ MCP追加・呼出し・削除の無再起動試験は[隔離環境の実モデ�
 - 配備情報：`~/.config/codex-hoshikage-proxy/last-update.json`。状態退避：`~/.config/codex-hoshikage-proxy.before-mcp-turn-approval-20260916T113154Z`。稼働後の状態を安易に巻き戻さない。
 
 次はGateway／実Discordで操作詳細・単発／ターン許可・取消・次発言での失効を結合確認する。
+
+## 2026-09-17 04:42 JST：MCP公開カード承認0.4の常駐反映
+
+利用者の指示でコミット`bc28861e7bacd51399895c095d6f75aa45119e2b`をreleaseビルドして常駐反映した。Gateway完成の連絡を受領しており、実Discordの結合試験はGateway側で実施予定。
+
+- 活動実行・結果不明・hold・成果物作成がないことを確認後、04:42:29に停止、状態・設定・旧バイナリを退避し、04:42:31に起動。
+- 設定変更なし。既存の機能ON、ターン許可対象playwright.browser_findを維持。認証情報・環境ファイル・configのハッシュ一致を確認。
+- `mcp_inline_approval.enabled=true`、profile=source-conversation-v1、サイズ／版数上限を確認。既存details/turn機能も有効。
+- LAN経由readiness、認証なし401、v1モデル一覧、保存済み回答のバイト列一致、instance／復元世代維持を確認。
+- 停止予約済みの試験Responseでapproval_presentationとcontextの受付・同一キーの冪等照会を確認。not_started/cancelled、空のinteraction／生成画像一覧を確認し、AI実行やDiscord投稿は行っていない。
+- active/running、NRestarts=0、待受0.0.0.0:4040。新起動のエラーなし（既存private extension優先の警告あり）。実行中バイナリと配置物のSHA-256一致を確認。
+- バイナリSHA-256：`90d4a9ac4a317eda955f8adeb0dd82a32bab010cecea3c57bd441f1a178ea818`。
+- 状態退避：`~/.config/codex-hoshikage-proxy.before-mcp-inline-04-20260916T194229Z`。旧バイナリ：`~/.cargo/bin/codex-hoshikage-proxy.before-mcp-inline-04-20260916T194229Z`。
+- 配備情報：`~/.config/codex-hoshikage-proxy/last-update.json`。試験Response：`resp_19b6446a-01be-4ce7-b106-0836858ebe5c`。
+
+Proxyの接続準備は完了。実Discordの新UI・ボタン操作の受入成功は別途記録する。新たな要求受理後に状態を安易に巻き戻さない。
