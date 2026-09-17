@@ -32,3 +32,7 @@ Discordでの画面操作を含む統合試験は、利用者指定どおりGate
 - 全target回帰試験、修正後のv06 HTTP試験、Clippy `-D warnings`、fmt、releaseビルドに成功。試験fixtureの停止時JSON-RPC errorも正しく扱うよう修正。
 
 [非ready応答の実測例](mcp-approval/review-delay-examples.json)。テスト用の識別子を含み、実利用者の秘密入力は含まない。実Discordの再接続受入はGateway側で実施する。
+
+## 常駐反映
+
+2026-09-17 20:52 JST、修正コミット `5b17f9c` を反映済み。停止前後に活動依頼がないことを確認し、バックアップを取得した。認証・設定・保存回答・API互換性、実Codex回答保存と重複抑止を確認。詳細は[運用記録](server-operations.md)。

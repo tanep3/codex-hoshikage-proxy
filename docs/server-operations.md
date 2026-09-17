@@ -199,3 +199,14 @@ Proxyの接続準備は完了。実Discordの新UI・ボタン操作の受入成
 - systemdはactive/running、NRestarts=0、待受 `0.0.0.0:4040`。既存のターン許可機能ONを維持。0.6では各実行がポリシーを明示選択し、表示だけではポリシーを有効にしない。
 
 利用者の指定に従い、Discordを含む統合試験はGateway側で実施する。Gatewayのコード・サービス・設定は変更していない。Proxy側の実装・単独受入・常駐反映は完了。新規要求を受理済みなので、旧バイナリだけへ戻したり退避DBを安易に上書きしたりしない。
+
+## 2026-09-17 20:52 JST：MCP確認待ち時間の不具合修正
+
+`5b17f9c1cdace5de00cf93a7c5248df1bd24f476` の修正版を常駐反映した。カタログ更新待ちで承認表示が変わる不具合、private_required／unavailableの型不整合を修正。[修正報告・受入結果](mcp-approval-review-delay-fix.ja.md)を参照。
+
+- 実行中・結果不明・占有・成果物作成がないことを更新前と停止後に確認。停止中の状態を `~/.config/codex-hoshikage-proxy.before-mcp-review-delay-20260917T115203Z`、旧バイナリを `~/.cargo/bin/codex-hoshikage-proxy.before-mcp-review-delay-20260917T115203Z` へ退避した。
+- 新バイナリSHA-256：`be471a349e119fb5854f93cb9c647b0e90bf801d70fb383122dcc7cd8722841b`。実行中バイナリとも一致。
+- APIキー・設定・環境ファイルのハッシュ一致、instance／復元世代・schema 3・既存保存回答の維持、LAN readiness、認証なし401、v1モデル一覧、0.6 capabilityを確認。
+- 停止先着の試験Response `resp_1753757e-9e48-426c-a36f-50395749f76d` で0.6受付・重複防止・空の対話／画像一覧を確認。
+- 常駐実CodexのResponse `resp_808de775-c013-40bd-82bb-19a4bd375999` は `PROXY_V06_DEPLOY_OK` を返してcompleted／回答ready。同一要求キーの再送は同じResponseとなった。
+- systemd active/running、NRestarts=0。Gatewayのコード・サービスには変更なし。Discord再接続受入はGateway側の担当。
