@@ -2824,14 +2824,37 @@ async fn control_steer(
             )
         })?;
     }
-    let result = state
-        .runtime
-        .request(
-            "turn/steer",
-            json!({"threadId":record.thread_id,"expectedTurnId":id,"input":input}),
-        )
-        .await
-        .map_err(control_runtime_error)?;
+    let binding = if let Some(service) = &state.v2 {
+        service
+            .store
+            .list("response")
+            .map_err(|e| {
+                ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    e.code,
+                    "managed state unavailable",
+                )
+            })?
+            .into_iter()
+            .find(|r| r["turn_id"] == id && crate::v2::approval_v06::selected(r))
+            .and_then(|r| {
+                r["approval_policy"]["binding_id"]
+                    .as_str()
+                    .map(str::to_owned)
+            })
+    } else {
+        None
+    };
+    let params = json!({"threadId":record.thread_id,"expectedTurnId":id,"input":input});
+    let result = if let Some(binding) = binding {
+        state
+            .runtime
+            .request_scoped(&binding, "turn/steer", params)
+            .await
+    } else {
+        state.runtime.request("turn/steer", params).await
+    }
+    .map_err(control_runtime_error)?;
     if result["turnId"].as_str() != Some(&id) {
         return Err(ApiError::new(
             StatusCode::BAD_GATEWAY,

@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "status": "design_expectations_not_test_results",
+  "cases": [
+    {
+      "id": "PV01",
+      "rule": "PR01",
+      "context": "gmail.search",
+      "input": "最新の請求書",
+      "expected": "requester",
+      "purpose": "メールの検索語も公開しない"
+    },
+    {
+      "id": "PV02",
+      "rule": "PR01",
+      "context": "family.setting",
+      "input": "false",
+      "expected": "requester",
+      "purpose": "値がbooleanでも個人向け設定"
+    },
+    {
+      "id": "PV03",
+      "rule": "PR02",
+      "context": "evaluated_contact",
+      "input": "person@example.test",
+      "expected": "requester",
+      "purpose": "連絡先フィールド"
+    },
+    {
+      "id": "PV04",
+      "rule": "PR03",
+      "context": "ordinary_text",
+      "input": "連絡は person@example.test へ",
+      "expected": "requester",
+      "purpose": "本文のメールアドレス"
+    },
+    {
+      "id": "PV05",
+      "rule": "PR03",
+      "context": "ordinary_text",
+      "input": "@all の通知設定を調べる",
+      "expected": "public",
+      "purpose": "メール形式ではない"
+    },
+    {
+      "id": "PV06",
+      "rule": "PR04",
+      "context": "ordinary_text",
+      "input": "連絡先 +1 (202) 555-0147",
+      "expected": "requester",
+      "purpose": "国番号付きの架空電話"
+    },
+    {
+      "id": "PV07",
+      "rule": "PR04",
+      "context": "ordinary_text",
+      "input": "03-0000-0000",
+      "expected": "requester",
+      "purpose": "国内電話形式の試験値"
+    },
+    {
+      "id": "PV08",
+      "rule": "PR04",
+      "context": "ordinary_text",
+      "input": "2026-09-17 の更新、版 1.2.3",
+      "expected": "public",
+      "purpose": "日付と版番号を連結しない"
+    },
+    {
+      "id": "PV09",
+      "rule": "PR05",
+      "context": "ordinary_text",
+      "input": "phone: 0300000000",
+      "expected": "requester",
+      "purpose": "ラベル付き区切りなし番号"
+    },
+    {
+      "id": "PV10",
+      "rule": "PR06",
+      "context": "ordinary_text",
+      "input": "氏名: 試験用の名前",
+      "expected": "requester",
+      "purpose": "氏名ラベル"
+    },
+    {
+      "id": "PV11",
+      "rule": "PR06",
+      "context": "ordinary_text",
+      "input": "住所の入力方法を説明します",
+      "expected": "public",
+      "purpose": "代入値のない一般説明"
+    },
+    {
+      "id": "PV12",
+      "rule": "PR07",
+      "context": "ordinary_text",
+      "input": "〒000-0000 東京都架空市試験町1-2-3",
+      "expected": "requester",
+      "purpose": "架空住所と郵便番号"
+    },
+    {
+      "id": "PV13",
+      "rule": "PR07",
+      "context": "ordinary_text",
+      "input": "東京都の天気",
+      "expected": "public",
+      "purpose": "地域名だけの検索"
+    },
+    {
+      "id": "PV14",
+      "rule": "PR08",
+      "context": "ordinary_text",
+      "input": "Authorization: Bearer test-only-not-a-real-token",
+      "expected": "requester",
+      "purpose": "架空認証値"
+    },
+    {
+      "id": "PV15",
+      "rule": "PR08",
+      "context": "ordinary_text",
+      "input": "api_key = TEST_ONLY_NOT_A_REAL_KEY",
+      "expected": "requester",
+      "purpose": "秘密値の代入"
+    },
+    {
+      "id": "PV16",
+      "rule": "PR08",
+      "context": "ordinary_text",
+      "input": "APIキーの設定方法を説明する",
+      "expected": "public",
+      "purpose": "設定方法という一般説明"
+    },
+    {
+      "id": "PV17",
+      "rule": "PR09",
+      "context": "ordinary_url",
+      "input": "https://example.test/search?q=Rust",
+      "expected": "public",
+      "purpose": "通常検索URL"
+    },
+    {
+      "id": "PV18",
+      "rule": "PR09",
+      "context": "ordinary_url",
+      "input": "https://example.test/?access_token=TEST_ONLY",
+      "expected": "requester",
+      "purpose": "URL内の架空秘密"
+    },
+    {
+      "id": "PV19",
+      "rule": "PR09",
+      "context": "ordinary_url",
+      "input": "https://user:TEST_ONLY@example.test/",
+      "expected": "requester",
+      "purpose": "URL userinfo"
+    },
+    {
+      "id": "PV20",
+      "rule": "PR10",
+      "context": "ordinary_text",
+      "input": "-----BEGIN PRIVATE KEY-----\nTEST_ONLY\n-----END PRIVATE KEY-----",
+      "expected": "requester",
+      "purpose": "無効なテストPEMでも秘密用形式"
+    },
+    {
+      "id": "PV21",
+      "rule": "PR11",
+      "context": "evaluated_executable_code",
+      "input": "document.title",
+      "expected": "requester",
+      "purpose": "実行コードは短くても本人向け"
+    },
+    {
+      "id": "PV22",
+      "rule": "NORMALIZE",
+      "context": "ordinary_text",
+      "input": "ｐｅｒｓｏｎ＠ｅｘａｍｐｌｅ．ｔｅｓｔ",
+      "expected": "requester",
+      "purpose": "全角のメール形式"
+    },
+    {
+      "id": "PV23",
+      "rule": "NORMALIZE",
+      "context": "ordinary_url",
+      "input": "https://example.test/?q=person%2540example.test",
+      "expected": "requester",
+      "purpose": "二重percent encoding"
+    },
+    {
+      "id": "PV24",
+      "rule": "NORMALIZE",
+      "context": "ordinary_text",
+      "input": "進捗は100%です",
+      "expected": "public",
+      "purpose": "単独percentは異常ではない"
+    },
+    {
+      "id": "PV25",
+      "rule": "NORMALIZE",
+      "context": "ordinary_url",
+      "input": "https://example.test/?q=%FF",
+      "expected": "unclassified",
+      "purpose": "不正UTF-8の符号化値"
+    },
+    {
+      "id": "PV26",
+      "rule": "NORMALIZE",
+      "context": "ordinary_url",
+      "input": "https://example.test/?q=person%2525252540example.test",
+      "expected": "unclassified",
+      "purpose": "4回を超える復号が必要"
+    },
+    {
+      "id": "PV27",
+      "rule": "PUBLIC",
+      "context": "ordinary_text",
+      "input": "見出しを「導入手順」に変更します。\n手順を二つ追加します。",
+      "expected": "public",
+      "purpose": "非機密の編集本文と改行"
+    },
+    {
+      "id": "PV28",
+      "rule": "PUBLIC",
+      "context": "ordinary_text",
+      "input": "Rustの非同期処理、製品ABC、価格1200円",
+      "expected": "public",
+      "purpose": "普通の検索語と数値"
+    },
+    {
+      "id": "PV29",
+      "rule": "CONTEXT",
+      "context": "evaluated_person_id",
+      "input": "user-123",
+      "expected": "requester",
+      "purpose": "値の形式だけで個人IDを公開しない"
+    },
+    {
+      "id": "PV30",
+      "rule": "CONTEXT",
+      "context": "evaluated_document_id",
+      "input": "doc-123",
+      "expected": "public",
+      "purpose": "文書IDを個人IDと混同しない"
+    }
+  ]
+}

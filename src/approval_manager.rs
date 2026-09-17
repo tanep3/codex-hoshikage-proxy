@@ -191,8 +191,10 @@ impl ApprovalManager {
                                     let runtime = manager.runtime.clone();
                                     tokio::spawn(async move {
                                         if let Ok(Some(grant)) =
-                                            crate::v2::mcp_grants::await_auto_grant(&service, &iid)
-                                                .await
+                                            crate::v2::mcp_grants::await_auto_grant_with_runtime(
+                                                &service, &runtime, &iid,
+                                            )
+                                            .await
                                         {
                                             let body = json!({"expected_revision":i["revision"],"response":{"action":"accept","content":{}}});
                                             if let Err(e) = crate::v2::interactions::reply_inner(

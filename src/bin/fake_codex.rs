@@ -34,6 +34,7 @@ fn main() {
     let mut turn_status = "inProgress";
     let mut thread_id = "thread_fake_1".to_string();
     let mut turn_id = "turn_fake_1".to_string();
+    let mut setup_trace: Vec<Value> = Vec::new();
     let mut next_thread = 0;
     let mut mcp_reloads = 0;
     let mut next_turn = 0;
@@ -124,6 +125,12 @@ fn main() {
             .get("method")
             .and_then(Value::as_str)
             .unwrap_or_default();
+        if matches!(
+            method,
+            "thread/start" | "thread/resume" | "thread/unsubscribe" | "turn/start"
+        ) {
+            setup_trace.push(json!({"method":method,"params":request["params"]}));
+        }
         let response = match method {
             "initialize" => {
                 let response = json!({"jsonrpc":"2.0","id":id,"result":{}});
@@ -137,6 +144,27 @@ fn main() {
                 continue;
             }
             "mcpServerStatus/list" => {
+                if std::env::args().any(|a| a == "--v06-notion-catalog") {
+                    let result: Value = serde_json::from_str(include_str!(
+                        "../../tests/fixtures/mcp-v06-notion-catalog.json"
+                    ))
+                    .unwrap();
+                    write_json(&json!({"id":id,"result":result}));
+                    continue;
+                }
+                if std::env::args().any(|a| a == "--v06-evaluated-catalog") {
+                    let result: Value = serde_json::from_str(include_str!(
+                        "../../tests/fixtures/mcp-v06-catalog.json"
+                    ))
+                    .unwrap();
+                    write_json(&json!({"id":id,"result":result}));
+                    continue;
+                }
+                if let Some(size) = request.pointer("/params/testBytes").and_then(Value::as_u64) {
+                    // Result first deliberately exercises envelope field-order independence.
+                    write_json(&json!({"result": "x".repeat(size as usize), "id": id}));
+                    continue;
+                }
                 json!({"id":id,"result":{"data":[{"name":"playwright","tools":{"browser_find":{"name":"browser_find","inputSchema":{"type":"object","properties":{"text":{"type":"string"},"regex":{"type":"string"}}}}}}],"nextCursor":null}})
             }
             "config/mcpServer/reload" => {
@@ -149,6 +177,11 @@ fn main() {
             }
             "test/reload-status" => {
                 json!({"id":id,"result":{"reloads":mcp_reloads,"threads":next_thread,"turns":next_turn}})
+            }
+            "test/large" => json!({"id":id,"result":"x".repeat(8 * 1024 * 1024 + 1)}),
+            "test/late" => {
+                std::thread::sleep(Duration::from_millis(100));
+                json!({"id":id,"result":"late"})
             }
             "test/null" => json!({"id": id, "result": null}),
             "test/server-request" => {
@@ -181,6 +214,20 @@ fn main() {
                 json!({"id":id, "result":{"data":[{"id":model, "model":model, "modelProvider":"openai",
                     "supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"high"}]}], "nextCursor":next}})
             }
+            "test/setup-trace" => json!({"id":id,"result":setup_trace}),
+            "config/read" if std::env::args().any(|a| a == "--v06-slow-config") => {
+                std::thread::sleep(Duration::from_millis(400));
+                json!({"id":id,"result":{"config":{}}})
+            }
+            "thread/start" if std::env::args().any(|a| a == "--v06-setup-error") => {
+                json!({"id":id,"error":{"code":-32000,"message":"configuration outcome unavailable"}})
+            }
+            "thread/start" if std::env::args().any(|a| a == "--v06-setup-unknown") => {
+                continue;
+            }
+            "config/read" => json!({"id":id,"result":{"config":{}}}),
+            "configRequirements/read" => json!({"id":id,"result":{"requirements":null}}),
+            "thread/unsubscribe" => json!({"id":id,"result":{"status":"unsubscribed"}}),
             "thread/resume" if std::env::args().any(|arg| arg == "--missing-resume-thread") => {
                 json!({"id":id, "error":{"code":-32602,"message":"thread not found"}})
             }
@@ -191,7 +238,7 @@ fn main() {
                 } else {
                     thread_id = request["params"]["threadId"].as_str().unwrap().into();
                 }
-                json!({"jsonrpc":"2.0","id":id,"result":{"thread":{"id":thread_id}}})
+                json!({"jsonrpc":"2.0","id":id,"result":{"thread":{"id":thread_id},"approvalPolicy":"on-request","approvalsReviewer":"user"}})
             }
             "thread/read" => {
                 if std::env::args().any(|arg| arg == "--read-unavailable") {

@@ -64,10 +64,16 @@ async fn app_args(args: &[&str]) -> (Router, Arc<Service>, Arc<CodexRuntime>) {
             .mcp_turn_grant_tools
             .insert("test".into(), vec!["read_test".into()]);
     }
+    if args.contains(&"--v06-policy") {
+        limits.mcp_turn_approval_enabled = true;
+    }
     if args.contains(&"--inline-browser") {
         limits
             .mcp_turn_grant_tools
             .insert("playwright".into(), vec!["browser_find".into()]);
+    }
+    if args.contains(&"--v06-display-only") {
+        limits.mcp_turn_approval_enabled = false;
     }
     let service =
         Arc::new(Service::open_with_limits(&root.join("v2"), &root.join("work"), limits).unwrap());
@@ -1317,5 +1323,486 @@ async fn inline_disabled_and_legacy_response_are_not_public() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{v}");
     assert_eq!(v["error"]["code"], "presentation_context_mismatch");
+    runtime.shutdown().await.unwrap();
+}
+
+fn v06_request(policy: Value) -> Value {
+    json!({"input":"hello","interaction_capabilities":["mcp_form"],
+        "approval_presentation":{"profile":"source-conversation-v3","mode":"source_conversation"},
+        "approval_context":{"principal_id":"user","channel_id":"channel","run_id":"run"},"approval_policy":policy})
+}
+async fn v06_conversation(app: &Router, s: &Service) -> String {
+    let (status, c) = call(
+        app,
+        s,
+        "POST",
+        "conversations",
+        Some("v06-c"),
+        json!({"workspace":{"mode":"automatic"},"model":"hoshikage/test"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{c}");
+    c["resource"]["id"].as_str().unwrap().into()
+}
+async fn v06_terminal(app: &Router, s: &Service, rid: &str) -> Value {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let (status, r) =
+                call(app, s, "GET", &format!("responses/{rid}"), None, json!({})).await;
+            assert_eq!(status, StatusCode::OK, "{r}");
+            if matches!(
+                r["phase"].as_str(),
+                Some("finished" | "rejected" | "cancelled" | "unknown")
+            ) {
+                return r;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+#[tokio::test]
+async fn v06_http_admission_continuation_and_legacy_restore() {
+    let (app, s, runtime) = app_args(&["--v06-policy"]).await;
+    let cid = v06_conversation(&app, &s).await;
+    let path = format!("conversations/{cid}/responses");
+    let mut previous_thread = None;
+    for (index, body) in [
+        v06_request(json!({"id":"evaluated-turn","version":1})),
+        v06_request(Value::Null),
+        json!({"input":"legacy"}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let key = format!("v06-r{index}");
+        let (status, op) = call(&app, &s, "POST", &path, Some(&key), body.clone()).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+        let rid = op["resource"]["id"].as_str().unwrap();
+        let r = v06_terminal(&app, &s, rid).await;
+        assert_eq!(r["execution_status"], "completed", "{r}");
+        assert!(r.get("_approval_prepare").is_none());
+        if index < 2 {
+            assert_eq!(r["approval_policy"]["state"], "closed");
+            assert_eq!(
+                r["approval_policy"]["preparation"]["turn_start_status"],
+                "confirmed"
+            );
+        }
+        if let Some(thread) = previous_thread {
+            assert_eq!(r["thread_id"], thread);
+        }
+        previous_thread = Some(r["thread_id"].clone());
+        if index == 1 {
+            let mut omitted = body;
+            omitted.as_object_mut().unwrap().remove("approval_policy");
+            let (status, replay) = call(&app, &s, "POST", &path, Some(&key), omitted).await;
+            assert_eq!(status, StatusCode::ACCEPTED, "{replay}");
+            assert_eq!(replay["resource"], op["resource"]);
+            assert!(r["approval_policy"]["generation"].is_null());
+        }
+    }
+    let trace = runtime
+        .request("test/setup-trace", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(
+        trace
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v["method"] == "turn/start")
+            .count(),
+        3,
+        "{trace}"
+    );
+    assert_eq!(
+        trace
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v["method"] == "thread/resume" && v["params"]["config"] == json!({}))
+            .count(),
+        2,
+        "{trace}"
+    );
+    runtime.shutdown().await.unwrap();
+}
+#[tokio::test]
+async fn v06_display_without_policy_flag_and_preparation_stop() {
+    let (app, s, runtime) = app_args(&["--v06-slow-config"]).await;
+    let cid = v06_conversation(&app, &s).await;
+    let path = format!("conversations/{cid}/responses");
+    let (status, error) = call(
+        &app,
+        &s,
+        "POST",
+        &path,
+        Some("disabled-policy"),
+        v06_request(json!({"id":"evaluated-turn","version":1})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{error}");
+    let (status, op) = call(
+        &app,
+        &s,
+        "POST",
+        &path,
+        Some("stop-preparation"),
+        v06_request(Value::Null),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+    let rid = op["resource"]["id"].as_str().unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let (status, stop) = call(
+        &app,
+        &s,
+        "POST",
+        "stops",
+        Some("stop"),
+        json!({"target":{"response_id":rid}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{stop}");
+    let r = v06_terminal(&app, &s, rid).await;
+    assert_eq!(r["execution_status"], "not_started", "{r}");
+    assert_eq!(r["phase"], "cancelled", "{r}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let trace = runtime
+        .request("test/setup-trace", json!({}))
+        .await
+        .unwrap();
+    assert!(
+        !trace
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["method"] == "turn/start"),
+        "{trace}"
+    );
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn v06_http_complete_display_and_explicit_five_call_grant() {
+    let (app, s, runtime) = app_args(&[
+        "--native-mcp-five",
+        "--inline-browser",
+        "--v06-evaluated-catalog",
+    ])
+    .await;
+    let cid = v06_conversation(&app, &s).await;
+    let (status, op) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("conversations/{cid}/responses"),
+        Some("v06-grant-run"),
+        v06_request(json!({"id":"evaluated-turn","version":1})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+    let rid = op["resource"]["id"].as_str().unwrap();
+    let iid = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(i) = s
+                .store
+                .list("interaction")
+                .unwrap()
+                .iter()
+                .find(|i| i["response_id"] == rid)
+            {
+                break i["interaction_id"].as_str().unwrap().to_owned();
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let view = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let (status, v) = call(
+                &app,
+                &s,
+                "GET",
+                &format!("interactions/{iid}/presentation"),
+                None,
+                json!({}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{v}");
+            if v["actions"]["allow_turn_tool"] == true {
+                break v;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(view["state"], "ready", "{view}");
+    assert!(view.to_string().contains("query 1"), "{view}");
+    let mut body = json!({"expected_revision":view["revision"],"expected_scope_fingerprint":view["scope_fingerprint"],
+        "approval_view":"source_conversation","expected_presentation_fingerprint":view["presentation_fingerprint"],
+        "expected_policy_binding_id":view["execution_policy"]["binding_id"],"expected_page_tokens":[view["page"]["token"]],
+        "grant_scope":"turn_tool","response":{"action":"accept","content":{}}});
+    body["expected_policy_binding_id"] = json!("different-run");
+    let (status, _) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("v06-bad-binding"),
+        body.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    body["expected_policy_binding_id"] = view["execution_policy"]["binding_id"].clone();
+    let (status, reply) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("v06-good-binding"),
+        body.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{reply}");
+    let terminal = v06_terminal(&app, &s, rid).await;
+    assert_eq!(terminal["execution_status"], "completed", "{terminal}");
+    let interactions = s.store.list("interaction").unwrap();
+    assert_eq!(interactions.len(), 5);
+    assert!(
+        interactions.iter().all(|i| i["reply_status"] == "written"),
+        "{interactions:?}"
+    );
+    let (_, grants) = call(
+        &app,
+        &s,
+        "GET",
+        &format!("responses/{rid}/mcp-grants"),
+        None,
+        json!({}),
+    )
+    .await;
+    assert_eq!(grants["data"].as_array().unwrap().len(), 1, "{grants}");
+    assert_eq!(grants["data"][0]["application_count"], 5, "{grants}");
+    assert_eq!(grants["data"][0]["availability"]["state"], "inactive");
+    let (status, replayed) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("interactions/{iid}/reply"),
+        Some("v06-good-binding"),
+        body,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{replayed}");
+    assert_eq!(reply["resource"], replayed["resource"]);
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn v06_notion_guard_is_scoped_and_missing_definition_prevents_turn() {
+    for available in [false, true] {
+        let args = if available {
+            vec!["--v06-policy", "--v06-notion-catalog"]
+        } else {
+            vec!["--v06-policy"]
+        };
+        let (app, s, runtime) = app_args(&args).await;
+        let cid = v06_conversation(&app, &s).await;
+        let (status, op) = call(
+            &app,
+            &s,
+            "POST",
+            &format!("conversations/{cid}/responses"),
+            Some("guard"),
+            v06_request(json!({"id":"evaluated-turn-notion-guard","version":1})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+        let r = v06_terminal(&app, &s, op["resource"]["id"].as_str().unwrap()).await;
+        assert_eq!(
+            r["execution_status"],
+            if available {
+                "completed"
+            } else {
+                "not_started"
+            },
+            "{r}"
+        );
+        let trace = runtime
+            .request("test/setup-trace", json!({}))
+            .await
+            .unwrap();
+        if available {
+            let setup = trace
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["method"] == "thread/start")
+                .unwrap();
+            assert_eq!(
+                setup["params"]["config"]["apps"]["test_notion"]["tools"]["notion.notion-update-page"]
+                    ["approval_mode"],
+                "prompt",
+                "{setup}"
+            );
+        } else {
+            assert!(
+                !trace
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v["method"] == "turn/start"),
+                "{trace}"
+            );
+        }
+        runtime.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn v06_unknown_configuration_is_held_until_old_process_is_gone() {
+    let (app, s, runtime) = app_args(&["--v06-setup-error"]).await;
+    let cid = v06_conversation(&app, &s).await;
+    let path = format!("conversations/{cid}/responses");
+    let (status, op) = call(
+        &app,
+        &s,
+        "POST",
+        &path,
+        Some("unknown-setup"),
+        v06_request(Value::Null),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let rid = op["resource"]["id"].as_str().unwrap();
+    let r = v06_terminal(&app, &s, rid).await;
+    assert_eq!(r["phase"], "unknown", "{r}");
+    assert_eq!(r["execution_status"], "not_started");
+    assert_eq!(r["hold_state"], "held");
+    let (status, stop) = call(
+        &app,
+        &s,
+        "POST",
+        "stops",
+        Some("stop-unknown"),
+        json!({"target":{"response_id":rid}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{stop}");
+    assert_eq!(stop["stop_status"], "waiting_for_start");
+    assert!(
+        codex_hoshikage_proxy::v2::approval_prepare::reconcile(
+            &s,
+            &s.store.get("response", rid).unwrap()
+        )
+        .unwrap()
+    );
+    assert_eq!(s.store.get("response", rid).unwrap()["hold_state"], "held");
+    let (status, replayed) = call(
+        &app,
+        &s,
+        "POST",
+        &path,
+        Some("unknown-setup"),
+        v06_request(Value::Null),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(replayed["resource"], op["resource"]);
+    let (status, _) = call(
+        &app,
+        &s,
+        "POST",
+        &path,
+        Some("must-not-start"),
+        v06_request(Value::Null),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let trace = runtime
+        .request("test/setup-trace", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(
+        trace
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v["method"] == "thread/start")
+            .count(),
+        1
+    );
+    assert!(
+        !trace
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["method"] == "turn/start")
+    );
+    runtime.shutdown().await.unwrap();
+    codex_hoshikage_proxy::v2::approval_prepare::reconcile(
+        &s,
+        &s.store.get("response", rid).unwrap(),
+    )
+    .unwrap();
+    let r = s.store.get("response", rid).unwrap();
+    assert_eq!(r["hold_state"], "released");
+    assert_eq!(r["phase"], "rejected");
+    assert_eq!(r["approval_policy"]["reason"], "policy_setup_unknown");
+    assert_eq!(
+        r["approval_policy"]["preparation"]["recovery_state"],
+        "fenced"
+    );
+    assert_eq!(
+        r["approval_policy"]["preparation"]["turn_start_status"],
+        "not_sent"
+    );
+}
+
+#[tokio::test]
+async fn v06_native_approval_remains_available_with_policy_switch_off() {
+    let (app, s, runtime) = app_args(&[
+        "--native-mcp-five",
+        "--inline-browser",
+        "--v06-evaluated-catalog",
+        "--v06-display-only",
+    ])
+    .await;
+    let cid = v06_conversation(&app, &s).await;
+    let (status, op) = call(
+        &app,
+        &s,
+        "POST",
+        &format!("conversations/{cid}/responses"),
+        Some("plain"),
+        v06_request(Value::Null),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+    let rid = op["resource"]["id"].as_str().unwrap();
+    let mut answered = std::collections::HashSet::new();
+    tokio::time::timeout(Duration::from_secs(10),async {
+        loop {
+            let (_,list)=call(&app,&s,"GET",&format!("responses/{rid}/interactions"),None,json!({})).await;
+            for i in list["data"].as_array().unwrap() {
+                let iid=i["interaction_id"].as_str().unwrap();if i["state"]!="pending" || answered.contains(iid){continue;}
+                let (status,v)=call(&app,&s,"GET",&format!("interactions/{iid}/presentation"),None,json!({})).await;
+                assert_eq!(status,StatusCode::OK,"{v}");assert_eq!(v["actions"]["allow_once"],true,"{v}");
+                assert_eq!(v["actions"]["allow_turn_tool"],false);assert!(v["tool_policy"].is_null());
+                let body=json!({"expected_revision":v["revision"],"expected_scope_fingerprint":v["scope_fingerprint"],"approval_view":"source_conversation","expected_presentation_fingerprint":v["presentation_fingerprint"],"expected_policy_binding_id":v["execution_policy"]["binding_id"],"expected_page_tokens":[v["page"]["token"]],"response":{"action":"accept","content":{}}});
+                let (status,reply)=call(&app,&s,"POST",&format!("interactions/{iid}/reply"),Some(&format!("answer-{}",answered.len())),body).await;
+                assert_eq!(status,StatusCode::ACCEPTED,"{reply}");answered.insert(iid.to_owned());
+            }
+            if s.store.get("response",rid).unwrap()["phase"]=="finished" {break;}
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert_eq!(answered.len(), 5);
+    assert!(s.store.list("mcp_grant").unwrap().is_empty());
     runtime.shutdown().await.unwrap();
 }

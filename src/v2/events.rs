@@ -27,8 +27,10 @@ pub fn stream(state: AppState, s: Arc<Service>, rid: String) -> Result<Response>
             return;
             }
             ;
-                          r.as_object_mut().unwrap().remove("input");
-            r.as_object_mut().unwrap().remove("request_key");
+                          r=super::approval_admission::public_response(r);
+            if super::approval_admission::bounded(super::retention::wire(r.clone()),262144).is_err(){
+                let _=tx.try_send(Ok(event("gap",json!({"response_id":rid,"reason":"approval_response_too_large"}))));return;
+            }
                           if r!=last {
             if !send(&tx,"snapshot",&r){
             return;

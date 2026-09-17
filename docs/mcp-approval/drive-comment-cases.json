@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "status": "design_expectations_not_test_results",
+  "tool": "google_drive.bulk_update_file_comments",
+  "rule": "drive_comment_creates",
+  "cases": [
+    {
+      "id": "DC01",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "write",
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "DC02",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          }
+        ],
+        "replies": [
+          {
+            "comment_id": "c1",
+            "content": "確認しました"
+          }
+        ],
+        "resolutions": [
+          {
+            "comment_id": "c2"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "write",
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false,
+        "operation_count": 3
+      }
+    },
+    {
+      "id": "DC03",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加",
+            "slide_number": 2
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "write",
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "DC04",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加",
+            "sheet_cell_range": "'売上'!B12:D15"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "write",
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "DC05",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加",
+            "anchor": "{\"revision\":\"head\",\"line\":10}"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "write",
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false,
+        "anchor_resolved_to_editor_position": false
+      }
+    },
+    {
+      "id": "DC06",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加",
+            "anchor": "{broken"
+          }
+        ]
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "DC07",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "連絡先 person@example.test",
+            "quoted_text": "前年から10%増加"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "requester",
+        "effects": [
+          "write",
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "DC08",
+      "arguments": {
+        "id": "file-test",
+        "comments": []
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "DC09",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          },
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          }
+        ]
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "DC10",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加",
+            "slide_number": 0
+          }
+        ]
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "DC11",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "数値の根拠を追記してください",
+            "quoted_text": "前年から10%増加"
+          }
+        ],
+        "url": "https://docs.google.com/document/d/another-file/edit"
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "DC12",
+      "arguments": {
+        "id": "file-test",
+        "comments": [
+          {
+            "content": "確認してください",
+            "anchor": "{\"line\":10}"
+          }
+        ]
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    }
+  ]
+}

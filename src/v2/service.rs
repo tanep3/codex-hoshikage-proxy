@@ -11,6 +11,7 @@ use std::{
 
 pub struct Service {
     pub(crate) approval_gate: std::sync::Mutex<()>,
+    pub catalog: super::catalog::Manager,
     pub presentations: std::sync::Mutex<super::presentations::State>,
     pub mcp: Arc<std::sync::Mutex<super::mcp_grants::State>>,
     pub store: Store,
@@ -52,6 +53,7 @@ impl Service {
             downloads: Arc::new(tokio::sync::Semaphore::new(limits.download_concurrency)),
             mcp: Default::default(),
             presentations: Default::default(),
+            catalog: Default::default(),
             approval_gate: Default::default(),
             limits,
             workers: Default::default(),
@@ -146,6 +148,7 @@ impl Service {
                 "model":body.get("model").unwrap_or(&body["_resolved_model"]),
                 "created_at_ms":now(),
                 "thread_id":null,
+                "_turn_ever_sent":false,
                 "active_response_id":null,
                 "last_response_id":null,
                 "artifact_registration":if registration_supported(body.get("model").unwrap_or(&body["_resolved_model"]).as_str().unwrap_or("")){ "available"} else{ "unavailable"}
@@ -255,14 +258,19 @@ impl Service {
     ) -> Result<(Value, Option<String>)> {
         super::interactions::validate_capabilities(body.get("interaction_capabilities"))?;
         super::mcp_grants::validate_context(body.get("approval_context"))?;
-        super::presentations::validate_request(body)?;
+        let canonical = super::approval_admission::canonical(body);
+        let body = &canonical;
+        let selection = super::approval_admission::validate(body, true)?;
         self.store.transaction(|tx| {
             let (mut op, fresh) =
                 store::reserve(tx, key, "response.create", &json!({ "conversation_id":cid,"request":body}))?;
             if !fresh {
                 return Ok((store::public_operation(op), None));
             }
-            if body.get("approval_presentation").is_some() && !self.limits.mcp_turn_approval_enabled {
+            if selection.is_some() && !self.limits.mcp_turn_approval_enabled {
+                return Err(Error::code(503,"approval_policy_unavailable"));
+            }
+            if !super::approval_v06::selected(body) && body.get("approval_presentation").is_some() && !self.limits.mcp_turn_approval_enabled {
                 return Err(Error::code(503,"inline_approval_disabled"));
             }
             ensure_ready(tx)?;
@@ -346,7 +354,7 @@ impl Service {
             {
                 return Err(Error::code(409, "cross_provider_model_change_unsupported"));
             }
-            let record = json!({
+            let mut record = json!({
                 "approval_presentation":body.get("approval_presentation").cloned().unwrap_or(Value::Null),
                 "approval_context":body.get("approval_context").cloned().unwrap_or(Value::Null),
                 "input_generation":0,
@@ -375,6 +383,12 @@ impl Service {
                 "dispatch_eligible":!cancelled,
                 "output":{ "state":if cancelled{ "unavailable"} else{ "pending"} }
             });
+            if super::approval_v06::selected(body) {
+                let (mut public,private) = super::approval_policy::initial(selection.clone(), &super::approval_policy::Clock::read()?)?;
+                if cancelled { super::approval_policy::stop(&mut public,&private); }
+                record["approval_policy"]=public; record["_approval_prepare"]=private;
+                super::approval_admission::reserve_response(&record)?;
+            }
             store::put(tx, "response", &rid, &record)?;
             if !cancelled {
                 c["active_response_id"] = json!(rid);
@@ -425,7 +439,19 @@ impl Service {
             };
             if let Some(r) = record.as_mut() {
                 r["stop_requested"] = json!(true);
-                if r["phase"] == "accepted" {
+                let preparation_stop=super::approval_policy::stop_response(r)?;
+
+                if preparation_stop {
+                    if let Some(mut runop)=store::operation(tx,string(r,"request_key")?)? {
+                        if r["phase"]=="unknown" {
+                            runop["state"]=json!("unknown");
+                        } else {
+                            runop["state"]=json!("failed");
+                            runop["error"]=json!({"code":if r["phase"]=="cancelled" {json!("execution_cancelled")}else{r["approval_policy"]["reason"].clone()}});
+                        }
+                        store::save_operation(tx,&runop)?;
+                    }
+                } else if r["phase"] == "accepted" {
                     r["phase"] = json!("cancelled");
                     r["hold_state"] = json!("released");
                     r["dispatch_eligible"] = json!(false);
@@ -656,6 +682,13 @@ pub fn string<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
         .ok_or_else(|| Error::code(400, "invalid_argument"))
 }
 pub fn stop_status(r: &Value) -> &'static str {
+    if r["phase"] == "unknown"
+        && r["execution_status"] == "not_started"
+        && r["approval_presentation"]["profile"] == super::approval_policy::PROFILE
+        && r["approval_policy"]["preparation"]["turn_start_status"] == "not_sent"
+    {
+        return "waiting_for_start";
+    }
     match r["phase"].as_str() {
         Some("cancelled") => "cancelled_before_start",
         Some("finished" | "rejected") => {

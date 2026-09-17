@@ -89,20 +89,12 @@ capabilitiesの `response_generated_images` を確認し、`GET /v2/codex/respon
 
 本体・manifestが不完全な場合は取得不可のまま維持する。実行状態のUNKNOWNと成果物保存のunknownは別の状態であり、この保存復旧は実行占有の管理解除や実行の再送を意味しない。[障害試験記録](proxy-hardening-2026-09-13.ja.md)を参照。
 
-## MCP操作詳細・Run限定許可（総合受入前）
+## MCP操作詳細・依頼中の許可
 
-利用者の選択肢と管理者の導入手順・設定例・トラブル対処は[利用者・管理者ガイド](mcp-turn-approval-guide.ja.md)を参照。Gatewayマニュアルへの反映事項も同文書に記載する。
+新規クライアントは[API 0.6](mcp-approval-api-v06.ja.md)と[利用者・管理者ガイド](mcp-approval-v06-guide.ja.md)に従います。表示・単発承認と、明示選択する承認ポリシーを分離しました。`mcp_approval_v06`を照会し、既定のポリシー無効でも汎用表示を利用できます。
 
-[合意契約0.3](mcp-turn-approval-api.ja.md)に対応する設定。既定では無効。受入前の常駐環境で有効にしない。v2全体の有効／無効とは別で、OpenAI互換APIを置き換えない。
+`[v2] mcp_turn_approval_enabled = true`は、運用者が依頼中許可のポリシーを提供する場合に使用します。クライアントのポリシー指定と利用者の明示許可なしに自動承認しません。従来の`mcp_turn_grant_tools`は旧profileの互換用です。0.6の適格性は評価済みの定義・実引数・選択ポリシーで判断します。
 
-```toml
-[v2]
-mcp_turn_approval_enabled = false
-mcp_turn_grant_tools = {}
-```
+既存の0.3/0.4 Responseは元の形式のまま扱います。旧クライアントの説明は[旧ガイド](mcp-turn-approval-guide.ja.md)、実施済みの試験と配備状態は[0.6実装記録](mcp-approval-v06-implementation.ja.md)を参照してください。
 
-隔離試験ではmcp_turn_approval_enabledをtrueにし、運用者が評価したサーバーとツールを `mcp_turn_grant_tools = { turn_test = ["read_test"] }` のように指定する。名前一致だけで安全と認定しない。browser_evaluate／unsafe等はallowlistに書いても対象外。設定はProxy起動時に読み込み、上流のネイティブ承認形式をプロセス全体で選ぶため、Runごとに切り替えない。設定世代や上流接続を跨いで許可を復活させない。
-
-Gatewayはcapabilitiesトップレベルのmcp_operation_detailsとmcp_turn_approvalをそれぞれ確認する。本人限定の操作詳細画面から返信する場合はrevisionとscope_fingerprintを付ける。取消と/stopを混同しない。試験結果と残項目は[実装・検証記録](mcp-turn-approval-validation.ja.md)を参照。
-
-公開カード承認の[0.4案](mcp-inline-approval-api.ja.md)は文書レビュー中。新たな設定操作を現行常駐へ加えるものではなく、0.3の設定・公開禁止条件を維持する。
+DB schema 3への更新前に、稼働中の実行がないことを確認してサービスを停止し、設定・状態・実行ファイルを保存してください。更新後に新しい要求を受理したDBを、旧schema対応バイナリへ戻さないでください。

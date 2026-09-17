@@ -89,3 +89,5 @@ See [coverage](docs/app-server-coverage.md), [live validation](docs/live-codex-v
 ## License
 
 Copyright (c) 2026 Tane Channel Technology. Licensed under the [MIT License](LICENSE).
+
+MCP approval API 0.6 separates complete operation display and one-shot approval from explicitly selected execution policies. See the [API contract](docs/mcp-approval-api-v06.ja.md), [user/operator guide](docs/mcp-approval-v06-guide.ja.md), and [implementation and acceptance record](docs/mcp-approval-v06-implementation.ja.md) (Japanese). The OpenAI-compatible `/v1` endpoints remain available.

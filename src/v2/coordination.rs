@@ -116,6 +116,11 @@ pub async fn reconcile(state: &crate::http::AppState, s: &Service) -> Result<()>
             && let Some(rid) = r["response_id"].as_str()
             && !s.workers.lock().unwrap().contains(rid)
         {
+            if super::approval_prepare::failure(s, rid, "policy_setup_unknown")? {
+                r = s.store.get("response", rid)?;
+                super::approval_prepare::reconcile(s, &r)?;
+                continue;
+            }
             r = s.store.update("response", rid, |r| {
                 if !matches!(r["phase"].as_str(), Some("dispatching" | "started")) {
                     return Ok(());
@@ -126,6 +131,9 @@ pub async fn reconcile(state: &crate::http::AppState, s: &Service) -> Result<()>
                 r["hold_revision"] = json!(r["hold_revision"].as_u64().unwrap_or(0) + 1);
                 Ok(())
             })?;
+        }
+        if super::approval_prepare::reconcile(s, &r)? {
+            continue;
         }
         if r["phase"] != "unknown" && r["hold_state"] != "administratively_released" {
             continue;
@@ -168,6 +176,10 @@ pub async fn reconcile(state: &crate::http::AppState, s: &Service) -> Result<()>
             current["hold_revision"] = json!(current["hold_revision"].as_u64().unwrap_or(0) + 1);
             if matches!(status, "completed" | "failed" | "interrupted") {
                 current["execution_status"] = json!(status);
+                super::approval_prepare::close(current);
+                if let Some(binding) = current["approval_policy"]["binding_id"].as_str() {
+                    state.runtime.finish_policy_binding(binding);
+                }
                 current["phase"] = json!("finished");
                 current["hold_state"] = json!("released");
                 if current["output"]["state"] == "pending" {

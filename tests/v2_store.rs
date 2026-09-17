@@ -30,6 +30,100 @@ fn single_owner_and_stable_identity() {
     assert_eq!(s.generation, g);
 }
 #[test]
+fn schema_two_migrates_without_rewriting_legacy_records_and_future_versions_fail() {
+    let r = root();
+    let s = Store::open(&r).unwrap();
+    s.transaction(|tx| {
+        tx.execute("UPDATE metadata SET value='2' WHERE key='schema'", [])?;
+        store::put(
+            tx,
+            "response",
+            "legacy",
+            &json!({"response_id":"legacy","phase":"accepted","input":"kept"}),
+        )
+    })
+    .unwrap();
+    let instance = s.instance.clone();
+    drop(s);
+    let s = Store::open(&r).unwrap();
+    assert_eq!(s.instance, instance);
+    assert_eq!(
+        s.get("response", "legacy").unwrap(),
+        json!({"response_id":"legacy","phase":"accepted","input":"kept"})
+    );
+    s.transaction(|tx| {
+        let version: String =
+            tx.query_row("SELECT value FROM metadata WHERE key='schema'", [], |r| {
+                r.get(0)
+            })?;
+        assert_eq!(version, "3");
+        tx.execute("UPDATE metadata SET value='4' WHERE key='schema'", [])?;
+        Ok(())
+    })
+    .unwrap();
+    drop(s);
+    assert!(matches!(Store::open(&r),Err(e) if e.code=="schema_mismatch"));
+}
+#[test]
+fn preparation_recovery_never_replays_an_unacknowledged_mutation() {
+    use codex_hoshikage_proxy::v2::approval_policy as policy;
+    let r = root();
+    let s = Store::open(&r).unwrap();
+    let clock = policy::Clock::read().unwrap();
+    for stage in [
+        "unsent",
+        "config_unknown",
+        "ready",
+        "turn_unknown",
+        "stopped",
+    ] {
+        let (mut public, mut private) = policy::initial(None, &clock).unwrap();
+        if stage != "unsent" {
+            policy::configuration_intent(&mut public, &mut private, "runtime", &clock).unwrap();
+        }
+        if matches!(stage, "ready" | "turn_unknown") {
+            policy::ready(&mut public, &mut private, "proof", &clock).unwrap();
+        }
+        if stage == "turn_unknown" {
+            policy::turn_intent(&mut public, &private, false, &clock).unwrap();
+        }
+        s.transaction(|tx|store::put(tx,"response",stage,&json!({"response_id":stage,
+            "phase":"dispatching","execution_status":"not_started","hold_state":"held","hold_revision":1,
+            "approval_presentation":{"profile":policy::PROFILE},"approval_policy":public,
+            "_approval_prepare":private,"stop_requested":stage=="stopped","input":"original","output":{"state":"pending"}}))).unwrap();
+    }
+    let deadline =
+        s.get("response", "ready").unwrap()["approval_policy"]["preparation"]["deadline_at"]
+            .clone();
+    drop(s);
+    let s = Store::open(&r).unwrap();
+    for stage in ["unsent", "ready"] {
+        let record = s.get("response", stage).unwrap();
+        assert_eq!(record["phase"], "accepted");
+        assert_eq!(record["execution_status"], "not_started");
+    }
+    assert_eq!(
+        s.get("response", "ready").unwrap()["approval_policy"]["preparation"]["deadline_at"],
+        deadline
+    );
+    for stage in ["config_unknown", "stopped"] {
+        let record = s.get("response", stage).unwrap();
+        assert_eq!(record["phase"], "unknown");
+        assert_eq!(record["execution_status"], "not_started");
+        assert_eq!(record["hold_state"], "held");
+        assert_eq!(record["dispatch_eligible"], false);
+    }
+    let record = s.get("response", "turn_unknown").unwrap();
+    assert_eq!(record["phase"], "unknown");
+    assert_eq!(record["execution_status"], "unknown");
+    drop(s);
+    let s = Store::open(&r).unwrap();
+    assert_eq!(
+        s.get("response", "config_unknown").unwrap()["dispatch_eligible"],
+        false
+    );
+}
+#[test]
 fn operation_transaction_rolls_back() {
     let r = root();
     let s = Store::open(&r).unwrap();

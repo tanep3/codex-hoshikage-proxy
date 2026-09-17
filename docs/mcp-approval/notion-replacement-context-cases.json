@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "status": "design_expectations_not_test_results",
+  "note": "evaluation_basisは試験で与える条件。上流の順次適用・版固定・再解釈範囲を実証したものではない。candidate_afterは文字列上の候補でありNotion実行結果ではない。",
+  "cases": [
+    {
+      "id": "NC01",
+      "before": "<page url=\"https://example.test/old\">子ページ</page>",
+      "content_updates": [
+        {
+          "old_str": "/old",
+          "new_str": "/new",
+          "replace_all_matches": false
+        }
+      ],
+      "evaluation_basis": "hypothetical_verified_sequential_semantics_and_atomic_target_version",
+      "expected": {
+        "turn_eligible": false,
+        "required_analysis": "resource_move_target_change"
+      },
+      "purpose": "タグ全体をnew_strが含まなくても移動先変更を検出",
+      "candidate_after": "<page url=\"https://example.test/new\">子ページ</page>"
+    },
+    {
+      "id": "NC02",
+      "before": "[open]page url=\"https://example.test/p\"[close]子ページ</page>",
+      "content_updates": [
+        {
+          "old_str": "[open]",
+          "new_str": "<",
+          "replace_all_matches": false
+        },
+        {
+          "old_str": "[close]",
+          "new_str": ">",
+          "replace_all_matches": false
+        }
+      ],
+      "evaluation_basis": "hypothetical_verified_sequential_semantics_and_atomic_target_version",
+      "expected": {
+        "turn_eligible": false,
+        "required_analysis": "combined_resource_move_markup"
+      },
+      "purpose": "二つの単独置換には完全タグがなくても合成後には成立",
+      "candidate_after": "<page url=\"https://example.test/p\">子ページ</page>"
+    },
+    {
+      "id": "NC03",
+      "before": "```text\n<page url=\"https://example.test/p\">子ページ</page>\n```",
+      "content_updates": [
+        {
+          "old_str": "```text\n",
+          "new_str": "",
+          "replace_all_matches": false
+        },
+        {
+          "old_str": "\n```",
+          "new_str": "",
+          "replace_all_matches": false
+        }
+      ],
+      "evaluation_basis": "hypothetical_verified_sequential_semantics_and_atomic_target_version",
+      "expected": {
+        "turn_eligible": false,
+        "required_analysis": "code_fence_removal_exposes_resource_markup"
+      },
+      "purpose": "コード例から実構文になる変更",
+      "candidate_after": "<page url=\"https://example.test/p\">子ページ</page>"
+    },
+    {
+      "id": "NC04",
+      "before": "<synced_block_reference url=\"https://example.test/source\">\n\t旧本文\n</synced_block_reference>",
+      "content_updates": [
+        {
+          "old_str": "旧本文",
+          "new_str": "新本文",
+          "replace_all_matches": false
+        }
+      ],
+      "evaluation_basis": "hypothetical_verified_sequential_semantics_and_atomic_target_version",
+      "expected": {
+        "turn_eligible": false,
+        "required_analysis": "synced_source_and_references"
+      },
+      "purpose": "編集位置が同期ブロック内であることを認識する"
+    },
+    {
+      "id": "NC05",
+      "before": "前半\n旧本文\n後半",
+      "content_updates": [
+        {
+          "old_str": "旧本文",
+          "new_str": "新本文",
+          "replace_all_matches": false
+        }
+      ],
+      "evaluation_basis": "hypothetical_verified_sequential_semantics_and_atomic_target_version",
+      "expected": {
+        "turn_eligible": true,
+        "required_analysis": "ordinary_edit_with_verified_basis"
+      },
+      "purpose": "同じ置換文字列でも通常本文なら通常編集",
+      "candidate_after": "前半\n新本文\n後半"
+    },
+    {
+      "id": "NC06",
+      "before": null,
+      "content_updates": [
+        {
+          "old_str": "旧本文",
+          "new_str": "新本文",
+          "replace_all_matches": false
+        }
+      ],
+      "evaluation_basis": "missing_or_truncated_target",
+      "expected": {
+        "turn_eligible": false,
+        "allow_once": false,
+        "reason": "information_incomplete"
+      },
+      "purpose": "通常の文字列でも対象本文不明で安全と断定しない"
+    },
+    {
+      "id": "NC07",
+      "before": "旧本文",
+      "content_updates": [
+        {
+          "old_str": "旧本文",
+          "new_str": "新本文",
+          "replace_all_matches": false
+        }
+      ],
+      "evaluation_basis": "target_changed_after_read_without_atomic_guard",
+      "expected": {
+        "turn_eligible": false,
+        "allow_once": false,
+        "reason": "operation_semantics_unverified"
+      },
+      "purpose": "再読取と実行の間の競合を取りこぼさない"
+    },
+    {
+      "id": "NC08",
+      "before": "旧本文\n<synced_block_reference url=\"https://example.test/source\">\n\t旧本文\n</synced_block_reference>",
+      "content_updates": [
+        {
+          "old_str": "旧本文",
+          "new_str": "新本文",
+          "replace_all_matches": true
+        }
+      ],
+      "evaluation_basis": "hypothetical_verified_sequential_semantics_and_atomic_target_version",
+      "expected": {
+        "turn_eligible": false,
+        "required_analysis": "all_matches_include_synced_target"
+      },
+      "purpose": "先頭一致だけを評価しない"
+    },
+    {
+      "id": "NC09",
+      "before": "旧本文",
+      "content_updates": [
+        {
+          "old_str": "旧本文",
+          "new_str": "中間本文",
+          "replace_all_matches": false
+        },
+        {
+          "old_str": "中間本文",
+          "new_str": "最終本文",
+          "replace_all_matches": false
+        }
+      ],
+      "evaluation_basis": "provider_order_or_partial_application_unknown",
+      "expected": {
+        "turn_eligible": false,
+        "allow_once": false,
+        "reason": "operation_semantics_unverified"
+      },
+      "purpose": "配列表示順を逐次適用の証明にしない"
+    },
+    {
+      "id": "NC10",
+      "before": "[open]page url=\"https://example.test/p\">子ページ</page>",
+      "content_updates": [
+        {
+          "old_str": "[open]",
+          "new_str": "<",
+          "replace_all_matches": false
+        },
+        {
+          "old_str": "<page url=\"https://example.test/p\">子ページ</page>",
+          "new_str": "普通の本文",
+          "replace_all_matches": false
+        }
+      ],
+      "evaluation_basis": "hypothetical_provider_applies_and_interprets_each_step",
+      "expected": {
+        "turn_eligible": false,
+        "required_analysis": "intermediate_resource_move"
+      },
+      "purpose": "最終本文だけが普通でも中間作用を捨てない",
+      "candidate_after": "普通の本文"
+    }
+  ],
+  "release_expected": {
+    "state": "unavailable",
+    "reason": "operation_semantics_unverified",
+    "allow_once": false,
+    "allow_turn_tool": false
+  },
+  "release_basis": "Current connector has no verified execution-version guard. Hypothetical semantic fixtures do not enable this operation.",
+  "release_policy_scope": "Only executions explicitly selecting the policy that forbids unguaranteed Notion partial replacements. These release expectations do not apply to unselected executions."
+}

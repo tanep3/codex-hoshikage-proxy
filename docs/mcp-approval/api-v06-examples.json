@@ -1,0 +1,1343 @@
+{
+  "status": "connection_review_examples_not_runtime_test_results",
+  "capability": {
+    "mcp_approval_v06": {
+      "enabled": true,
+      "profile": "source-conversation-v3",
+      "renderers": [
+        "raw-arguments-v1",
+        "evaluated-operation-v1"
+      ],
+      "max_response_bytes": 65536,
+      "max_argument_bytes": 262144,
+      "max_display_text_utf16_units": 4800,
+      "max_display_fields": 24,
+      "max_presentations_per_interaction_per_audience": 4,
+      "max_get_wait_ms": 250,
+      "retry_after_ms": 2000,
+      "private_details": true,
+      "max_private_pages": 64,
+      "max_private_display_bytes": 262144,
+      "policies": [
+        {
+          "id": "evaluated-turn",
+          "version": 1,
+          "enabled": true,
+          "label": "評価済み通常操作の依頼中許可",
+          "restrictions": [],
+          "upstream_overrides": []
+        },
+        {
+          "id": "evaluated-turn-notion-guard",
+          "version": 1,
+          "enabled": true,
+          "label": "評価済み通常操作の依頼中許可とNotion部分置換制限",
+          "restrictions": [
+            "deny-unbound-notion-partial-replacement"
+          ],
+          "upstream_overrides": [
+            "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+          ]
+        }
+      ],
+      "policy_preparation_timeout_ms": 60000,
+      "response_limits": {
+        "capabilities": 1048576,
+        "capability_extension": 65536,
+        "response": 262144,
+        "presentation": 65536,
+        "operation_details": 65536,
+        "interaction": 262144,
+        "interaction_list": 67108864,
+        "grant_list": 1048576,
+        "control": 65536,
+        "max_interactions": 256,
+        "max_pending_interactions": 16,
+        "max_grants": 16
+      }
+    }
+  },
+  "request_no_policy": {
+    "input": "依頼本文",
+    "interaction_capabilities": [
+      "mcp_form"
+    ],
+    "approval_context": {
+      "principal_id": "opaque-user",
+      "channel_id": "opaque-conversation",
+      "run_id": "run-123"
+    },
+    "approval_presentation": {
+      "mode": "source_conversation",
+      "profile": "source-conversation-v3"
+    },
+    "approval_policy": null
+  },
+  "request_guard": {
+    "input": "依頼本文",
+    "interaction_capabilities": [
+      "mcp_form"
+    ],
+    "approval_context": {
+      "principal_id": "opaque-user",
+      "channel_id": "opaque-conversation",
+      "run_id": "run-123"
+    },
+    "approval_presentation": {
+      "mode": "source_conversation",
+      "profile": "source-conversation-v3"
+    },
+    "approval_policy": {
+      "id": "evaluated-turn-notion-guard",
+      "version": 1
+    }
+  },
+  "response_policy_pending": {
+    "approval_policy": {
+      "selection": {
+        "id": "evaluated-turn-notion-guard",
+        "version": 1
+      },
+      "binding_id": "binding_guard_123",
+      "generation": null,
+      "state": "preparing",
+      "reason": null,
+      "restrictions": [
+        "deny-unbound-notion-partial-replacement"
+      ],
+      "upstream_overrides": [
+        "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+      ],
+      "preparation": {
+        "started_at": "2026-09-17T12:00:00Z",
+        "deadline_at": "2026-09-17T12:01:00Z",
+        "recovery_state": "none",
+        "turn_start_status": "not_sent",
+        "configuration_isolation": "not_required"
+      }
+    }
+  },
+  "response_policy_ready": {
+    "approval_policy": {
+      "selection": {
+        "id": "evaluated-turn-notion-guard",
+        "version": 1
+      },
+      "binding_id": "binding_guard_123",
+      "generation": "policy-gen-123",
+      "state": "ready",
+      "reason": null,
+      "restrictions": [
+        "deny-unbound-notion-partial-replacement"
+      ],
+      "upstream_overrides": [
+        "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+      ],
+      "preparation": {
+        "started_at": "2026-09-17T12:00:00Z",
+        "deadline_at": "2026-09-17T12:01:00Z",
+        "recovery_state": "none",
+        "turn_start_status": "confirmed",
+        "configuration_isolation": "not_required"
+      }
+    }
+  },
+  "response_policy_none": {
+    "approval_policy": {
+      "selection": null,
+      "binding_id": "binding_none_123",
+      "generation": null,
+      "state": "ready",
+      "reason": null,
+      "restrictions": [],
+      "upstream_overrides": [],
+      "preparation": {
+        "started_at": "2026-09-17T12:00:00Z",
+        "deadline_at": "2026-09-17T12:01:00Z",
+        "recovery_state": "none",
+        "turn_start_status": "confirmed",
+        "configuration_isolation": "not_required"
+      }
+    }
+  },
+  "presentation_private_entry": {
+    "interaction_id": "int_123",
+    "response_id": "resp_123",
+    "turn_id": "turn_123",
+    "revision": 1,
+    "scope_fingerprint": "opaque-scope-none",
+    "scope": {
+      "instance_id": "pxy_example",
+      "recovery_generation": "recovery_example",
+      "context": {
+        "principal_id": "opaque-user",
+        "channel_id": "opaque-conversation",
+        "run_id": "run-123"
+      },
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "turn_id": "turn_123",
+      "input_generation": 0,
+      "config_generation": "config-123",
+      "server": "example_mcp",
+      "tool": "unreviewed_tool",
+      "execution_policy_binding_id": "binding_none_123",
+      "policy_generation": null,
+      "definition_generation": null
+    },
+    "presentation_id": "present_public_123",
+    "presentation_fingerprint": "opaque-private-entry",
+    "profile": "source-conversation-v3",
+    "renderer": null,
+    "audience": {
+      "kind": "source_conversation",
+      "channel_id": "opaque-conversation",
+      "principal_id": null
+    },
+    "state": "private_required",
+    "reason": "privacy_unclassified",
+    "expires_at": "2026-09-17T12:10:00Z",
+    "diagnostic": {
+      "code": "privacy_unclassified",
+      "retryable": false,
+      "retry_after_ms": null
+    },
+    "page": {
+      "index": 0,
+      "count": 1,
+      "token": "opaque-entry-page",
+      "content_fingerprint": "opaque-entry-display"
+    },
+    "execution_policy": {
+      "selection": null,
+      "binding_id": "binding_none_123",
+      "generation": null,
+      "state": "ready",
+      "reason": null,
+      "restrictions": [],
+      "upstream_overrides": [],
+      "preparation": {
+        "started_at": "2026-09-17T12:00:00Z",
+        "deadline_at": "2026-09-17T12:01:00Z",
+        "recovery_state": "none",
+        "turn_start_status": "confirmed",
+        "configuration_isolation": "not_required"
+      }
+    },
+    "argument_integrity": {
+      "status": "complete",
+      "source": "codex_call_event",
+      "reason": null
+    },
+    "semantic_assessment": {
+      "status": "unreviewed",
+      "reason": "policy_not_selected",
+      "effects": null
+    },
+    "tool_policy": null,
+    "display": {
+      "disclosure": "source_conversation",
+      "provenance": "proxy_verified_call",
+      "title": "MCP操作の確認",
+      "fields": [],
+      "limitations": [
+        "公開可否を判定できない内容があります。自分だけに表示して確認できます。開いただけでは実行されません。"
+      ],
+      "omissions": []
+    },
+    "actions": {
+      "allow_once": false,
+      "allow_turn_tool": false,
+      "decline": true,
+      "open_private_details": true,
+      "retry": false
+    }
+  },
+  "presentation_unreviewed": {
+    "interaction_id": "int_123",
+    "response_id": "resp_123",
+    "turn_id": "turn_123",
+    "revision": 1,
+    "scope_fingerprint": "opaque-scope-none",
+    "scope": {
+      "instance_id": "pxy_example",
+      "recovery_generation": "recovery_example",
+      "context": {
+        "principal_id": "opaque-user",
+        "channel_id": "opaque-conversation",
+        "run_id": "run-123"
+      },
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "turn_id": "turn_123",
+      "input_generation": 0,
+      "config_generation": "config-123",
+      "server": "example_mcp",
+      "tool": "unreviewed_tool",
+      "execution_policy_binding_id": "binding_none_123",
+      "policy_generation": null,
+      "definition_generation": null
+    },
+    "presentation_id": "present_123",
+    "presentation_fingerprint": "opaque-presentation-none",
+    "profile": "source-conversation-v3",
+    "renderer": "raw-arguments-v1",
+    "audience": {
+      "kind": "requester",
+      "channel_id": "opaque-conversation",
+      "principal_id": "opaque-user"
+    },
+    "state": "ready",
+    "reason": null,
+    "expires_at": "2026-09-17T12:10:00Z",
+    "diagnostic": {
+      "code": null,
+      "retryable": false,
+      "retry_after_ms": null
+    },
+    "page": {
+      "index": 0,
+      "count": 1,
+      "token": "opaque-page-none",
+      "content_fingerprint": "opaque-full-display"
+    },
+    "execution_policy": {
+      "selection": null,
+      "binding_id": "binding_none_123",
+      "generation": null,
+      "state": "ready",
+      "reason": null,
+      "restrictions": [],
+      "upstream_overrides": [],
+      "preparation": {
+        "started_at": "2026-09-17T12:00:00Z",
+        "deadline_at": "2026-09-17T12:01:00Z",
+        "recovery_state": "none",
+        "turn_start_status": "confirmed",
+        "configuration_isolation": "not_required"
+      }
+    },
+    "argument_integrity": {
+      "status": "complete",
+      "source": "codex_call_event",
+      "reason": null
+    },
+    "semantic_assessment": {
+      "status": "unreviewed",
+      "reason": "policy_not_selected",
+      "effects": null
+    },
+    "tool_policy": null,
+    "display": {
+      "disclosure": "requester_only",
+      "provenance": "proxy_verified_call",
+      "title": "MCP操作の確認",
+      "fields": [
+        {
+          "label": "接続先／操作",
+          "value": "example_mcp / unreviewed_tool"
+        },
+        {
+          "label": "引数（object）",
+          "value": "/target（string）: \"sample\"\n/options（object）:\n  /options/limit（number）: 2\n  /options/enabled（boolean）: true\n/note（null）: null"
+        }
+      ],
+      "limitations": [
+        "Codexが求めた操作と入力値です。Proxyでは操作の意味・安全性を評価していません",
+        "公開可否を判定できないため、依頼した本人だけに表示しています"
+      ],
+      "omissions": []
+    },
+    "actions": {
+      "allow_once": true,
+      "allow_turn_tool": false,
+      "decline": true,
+      "open_private_details": false,
+      "retry": false
+    }
+  },
+  "presentation_turn_eligible": {
+    "interaction_id": "int_123",
+    "response_id": "resp_123",
+    "turn_id": "turn_123",
+    "revision": 1,
+    "scope_fingerprint": "opaque-scope-guard",
+    "scope": {
+      "instance_id": "pxy_example",
+      "recovery_generation": "recovery_example",
+      "context": {
+        "principal_id": "opaque-user",
+        "channel_id": "opaque-conversation",
+        "run_id": "run-123"
+      },
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "turn_id": "turn_123",
+      "input_generation": 0,
+      "config_generation": "config-123",
+      "server": "playwright",
+      "tool": "browser_tabs",
+      "execution_policy_binding_id": "binding_guard_123",
+      "policy_generation": "policy-gen-123",
+      "definition_generation": "definition-tabs-123"
+    },
+    "presentation_id": "present_guard_123",
+    "presentation_fingerprint": "opaque-presentation-guard",
+    "profile": "source-conversation-v3",
+    "renderer": "evaluated-operation-v1",
+    "audience": {
+      "kind": "source_conversation",
+      "channel_id": "opaque-conversation",
+      "principal_id": null
+    },
+    "state": "ready",
+    "reason": null,
+    "expires_at": "2026-09-17T12:10:00Z",
+    "diagnostic": {
+      "code": null,
+      "retryable": false,
+      "retry_after_ms": null
+    },
+    "page": {
+      "index": 0,
+      "count": 1,
+      "token": "opaque-page-guard",
+      "content_fingerprint": "opaque-full-display"
+    },
+    "execution_policy": {
+      "selection": {
+        "id": "evaluated-turn-notion-guard",
+        "version": 1
+      },
+      "binding_id": "binding_guard_123",
+      "generation": "policy-gen-123",
+      "state": "ready",
+      "reason": null,
+      "restrictions": [
+        "deny-unbound-notion-partial-replacement"
+      ],
+      "upstream_overrides": [
+        "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+      ],
+      "preparation": {
+        "started_at": "2026-09-17T12:00:00Z",
+        "deadline_at": "2026-09-17T12:01:00Z",
+        "recovery_state": "none",
+        "turn_start_status": "confirmed",
+        "configuration_isolation": "not_required"
+      }
+    },
+    "argument_integrity": {
+      "status": "complete",
+      "source": "codex_call_event",
+      "reason": null
+    },
+    "semantic_assessment": {
+      "status": "evaluated",
+      "reason": null,
+      "effects": [
+        "read"
+      ]
+    },
+    "tool_policy": {
+      "policy_id": "evaluated-turn-notion-guard",
+      "version": 1,
+      "policy_generation": "policy-gen-123",
+      "definition_generation": "definition-tabs-123",
+      "effects": [
+        "read"
+      ],
+      "turn_eligible": true,
+      "reason": null,
+      "grant_scope": "turn_tool",
+      "eligible_operations": [
+        "list",
+        "new",
+        "select"
+      ],
+      "always_confirm_operations": [
+        "close"
+      ],
+      "decision": "not_blocked"
+    },
+    "display": {
+      "disclosure": "source_conversation",
+      "provenance": "proxy_verified_call",
+      "title": "ブラウザーのタブ一覧を確認します",
+      "fields": [
+        {
+          "label": "操作",
+          "value": "一覧取得"
+        },
+        {
+          "label": "実引数",
+          "value": "/action（string）: \"list\""
+        }
+      ],
+      "limitations": [
+        "依頼中の許可は一覧取得・新規タブ・タブ選択に使います。タブを閉じる操作は毎回確認します",
+        "停止・追加発言・終了・取消・期限切れで許可は失効します"
+      ],
+      "omissions": []
+    },
+    "actions": {
+      "allow_once": true,
+      "allow_turn_tool": true,
+      "decline": true,
+      "open_private_details": false,
+      "retry": false
+    }
+  },
+  "presentation_policy_denied": {
+    "interaction_id": "int_123",
+    "response_id": "resp_123",
+    "turn_id": "turn_123",
+    "revision": 1,
+    "scope_fingerprint": "opaque-scope-notion",
+    "scope": {
+      "instance_id": "pxy_example",
+      "recovery_generation": "recovery_example",
+      "context": {
+        "principal_id": "opaque-user",
+        "channel_id": "opaque-conversation",
+        "run_id": "run-123"
+      },
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "turn_id": "turn_123",
+      "input_generation": 0,
+      "config_generation": "config-123",
+      "server": "codex_apps",
+      "tool": "notion.notion-update-page",
+      "execution_policy_binding_id": "binding_guard_123",
+      "policy_generation": "policy-gen-123",
+      "definition_generation": "definition-notion-123"
+    },
+    "presentation_id": null,
+    "presentation_fingerprint": null,
+    "profile": "source-conversation-v3",
+    "renderer": null,
+    "audience": {
+      "kind": "source_conversation",
+      "channel_id": "opaque-conversation",
+      "principal_id": null
+    },
+    "state": "unavailable",
+    "reason": "policy_denied",
+    "expires_at": null,
+    "diagnostic": {
+      "code": "policy_denied",
+      "retryable": false,
+      "retry_after_ms": null
+    },
+    "page": null,
+    "execution_policy": {
+      "selection": {
+        "id": "evaluated-turn-notion-guard",
+        "version": 1
+      },
+      "binding_id": "binding_guard_123",
+      "generation": "policy-gen-123",
+      "state": "ready",
+      "reason": null,
+      "restrictions": [
+        "deny-unbound-notion-partial-replacement"
+      ],
+      "upstream_overrides": [
+        "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+      ],
+      "preparation": {
+        "started_at": "2026-09-17T12:00:00Z",
+        "deadline_at": "2026-09-17T12:01:00Z",
+        "recovery_state": "none",
+        "turn_start_status": "confirmed",
+        "configuration_isolation": "not_required"
+      }
+    },
+    "argument_integrity": {
+      "status": "complete",
+      "source": "codex_call_event",
+      "reason": null
+    },
+    "semantic_assessment": {
+      "status": "unreviewed",
+      "reason": "tool_not_evaluated",
+      "effects": null
+    },
+    "tool_policy": {
+      "policy_id": "evaluated-turn-notion-guard",
+      "version": 1,
+      "policy_generation": "policy-gen-123",
+      "definition_generation": "definition-notion-123",
+      "effects": null,
+      "turn_eligible": false,
+      "reason": "policy_denied",
+      "grant_scope": null,
+      "eligible_operations": [],
+      "always_confirm_operations": [],
+      "decision": "blocked"
+    },
+    "display": {
+      "disclosure": "source_conversation",
+      "provenance": "proxy_verified_call",
+      "title": "この操作は実行できません",
+      "fields": [],
+      "limitations": [
+        "適用中のポリシーにより、確認した本文と実行時の本文が同じだと保証できないNotion部分置換は実行しません"
+      ],
+      "omissions": []
+    },
+    "actions": {
+      "allow_once": false,
+      "allow_turn_tool": false,
+      "decline": true,
+      "open_private_details": false,
+      "retry": false
+    }
+  },
+  "reply_once": {
+    "expected_revision": 1,
+    "expected_scope_fingerprint": "opaque-scope-none",
+    "approval_view": "requester",
+    "expected_presentation_fingerprint": "opaque-presentation-none",
+    "expected_page_tokens": [
+      "opaque-page-none"
+    ],
+    "expected_policy_binding_id": "binding_none_123",
+    "response": {
+      "action": "accept",
+      "content": {}
+    }
+  },
+  "reply_turn": {
+    "expected_revision": 1,
+    "expected_scope_fingerprint": "opaque-scope-guard",
+    "approval_view": "source_conversation",
+    "expected_presentation_fingerprint": "opaque-presentation-guard",
+    "expected_page_tokens": [
+      "opaque-page-guard"
+    ],
+    "expected_policy_binding_id": "binding_guard_123",
+    "response": {
+      "action": "accept",
+      "content": {}
+    },
+    "grant_scope": "turn_tool"
+  },
+  "reply_decline": {
+    "expected_revision": 1,
+    "response": {
+      "action": "decline"
+    }
+  },
+  "operation_unreviewed": {
+    "interaction_id": "int_123",
+    "response_id": "resp_123",
+    "turn_id": "turn_123",
+    "call_id": "call_123",
+    "server": "example_mcp",
+    "tool": "unreviewed_tool",
+    "binding_status": "verified",
+    "unavailable_reason": null,
+    "config_generation": "config-123",
+    "input_generation": 0,
+    "scope": {
+      "instance_id": "pxy_example",
+      "recovery_generation": "recovery_example",
+      "context": {
+        "principal_id": "opaque-user",
+        "channel_id": "opaque-conversation",
+        "run_id": "run-123"
+      },
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "turn_id": "turn_123",
+      "input_generation": 0,
+      "config_generation": "config-123",
+      "server": "example_mcp",
+      "tool": "unreviewed_tool",
+      "execution_policy_binding_id": "binding_none_123",
+      "policy_generation": null,
+      "definition_generation": null
+    },
+    "scope_fingerprint": "opaque-scope-none",
+    "revision": 1,
+    "turn_grant_eligible": false,
+    "ineligible_reason": "policy_not_selected",
+    "arguments": {
+      "target": "sample",
+      "options": {
+        "limit": 2,
+        "enabled": true
+      },
+      "note": null
+    },
+    "redacted_paths": [],
+    "disclosure": "requester_only",
+    "profile": "source-conversation-v3",
+    "execution_policy": {
+      "selection": null,
+      "binding_id": "binding_none_123",
+      "generation": null,
+      "state": "ready",
+      "reason": null,
+      "restrictions": [],
+      "upstream_overrides": [],
+      "preparation": {
+        "started_at": "2026-09-17T12:00:00Z",
+        "deadline_at": "2026-09-17T12:01:00Z",
+        "recovery_state": "none",
+        "turn_start_status": "confirmed",
+        "configuration_isolation": "not_required"
+      }
+    },
+    "argument_integrity": {
+      "status": "complete",
+      "source": "codex_call_event",
+      "reason": null
+    },
+    "semantic_assessment": {
+      "status": "unreviewed",
+      "reason": "policy_not_selected",
+      "effects": null
+    },
+    "tool_policy": null,
+    "arguments_delivery": "inline"
+  },
+  "grants_selected": {
+    "response_id": "resp_123",
+    "data": [
+      {
+        "grant_id": "grant_123",
+        "scope": {
+          "instance_id": "pxy_example",
+          "recovery_generation": "recovery_example",
+          "context": {
+            "principal_id": "opaque-user",
+            "channel_id": "opaque-conversation",
+            "run_id": "run-123"
+          },
+          "response_id": "resp_123",
+          "conversation_id": "conv_123",
+          "workspace_id": "ws_123",
+          "turn_id": "turn_123",
+          "input_generation": 0,
+          "config_generation": "config-123",
+          "server": "playwright",
+          "tool": "browser_tabs",
+          "execution_policy_binding_id": "binding_guard_123",
+          "policy_generation": "policy-gen-123",
+          "definition_generation": "definition-tabs-123"
+        },
+        "state": "active",
+        "reason": null,
+        "created_at": "2026-09-17T12:00:00Z",
+        "expires_at": "2026-09-17T12:10:00Z",
+        "application_count": 1,
+        "initial_interaction_id": "int_123",
+        "profile": "source-conversation-v3",
+        "execution_policy": {
+          "selection": {
+            "id": "evaluated-turn-notion-guard",
+            "version": 1
+          },
+          "binding_id": "binding_guard_123",
+          "generation": "policy-gen-123",
+          "state": "ready",
+          "reason": null,
+          "restrictions": [
+            "deny-unbound-notion-partial-replacement"
+          ],
+          "upstream_overrides": [
+            "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+          ],
+          "preparation": {
+            "started_at": "2026-09-17T12:00:00Z",
+            "deadline_at": "2026-09-17T12:01:00Z",
+            "recovery_state": "none",
+            "turn_start_status": "confirmed",
+            "configuration_isolation": "not_required"
+          }
+        },
+        "grant_policy": {
+          "policy_id": "evaluated-turn-notion-guard",
+          "policy_version": 1,
+          "execution_policy_binding_id": "binding_guard_123",
+          "policy_generation": "policy-gen-123",
+          "definition_generation": "definition-tabs-123",
+          "grant_scope": "turn_tool",
+          "allowed_effects": [
+            "read",
+            "session_change"
+          ],
+          "always_confirm_effects": [
+            "delete",
+            "external_send",
+            "permission_change",
+            "execute",
+            "credential",
+            "unknown"
+          ],
+          "eligible_operations": [
+            "list",
+            "new",
+            "select"
+          ],
+          "always_confirm_operations": [
+            "close"
+          ]
+        },
+        "availability": {
+          "state": "ready",
+          "reason": null,
+          "retry_after_ms": null
+        }
+      }
+    ]
+  },
+  "grants_unselected": {
+    "response_id": "resp_123",
+    "data": []
+  },
+  "presentation_selected_unreviewed": {
+    "interaction_id": "int_123",
+    "response_id": "resp_123",
+    "turn_id": "turn_123",
+    "revision": 1,
+    "scope_fingerprint": "opaque-scope-unreviewed-guard",
+    "scope": {
+      "instance_id": "pxy_example",
+      "recovery_generation": "recovery_example",
+      "context": {
+        "principal_id": "opaque-user",
+        "channel_id": "opaque-conversation",
+        "run_id": "run-123"
+      },
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "turn_id": "turn_123",
+      "input_generation": 0,
+      "config_generation": "config-123",
+      "server": "example_mcp",
+      "tool": "unreviewed_tool",
+      "execution_policy_binding_id": "binding_guard_123",
+      "policy_generation": "policy-gen-123",
+      "definition_generation": null
+    },
+    "presentation_id": "present_unreviewed_guard",
+    "presentation_fingerprint": "opaque-presentation-unreviewed-guard",
+    "profile": "source-conversation-v3",
+    "renderer": "raw-arguments-v1",
+    "audience": {
+      "kind": "requester",
+      "channel_id": "opaque-conversation",
+      "principal_id": "opaque-user"
+    },
+    "state": "ready",
+    "reason": null,
+    "expires_at": "2026-09-17T12:10:00Z",
+    "diagnostic": {
+      "code": null,
+      "retryable": false,
+      "retry_after_ms": null
+    },
+    "page": {
+      "index": 0,
+      "count": 1,
+      "token": "opaque-page-unreviewed-guard",
+      "content_fingerprint": "opaque-full-display"
+    },
+    "execution_policy": {
+      "selection": {
+        "id": "evaluated-turn-notion-guard",
+        "version": 1
+      },
+      "binding_id": "binding_guard_123",
+      "generation": "policy-gen-123",
+      "state": "ready",
+      "reason": null,
+      "restrictions": [
+        "deny-unbound-notion-partial-replacement"
+      ],
+      "upstream_overrides": [
+        "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+      ],
+      "preparation": {
+        "started_at": "2026-09-17T12:00:00Z",
+        "deadline_at": "2026-09-17T12:01:00Z",
+        "recovery_state": "none",
+        "turn_start_status": "confirmed",
+        "configuration_isolation": "not_required"
+      }
+    },
+    "argument_integrity": {
+      "status": "complete",
+      "source": "codex_call_event",
+      "reason": null
+    },
+    "semantic_assessment": {
+      "status": "unreviewed",
+      "reason": "tool_not_evaluated",
+      "effects": null
+    },
+    "tool_policy": {
+      "policy_id": "evaluated-turn-notion-guard",
+      "version": 1,
+      "policy_generation": "policy-gen-123",
+      "definition_generation": null,
+      "effects": null,
+      "turn_eligible": false,
+      "reason": "tool_not_evaluated",
+      "grant_scope": null,
+      "eligible_operations": [],
+      "always_confirm_operations": [],
+      "decision": "not_blocked"
+    },
+    "display": {
+      "disclosure": "requester_only",
+      "provenance": "proxy_verified_call",
+      "title": "MCP操作の確認",
+      "fields": [
+        {
+          "label": "接続先／操作",
+          "value": "example_mcp / unreviewed_tool"
+        },
+        {
+          "label": "引数（object）",
+          "value": "/target（string）: \"sample\"\n/options（object）:\n  /options/limit（number）: 2\n  /options/enabled（boolean）: true\n/note（null）: null"
+        }
+      ],
+      "limitations": [
+        "Codexが求めた操作と入力値です。Proxyでは操作の意味・安全性を評価していません",
+        "公開可否を判定できないため、依頼した本人だけに表示しています"
+      ],
+      "omissions": []
+    },
+    "actions": {
+      "allow_once": true,
+      "allow_turn_tool": false,
+      "decline": true,
+      "open_private_details": false,
+      "retry": false
+    }
+  },
+  "operation_paged_shape": {
+    "interaction_id": "int_123",
+    "response_id": "resp_123",
+    "turn_id": "turn_123",
+    "call_id": "call_123",
+    "server": "example_mcp",
+    "tool": "unreviewed_tool",
+    "binding_status": "verified",
+    "unavailable_reason": null,
+    "config_generation": "config-123",
+    "input_generation": 0,
+    "scope": {
+      "instance_id": "pxy_example",
+      "recovery_generation": "recovery_example",
+      "context": {
+        "principal_id": "opaque-user",
+        "channel_id": "opaque-conversation",
+        "run_id": "run-123"
+      },
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "turn_id": "turn_123",
+      "input_generation": 0,
+      "config_generation": "config-123",
+      "server": "example_mcp",
+      "tool": "unreviewed_tool",
+      "execution_policy_binding_id": "binding_none_123",
+      "policy_generation": null,
+      "definition_generation": null
+    },
+    "scope_fingerprint": "opaque-scope-none",
+    "revision": 1,
+    "turn_grant_eligible": false,
+    "ineligible_reason": "policy_not_selected",
+    "arguments": null,
+    "redacted_paths": [],
+    "disclosure": "requester_only",
+    "profile": "source-conversation-v3",
+    "execution_policy": {
+      "selection": null,
+      "binding_id": "binding_none_123",
+      "generation": null,
+      "state": "ready",
+      "reason": null,
+      "restrictions": [],
+      "upstream_overrides": [],
+      "preparation": {
+        "started_at": "2026-09-17T12:00:00Z",
+        "deadline_at": "2026-09-17T12:01:00Z",
+        "recovery_state": "none",
+        "turn_start_status": "confirmed",
+        "configuration_isolation": "not_required"
+      }
+    },
+    "argument_integrity": {
+      "status": "complete",
+      "source": "codex_call_event",
+      "reason": null
+    },
+    "semantic_assessment": {
+      "status": "unreviewed",
+      "reason": "policy_not_selected",
+      "effects": null
+    },
+    "tool_policy": null,
+    "arguments_delivery": "presentation_pages"
+  },
+  "preparation_reconciling": {
+    "response": {
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "phase": "dispatching",
+      "execution_status": "not_started",
+      "last_observed_status": "not_started",
+      "turn_id": null,
+      "output": {
+        "state": "pending"
+      },
+      "hold_state": "held",
+      "dispatch_eligible": true,
+      "stop_requested": false,
+      "approval_policy": {
+        "selection": {
+          "id": "evaluated-turn-notion-guard",
+          "version": 1
+        },
+        "binding_id": "binding_guard_123",
+        "generation": null,
+        "state": "preparing",
+        "reason": null,
+        "restrictions": [
+          "deny-unbound-notion-partial-replacement"
+        ],
+        "upstream_overrides": [
+          "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+        ],
+        "preparation": {
+          "started_at": "2026-09-17T12:00:00Z",
+          "deadline_at": "2026-09-17T12:01:00Z",
+          "recovery_state": "reconciling",
+          "turn_start_status": "not_sent",
+          "configuration_isolation": "not_required"
+        }
+      }
+    },
+    "create_operation": {
+      "operation_id": "op_create_123",
+      "kind": "response.create",
+      "state": "running",
+      "resource": {
+        "type": "response",
+        "id": "resp_123"
+      },
+      "error": null
+    }
+  },
+  "preparation_timed_out": {
+    "response": {
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "phase": "rejected",
+      "execution_status": "not_started",
+      "last_observed_status": "not_started",
+      "turn_id": null,
+      "output": {
+        "state": "unavailable"
+      },
+      "hold_state": "released",
+      "dispatch_eligible": false,
+      "stop_requested": false,
+      "approval_policy": {
+        "selection": {
+          "id": "evaluated-turn-notion-guard",
+          "version": 1
+        },
+        "binding_id": "binding_guard_123",
+        "generation": null,
+        "state": "failed",
+        "reason": "policy_setup_timeout",
+        "restrictions": [
+          "deny-unbound-notion-partial-replacement"
+        ],
+        "upstream_overrides": [
+          "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+        ],
+        "preparation": {
+          "started_at": "2026-09-17T12:00:00Z",
+          "deadline_at": "2026-09-17T12:01:00Z",
+          "recovery_state": "none",
+          "turn_start_status": "not_sent",
+          "configuration_isolation": "confirmed"
+        }
+      }
+    },
+    "create_operation": {
+      "operation_id": "op_create_123",
+      "kind": "response.create",
+      "state": "failed",
+      "resource": {
+        "type": "response",
+        "id": "resp_123"
+      },
+      "error": {
+        "code": "policy_setup_timeout"
+      }
+    }
+  },
+  "preparation_config_unknown": {
+    "response": {
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "phase": "unknown",
+      "execution_status": "not_started",
+      "last_observed_status": "not_started",
+      "turn_id": null,
+      "output": {
+        "state": "unavailable"
+      },
+      "hold_state": "held",
+      "dispatch_eligible": false,
+      "stop_requested": false,
+      "approval_policy": {
+        "selection": {
+          "id": "evaluated-turn-notion-guard",
+          "version": 1
+        },
+        "binding_id": "binding_guard_123",
+        "generation": null,
+        "state": "failed",
+        "reason": "policy_setup_unknown",
+        "restrictions": [
+          "deny-unbound-notion-partial-replacement"
+        ],
+        "upstream_overrides": [
+          "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+        ],
+        "preparation": {
+          "started_at": "2026-09-17T12:00:00Z",
+          "deadline_at": "2026-09-17T12:01:00Z",
+          "recovery_state": "reconciling",
+          "turn_start_status": "not_sent",
+          "configuration_isolation": "pending"
+        }
+      }
+    },
+    "create_operation": {
+      "operation_id": "op_create_123",
+      "kind": "response.create",
+      "state": "unknown",
+      "resource": {
+        "type": "response",
+        "id": "resp_123"
+      },
+      "error": {
+        "code": "policy_setup_unknown"
+      }
+    }
+  },
+  "preparation_config_fenced": {
+    "response": {
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "phase": "rejected",
+      "execution_status": "not_started",
+      "last_observed_status": "not_started",
+      "turn_id": null,
+      "output": {
+        "state": "unavailable"
+      },
+      "hold_state": "released",
+      "dispatch_eligible": false,
+      "stop_requested": false,
+      "approval_policy": {
+        "selection": {
+          "id": "evaluated-turn-notion-guard",
+          "version": 1
+        },
+        "binding_id": "binding_guard_123",
+        "generation": null,
+        "state": "failed",
+        "reason": "policy_setup_unknown",
+        "restrictions": [
+          "deny-unbound-notion-partial-replacement"
+        ],
+        "upstream_overrides": [
+          "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+        ],
+        "preparation": {
+          "started_at": "2026-09-17T12:00:00Z",
+          "deadline_at": "2026-09-17T12:01:00Z",
+          "recovery_state": "fenced",
+          "turn_start_status": "not_sent",
+          "configuration_isolation": "confirmed"
+        }
+      }
+    },
+    "create_operation": {
+      "operation_id": "op_create_123",
+      "kind": "response.create",
+      "state": "failed",
+      "resource": {
+        "type": "response",
+        "id": "resp_123"
+      },
+      "error": {
+        "code": "policy_setup_unknown"
+      }
+    }
+  },
+  "preparation_stop_pending": {
+    "response": {
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "phase": "unknown",
+      "execution_status": "not_started",
+      "last_observed_status": "not_started",
+      "turn_id": null,
+      "output": {
+        "state": "unavailable"
+      },
+      "hold_state": "held",
+      "dispatch_eligible": false,
+      "stop_requested": true,
+      "approval_policy": {
+        "selection": {
+          "id": "evaluated-turn-notion-guard",
+          "version": 1
+        },
+        "binding_id": "binding_guard_123",
+        "generation": null,
+        "state": "closed",
+        "reason": "policy_setup_cancelled",
+        "restrictions": [
+          "deny-unbound-notion-partial-replacement"
+        ],
+        "upstream_overrides": [
+          "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+        ],
+        "preparation": {
+          "started_at": "2026-09-17T12:00:00Z",
+          "deadline_at": "2026-09-17T12:01:00Z",
+          "recovery_state": "reconciling",
+          "turn_start_status": "not_sent",
+          "configuration_isolation": "pending"
+        }
+      }
+    },
+    "create_operation": {
+      "operation_id": "op_create_123",
+      "kind": "response.create",
+      "state": "unknown",
+      "resource": {
+        "type": "response",
+        "id": "resp_123"
+      },
+      "error": {
+        "code": "execution_cancelled"
+      }
+    }
+  },
+  "preparation_stopped": {
+    "response": {
+      "response_id": "resp_123",
+      "conversation_id": "conv_123",
+      "workspace_id": "ws_123",
+      "phase": "cancelled",
+      "execution_status": "not_started",
+      "last_observed_status": "not_started",
+      "turn_id": null,
+      "output": {
+        "state": "unavailable"
+      },
+      "hold_state": "released",
+      "dispatch_eligible": false,
+      "stop_requested": true,
+      "approval_policy": {
+        "selection": {
+          "id": "evaluated-turn-notion-guard",
+          "version": 1
+        },
+        "binding_id": "binding_guard_123",
+        "generation": null,
+        "state": "closed",
+        "reason": "policy_setup_cancelled",
+        "restrictions": [
+          "deny-unbound-notion-partial-replacement"
+        ],
+        "upstream_overrides": [
+          "この実行のNotionページ更新を毎回Proxyの検査へ通します"
+        ],
+        "preparation": {
+          "started_at": "2026-09-17T12:00:00Z",
+          "deadline_at": "2026-09-17T12:01:00Z",
+          "recovery_state": "fenced",
+          "turn_start_status": "not_sent",
+          "configuration_isolation": "confirmed"
+        }
+      }
+    },
+    "create_operation": {
+      "operation_id": "op_create_123",
+      "kind": "response.create",
+      "state": "failed",
+      "resource": {
+        "type": "response",
+        "id": "resp_123"
+      },
+      "error": {
+        "code": "execution_cancelled"
+      }
+    }
+  },
+  "stop_preparing_request_by_key": {
+    "target": {
+      "conversation_id": "conv_123",
+      "request_key": "original-create-key"
+    }
+  },
+  "stop_preparing_request_by_response": {
+    "target": {
+      "response_id": "resp_123"
+    }
+  },
+  "stop_preparing_pending": {
+    "http_status": 202,
+    "body": {
+      "operation_id": "op_stop_123",
+      "stop_id": "stop_123",
+      "response_id": "resp_123",
+      "intent_state": "recorded",
+      "stop_status": "waiting_for_start",
+      "execution_status": "not_started",
+      "interrupt_delivery": "not_sent"
+    }
+  },
+  "stop_preparing_confirmed": {
+    "http_status": 200,
+    "body": {
+      "operation_id": "op_stop_123",
+      "stop_id": "stop_123",
+      "response_id": "resp_123",
+      "intent_state": "recorded",
+      "stop_status": "cancelled_before_start",
+      "execution_status": "not_started",
+      "interrupt_delivery": "not_sent"
+    }
+  }
+}

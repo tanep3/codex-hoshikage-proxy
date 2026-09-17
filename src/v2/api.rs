@@ -63,7 +63,7 @@ async fn checked(
         ] {
             limits[k] = v;
         }
-        return Ok(Json(json!({
+        let capability = json!({
             "contract_version":"2.0",
             "implementation_status":"acceptance_pending",
             "recovery_state":s.store.metadata("recovery_state")?,
@@ -73,12 +73,14 @@ async fn checked(
             "limits":limits,
             "interaction_kinds":super::interactions::KINDS,
             "mcp_inline_approval":super::presentations::capability(s.limits.mcp_turn_approval_enabled),
+            "mcp_approval_v06":super::approval_admission::capability(s.limits.mcp_turn_approval_enabled)?,
             "mcp_operation_details":{"enabled":s.limits.mcp_turn_approval_enabled,"profile":"native-item-id-v1","max_argument_bytes":65536,"disclosure":"requester_only"},
             "mcp_turn_approval":{"enabled":s.limits.mcp_turn_approval_enabled,"profile":"native-item-id-v1","max_grants":16,"ttl_seconds":600,"max_records":super::mcp_grants::MAX_RECORDS},
             "interaction_limits":{"max_count":super::interactions::MAX_COUNT,"max_bytes":super::interactions::MAX_BYTES,"timeout_seconds":super::interactions::TIMEOUT_MS/1000,"schema_profile":"flat-primitives-v1","permission_profile":"whole-category-v1"},
             "registration_models":["chatgpt/gpt-5.6-luna","chatgpt/gpt-5.6-terra"],
             "server_time":super::retention::wire(json!({ "server_at_ms":super::now()} ))["server_at"]
-        })).into_response());
+        });
+        return Ok(Json(super::approval_admission::bounded(capability, 1048576)?).into_response());
     }
     for (name, expected) in [
         ("x-proxy-instance-id", &s.store.instance),
@@ -169,8 +171,10 @@ async fn checked(
                 "interaction_capabilities",
                 "approval_context",
                 "approval_presentation",
+                "approval_policy",
             ],
         )?;
+        let body = super::approval_admission::canonical(&body);
         super::interactions::validate_capabilities(body.get("interaction_capabilities"))?;
         if let Some(op) = replay(
             &s,
@@ -320,10 +324,31 @@ async fn checked(
         && parts[0] == "interactions"
         && parts[2] == "presentation"
     {
+        let record = s.store.get("interaction", parts[1]).map_err(|e| {
+            if e.status == 404 && !s.limits.mcp_turn_approval_enabled {
+                Error::code(503, "inline_approval_disabled")
+            } else {
+                e
+            }
+        })?;
+        let response = s.store.get("response", string(&record, "response_id")?)?;
+        if super::approval_v06::selected(&response) {
+            state
+                .cwd_policy
+                .validate(s.workspace_path(string(&record, "conversation_id")?)?)
+                .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
+            refresh_v06_catalog(&s, &state, &response).await;
+            let (audience, page, presentation_id) = super::approval_v06::query(uri.query())?;
+            let iid = parts[1].to_owned();
+            return blocking(move || {
+                super::approval_v06::get(&s, &iid, &audience, page, presentation_id.as_deref())
+            })
+            .await
+            .map(|v| Json(v).into_response());
+        }
         if !s.limits.mcp_turn_approval_enabled {
             return Err(Error::code(503, "inline_approval_disabled"));
         }
-        let record = s.store.get("interaction", parts[1])?;
         state
             .cwd_policy
             .validate(s.workspace_path(string(&record, "conversation_id")?)?)
@@ -344,7 +369,14 @@ async fn checked(
             .cwd_policy
             .validate(s.workspace_path(string(&record, "conversation_id")?)?)
             .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
-        return Ok(Json(super::mcp_grants::operation(&s, parts[1])?).into_response());
+        let response = s.store.get("response", string(&record, "response_id")?)?;
+        let value = if super::approval_v06::selected(&response) {
+            refresh_v06_catalog(&s, &state, &response).await;
+            super::approval_v06::operation_details(&s, parts[1])?
+        } else {
+            super::mcp_grants::operation(&s, parts[1])?
+        };
+        return Ok(Json(value).into_response());
     }
     if method == Method::GET
         && parts.len() == 3
@@ -356,6 +388,7 @@ async fn checked(
             .cwd_policy
             .validate(s.workspace_path(string(&record, "conversation_id")?)?)
             .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
+        refresh_v06_catalog(&s, &state, &record).await;
         return Ok(Json(super::retention::wire(super::mcp_grants::list(
             &s, parts[1],
         )?))
@@ -508,15 +541,15 @@ fn read(s: &Service, p: &[String]) -> Result<Value> {
             let mut c = s.store.get("conversation", id)?;
             c.as_object_mut().unwrap().remove("thread_id");
             c.as_object_mut().unwrap().remove("operation_key");
+            c.as_object_mut()
+                .unwrap()
+                .retain(|key, _| !key.starts_with('_'));
             Ok(c)
         }
-        ["responses", id] => {
-            let mut r = s.store.get("response", id)?;
-            for k in ["input", "request_key"] {
-                r.as_object_mut().unwrap().remove(k);
-            }
-            Ok(r)
-        }
+        ["responses", id] => super::approval_admission::bounded(
+            super::approval_admission::public_response(s.store.get("response", id)?),
+            262144,
+        ),
         ["stops", id] => {
             let mut st = s.store.get("stop", id)?;
             if let Some(rid) = st["response_id"].as_str() {
@@ -581,4 +614,21 @@ fn replay(s: &Service, key: &str, kind: &str, body: &Value) -> Result<Option<Val
         }
         Ok(Some(store::public_operation(op)))
     })
+}
+
+async fn refresh_v06_catalog(s: &Service, state: &AppState, response: &Value) {
+    if super::approval_v06::selected(response)
+        && response["phase"] == "started"
+        && response["stop_requested"] != true
+        && let Some(key) = super::approval_v06::catalog_key(s, response)
+        && let Ok(receiver) = s.catalog.request(key.clone(), state.runtime.clone())
+    {
+        let _ = super::catalog::Manager::view(receiver).await;
+        if let Some(rid) = response["response_id"].as_str()
+            && let Ok(current) = s.store.get("response", rid)
+            && (current["phase"] != "started" || current["stop_requested"] == true)
+        {
+            s.catalog.release_thread(&key.runtime, &key.thread);
+        }
+    }
 }

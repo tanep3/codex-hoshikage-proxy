@@ -1,0 +1,406 @@
+{
+  "schema_version": 1,
+  "status": "design_expectations_not_test_results",
+  "tool": "github.create_tree",
+  "rule": "github_tree_elements",
+  "cases": [
+    {
+      "id": "GT01",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": "公開してよい作業メモ"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "GT02",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": ""
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "GT03",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false,
+        "reference_content_fetched": false
+      }
+    },
+    {
+      "id": "GT04",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "100644",
+            "type": "blob",
+            "sha": null
+          }
+        ],
+        "base_tree_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "external_send",
+          "delete"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "GT05",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": "公開してよい作業メモ",
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "GT06",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "040000",
+            "type": "blob",
+            "content": "公開してよい作業メモ"
+          }
+        ]
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "GT07",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "120000",
+            "type": "blob",
+            "content": "notes/target.txt"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false,
+        "kind_label": "シンボリックリンク"
+      }
+    },
+    {
+      "id": "GT08",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "100755",
+            "type": "blob",
+            "content": "公開してよい作業メモ"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false,
+        "kind_label": "実行可能ファイル",
+        "executes_content": false
+      }
+    },
+    {
+      "id": "GT09",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "dir",
+            "mode": "040000",
+            "type": "tree",
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "path": "dir/new.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": "新規本文"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "external_send",
+          "delete"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false,
+        "overwritten_subtree": "dir"
+      }
+    },
+    {
+      "id": "GT10",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "dir/new.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": "新規本文"
+          },
+          {
+            "path": "dir",
+            "mode": "040000",
+            "type": "tree",
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "external_send",
+          "delete"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false,
+        "overwritten_subtree": "dir"
+      }
+    },
+    {
+      "id": "GT11",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": "公開してよい作業メモ"
+          },
+          {
+            "path": "notes.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": "公開してよい作業メモ"
+          }
+        ]
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "GT12",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": "公開してよい作業メモ",
+            "unreviewed": true
+          }
+        ]
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "GT13",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "notes.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": "連絡先 person@example.test"
+          }
+        ]
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "requester",
+        "effects": [
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "GT14",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [],
+        "base_tree_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false,
+        "base_present": true
+      }
+    },
+    {
+      "id": "GT15",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": []
+      },
+      "expected": {
+        "state": "ready",
+        "audience": "public",
+        "effects": [
+          "external_send"
+        ],
+        "allow_once": true,
+        "allow_turn_tool": false,
+        "base_present": false
+      }
+    },
+    {
+      "id": "GT16",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "../notes.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": "公開してよい作業メモ"
+          }
+        ]
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    },
+    {
+      "id": "GT17",
+      "arguments": {
+        "repository_full_name": "example/design-fixture",
+        "tree_elements": [
+          {
+            "path": "dir",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "path": "dir/new.txt",
+            "mode": "100644",
+            "type": "blob",
+            "content": "x"
+          }
+        ]
+      },
+      "expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      }
+    }
+  ]
+}

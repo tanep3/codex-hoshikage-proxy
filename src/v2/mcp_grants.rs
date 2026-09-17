@@ -13,8 +13,8 @@ pub const SINGLE_BYTES: usize = 262_144;
 pub const GRANTS_BYTES: usize = 1_048_576;
 pub const LIST_BYTES: usize = 67_108_864;
 pub fn bounded_response(value: Value, limit: usize) -> Result<Value> {
-    if serde_json::to_vec(&value)?.len() > limit {
-        return Err(Error::code(503, "store_corrupt"));
+    if serde_json::to_vec(&super::retention::wire(value.clone()))?.len() > limit {
+        return Err(Error::code(503, "approval_response_too_large"));
     }
     Ok(value)
 }
@@ -76,6 +76,27 @@ pub fn validate_context(v: Option<&Value>) -> Result<()> {
     }
     Ok(())
 }
+fn approval_settings(mut config: toml::Value) -> toml::Value {
+    // Codex persists this bookkeeping during thread/start. It does not change
+    // the tools or approval rules of an already bound execution.
+    if let Some(projects) = config
+        .get_mut("projects")
+        .and_then(toml::Value::as_table_mut)
+    {
+        projects.retain(|_, value| {
+            if let Some(table) = value.as_table_mut() {
+                table.remove("trust_level");
+                !table.is_empty()
+            } else {
+                true
+            }
+        });
+        if projects.is_empty() {
+            config.as_table_mut().unwrap().remove("projects");
+        }
+    }
+    config
+}
 pub(crate) fn generation(s: &Service) -> Result<String> {
     let mut m = s.mcp.lock().unwrap();
     let mut parts = vec![];
@@ -84,7 +105,7 @@ pub(crate) fn generation(s: &Service) -> Result<String> {
             std::fs::read_to_string(p).map_err(|_| Error::code(503, "mcp_config_unavailable"))?;
         let v: toml::Value =
             toml::from_str(&text).map_err(|_| Error::code(503, "mcp_config_unavailable"))?;
-        parts.push(v);
+        parts.push(approval_settings(v));
     }
     let hash = crate::control::fingerprint(&json!(parts));
     if m.digest != hash {
@@ -105,14 +126,25 @@ fn call_key(thread: &Value, turn: &Value, item: &Value) -> String {
 }
 pub fn observe(s: &Service, e: &Value) -> Result<()> {
     let _gate = s.approval_gate.lock().unwrap();
-    if !s.limits.mcp_turn_approval_enabled {
-        return Ok(());
-    }
     let p = &e["params"];
     if e["method"] == "item/started" && p["item"]["type"] == "mcpToolCall" {
         let mut item = p["item"].clone();
         let key = call_key(&p["threadId"], &p["turnId"], &item["id"]);
-        if serde_json::to_vec(&item)?.len() > 65536
+        let rows = s.store.list("response")?;
+        let run = rows.iter().find(|r| {
+            r["thread_id"] == p["threadId"]
+                && ((r["turn_id"] == p["turnId"] && r["phase"] == "started")
+                    || (r["turn_id"].is_null()
+                        && r["phase"] == "dispatching"
+                        && r["approval_policy"]["preparation"]["turn_start_status"]
+                            == "intent_recorded"))
+        });
+        let generic = run.is_some_and(super::approval_v06::selected);
+        if !s.limits.mcp_turn_approval_enabled && !generic {
+            return Ok(());
+        }
+        if serde_json::to_vec(&item)?.len() > if generic { 294_912 } else { 65536 }
+            || (generic && serde_json::to_vec(&item["arguments"])?.len() > 262_144)
             || !item["arguments"].is_object()
             || ["id", "server", "tool"]
                 .iter()
@@ -132,12 +164,6 @@ pub fn observe(s: &Service, e: &Value) -> Result<()> {
         item["thread_id"] = p["threadId"].clone();
         item["turn_id"] = p["turnId"].clone();
         item["config_generation"] = json!(generation(s)?);
-        let rows = s.store.list("response")?;
-        let run = rows.iter().find(|r| {
-            r["thread_id"] == p["threadId"]
-                && r["turn_id"] == p["turnId"]
-                && r["phase"] == "started"
-        });
         item["input_generation"] = json!(
             run.map(|r| r["input_generation"].as_u64().unwrap_or(0))
                 .unwrap_or(0)
@@ -196,6 +222,14 @@ pub fn observe(s: &Service, e: &Value) -> Result<()> {
         s.mcp.lock().unwrap().calls.retain(|_, (_, v)| {
             !closed && !(v["thread_id"] == p["threadId"] && v["turn_id"] == *turn)
         });
+        for r in s.store.list("response")? {
+            if (closed || (r["thread_id"] == p["threadId"] && r["turn_id"] == *turn))
+                && let (Some(runtime), Some(thread)) =
+                    (r["_approval_runtime"].as_str(), r["thread_id"].as_str())
+            {
+                s.catalog.release_thread(runtime, thread);
+            }
+        }
         s.store.transaction(|tx| {
             for mut g in store::list(tx, "mcp_grant")? {
                 let r = store::get(tx, "response", string(&g["scope"], "response_id")?)?;
@@ -205,8 +239,19 @@ pub fn observe(s: &Service, e: &Value) -> Result<()> {
                         Some("active" | "pending" | "suspended")
                     )
                 {
-                    g["state"] = json!("expired");
-                    g["reason"] = json!("run_ended");
+                    if super::approval_grants::selected(&g) {
+                        g["state"] = json!("revoked");
+                        g["reason"] = json!(if closed {
+                            "runtime_restarted"
+                        } else {
+                            "scope_ended"
+                        });
+                        g["availability"] =
+                            json!({"state":"inactive","reason":g["reason"],"retry_after_ms":null});
+                    } else {
+                        g["state"] = json!("expired");
+                        g["reason"] = json!("run_ended");
+                    }
                     store::put(tx, "mcp_grant", string(&g, "grant_id")?, &g)?;
                 }
             }
@@ -218,7 +263,7 @@ pub fn observe(s: &Service, e: &Value) -> Result<()> {
 /// Only the pinned native user-input adapter carries an authoritative item ID.
 /// Arbitrary MCP form metadata cannot opt itself into this adapter.
 pub fn adapt(s: &Service, method: &str, p: &Value) -> Result<Option<Value>> {
-    if !s.limits.mcp_turn_approval_enabled || method != "item/tool/requestUserInput" {
+    if method != "item/tool/requestUserInput" {
         return Ok(None);
     }
     let key = call_key(&p["threadId"], &p["turnId"], &p["itemId"]);
@@ -356,6 +401,9 @@ pub fn operation(s: &Service, iid: &str) -> Result<Value> {
     operation_snapshot(s, &i, &r)
 }
 pub(crate) fn operation_snapshot(s: &Service, i: &Value, r: &Value) -> Result<Value> {
+    operation_snapshot_inner(s, i, r, false)
+}
+fn operation_snapshot_inner(s: &Service, i: &Value, r: &Value, raw: bool) -> Result<Value> {
     let iid = string(i, "interaction_id")?;
     let mut out = json!({"interaction_id":iid,"response_id":i["response_id"],"turn_id":i["turn_id"],"revision":i["revision"],"call_id":null,"server":null,"tool":null,"binding_status":"unavailable","unavailable_reason":"stable_call_id_unavailable","config_generation":null,"input_generation":null,"scope":null,"scope_fingerprint":null,"turn_grant_eligible":false,"ineligible_reason":"binding_unavailable","arguments":null,"redacted_paths":[],"disclosure":"requester_only"});
     let Some(operation) = i["operation"].as_object() else {
@@ -373,7 +421,11 @@ pub(crate) fn operation_snapshot(s: &Service, i: &Value, r: &Value) -> Result<Va
         }) {
             let mut args = item["arguments"].clone();
             let mut paths = vec![];
-            redact(&mut args, "", &mut paths);
+            if !raw {
+                redact(&mut args, "", &mut paths);
+            } else {
+                out["redacted_paths"] = json!([]);
+            }
             out["arguments"] = args;
         }
     }
@@ -389,7 +441,15 @@ pub(crate) fn operation_snapshot(s: &Service, i: &Value, r: &Value) -> Result<Va
         out["turn_grant_eligible"] = json!(false);
         out["ineligible_reason"] = json!("input_changed");
     }
-    bounded_response(out, SINGLE_BYTES)
+    if raw {
+        Ok(out)
+    } else {
+        bounded_response(out, SINGLE_BYTES)
+    }
+}
+/// Complete observed inputs for the generic v0.6 renderer, never persisted.
+pub(crate) fn raw_operation_snapshot(s: &Service, i: &Value, r: &Value) -> Result<Value> {
+    operation_snapshot_inner(s, i, r, true)
 }
 pub(crate) fn call_expiry(s: &Service, i: &Value) -> Option<u64> {
     let key = call_key(&i["thread_id"], &i["turn_id"], &i["operation"]["call_id"]);
@@ -418,6 +478,12 @@ pub fn refresh(s: &Service) -> Result<()> {
     let generation = generation(s).unwrap_or_default();
     s.store.transaction(|tx| {
         for mut g in store::list(tx, "mcp_grant")? {
+            if super::approval_grants::selected(&g) {
+                let r = store::get(tx, "response", string(&g["scope"], "response_id")?)?;
+                super::approval_grants::refresh(s, &r, &mut g, &generation);
+                store::put(tx, "mcp_grant", string(&g, "grant_id")?, &g)?;
+                continue;
+            }
             if matches!(
                 g["state"].as_str(),
                 Some("active" | "pending" | "suspended")
@@ -440,6 +506,9 @@ pub fn create(
     i: &mut Value,
     body: &Value,
 ) -> Result<()> {
+    if super::approval_v06::handles(r, i) {
+        return super::approval_grants::create(s, tx, r, i, body);
+    }
     if body.get("grant_scope").is_none() {
         return Ok(());
     }
@@ -496,6 +565,10 @@ pub fn finish(tx: &Transaction<'_>, i: &Value, written: bool) -> Result<()> {
 pub fn auto_grant(s: &Service, iid: &str) -> Result<Option<String>> {
     refresh(s)?;
     let i = s.store.get("interaction", iid)?;
+    let r = s.store.get("response", string(&i, "response_id")?)?;
+    if super::approval_v06::handles(&r, &i) {
+        return super::approval_grants::candidate(s, &r, &i);
+    }
     if i["operation"]["turn_grant_eligible"] != true {
         return Ok(None);
     }
@@ -506,6 +579,9 @@ pub fn auto_grant(s: &Service, iid: &str) -> Result<Option<String>> {
         .and_then(|g| g["grant_id"].as_str().map(str::to_owned)))
 }
 pub fn apply(s: &Service, tx: &Transaction<'_>, r: &Value, i: &mut Value, id: &str) -> Result<()> {
+    if super::approval_v06::handles(r, i) {
+        return super::approval_grants::apply(s, tx, r, i, id);
+    }
     let mut g = store::get(tx, "mcp_grant", id)?;
     if g["state"] != "active"
         || !valid(s, &g, r, &generation(s)?)
@@ -601,6 +677,18 @@ pub fn check_display(s: &Service, i: &Value, body: &Value) -> Result<()> {
 
 /// An immediately following call can precede acknowledgment of the first reply.
 /// Wait only while its matching grant is pending; never infer successful delivery.
+pub async fn await_auto_grant_with_runtime(
+    s: &Service,
+    runtime: &Arc<crate::runtime::CodexRuntime>,
+    iid: &str,
+) -> Result<Option<String>> {
+    let initial = s.store.get("interaction", iid)?;
+    let response = s.store.get("response", string(&initial, "response_id")?)?;
+    if super::approval_v06::handles(&response, &initial) {
+        return super::approval_grants::await_candidate(s, runtime, iid).await;
+    }
+    await_auto_grant(s, iid).await
+}
 pub async fn await_auto_grant(s: &Service, iid: &str) -> Result<Option<String>> {
     loop {
         if let Some(id) = auto_grant(s, iid)? {
@@ -651,5 +739,29 @@ mod clock_tests {
             c.read(1, forward + std::time::Duration::from_millis(1)),
             9_000_001
         );
+    }
+}
+
+#[cfg(test)]
+mod generation_tests {
+    use super::approval_settings;
+    #[test]
+    fn codex_trust_bookkeeping_does_not_change_mcp_policy_generation() {
+        let base: toml::Value = toml::from_str("[mcp_servers.test]\ncommand='test'").unwrap();
+        let with_trust: toml::Value = toml::from_str(
+            "[mcp_servers.test]\ncommand='test'\n[projects.'/tmp/work']\ntrust_level='trusted'",
+        )
+        .unwrap();
+        assert_eq!(
+            approval_settings(base.clone()),
+            approval_settings(with_trust)
+        );
+        let changed: toml::Value = toml::from_str("[mcp_servers.test]\ncommand='other'").unwrap();
+        assert_ne!(approval_settings(base.clone()), approval_settings(changed));
+        let unknown: toml::Value = toml::from_str(
+            "[mcp_servers.test]\ncommand='test'\n[projects.'/tmp/work']\nfuture_setting=true",
+        )
+        .unwrap();
+        assert_ne!(approval_settings(base), approval_settings(unknown));
     }
 }

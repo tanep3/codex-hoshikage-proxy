@@ -1,0 +1,234 @@
+{
+  "data": [
+    {
+      "name": "codex_apps",
+      "authStatus": "oAuth",
+      "tools": {
+        "notion.notion-update-page": {
+          "name": "notion.notion-update-page",
+          "title": "notion-update-page",
+          "description": "## Overview\n\nUpdate a Notion page's properties or content.\n\n## Properties\n\nNotion page properties are a JSON map of property names to SQLite values.\n\nFor pages in a database:\n- ALWAYS use the \"fetch\" tool first to get the data source schema and the\texact property names.\n- Provide a non-null value to update a property's value.\n- Omitted properties are left unchanged.\n\n\n**IMPORTANT**: Some property types require specific formats:\n- Date properties: Split into \"date:{property}:start\", \"date:{property}:end\" (optional), and \"date:{property}:is_datetime\" (0 or 1)\n- Place properties: Split into \"place:{property}:name\", \"place:{property}:address\", \"place:{property}:latitude\", \"place:{property}:longitude\", and \"place:{property}:google_place_id\" (optional)\n- Number properties: Use JavaScript numbers (not strings)\n- Checkbox properties: Use \"__YES__\" for checked, \"__NO__\" for unchecked\n- Relation properties: Use an array of related page URLs or page IDs, e.g. [\"https://www.notion.so/26ab1f9f4c5f80b18d3bd10a6b1d2f4e\", \"26ab1f9f-4c5f-80b1-8d3b-d10a6b1d2f4e\"]\n- Person properties: Use an array of user IDs, user or agent URLs, or group references copied from fetch output (\"space_permission_group-<UUID>\"). Bare group UUIDs are also supported.\n- Files properties: Use a JSON array of file IDs, Notion Folder URLs, and/or <folder> tags copied from fetch output. Folders are stored as native Folder references, not ordinary links.\n\n\n**Special property naming**: Properties named \"id\" or \"url\" (case insensitive) must be prefixed with \"userDefined:\" (e.g., \"userDefined:URL\", \"userDefined:id\")\n\nFor pages outside of a database:\n- The only allowed property is \"title\",\twhich is the title of the page in inline markdown format.\n\n\n## Content\n\nNotion page content is a string in Notion-flavored Markdown format.\n\n**IMPORTANT**: For the complete Markdown specification, first read the MCP resource `notion://docs/enhanced-markdown-spec` through your MCP client's resource-reading interface, or call the Notion \"fetch\" tool with this URI if your client does not support reading MCP resources. Do NOT pass this URI to any other URL-fetching tool. Do NOT guess or hallucinate Markdown syntax.\n\nBy default, use native Notion mentions for references you add to existing Notion pages, databases, data sources, and people. Use Markdown links only for external URLs or when the user requests a plain link.\n\nBefore changing content, fetch the page unless it is already loaded for this task. Inspect the target and nearby sections. Match their heading level, block type, nesting, list or table pattern, and prose style.\n\nMake the smallest complete edit. Prefer \"update_content\" for targeted search-and-replace edits, and use \"insert_content\" only to prepend or append. Avoid full-page \"replace_content\" when a targeted command is sufficient. Preserve unrelated wording, structure, order, and native references; do not broadly rewrite or improve the page unless the user asks.\n\nFor \"update_content\", use the smallest exact old_str from the fetched page that uniquely identifies the target. If the edit would remove material content the user did not explicitly identify, ask for confirmation first.\n\nAfter a multi-part or structural content edit, fetch the page again and verify the requested content and nesting. Skip this extra read for a simple, exact edit.\n\n### Preserving Child Pages and Databases\n\nWhen using \"replace_content\", the operation will check if any child pages or databases would be deleted. If so, it will fail with an error listing the affected items.\n\nTo preserve child pages/databases, include them in new_str using `<page url=\"...\">` or `<database url=\"...\">` tags. Get the exact URLs from the \"fetch\" tool output.\n\n**CRITICAL**: To intentionally delete child content: if the call failed with validation and requires `allow_deleting_content` to be true, DO NOT automatically assume the content should be deleted. ALWAYS show the list of pages to be deleted and ask for user confirmation before proceeding.\n\n## Icon and Cover\n\nYou can set or remove a page's icon and cover alongside any command.\n- \"icon\": An emoji character (e.g. \"🚀\"), a custom emoji by name (e.g. \":rocket_ship:\"), or an external image URL. Use \"none\" to remove. Omit to leave unchanged.\n- \"cover\": An external image URL. Use \"none\" to remove. Omit to leave unchanged.\n- When you set an icon, keep the page title free of a duplicate leading emoji. The icon is rendered separately before the title.\n\n\n## Skills\n\nSet `is_skill` to `true` to mark the page as a skill, or `false` to remove the skill designation. This can be set alongside any command. To change only the skill status without making another page change, use the `update_properties` command and omit `properties`.\n\n## Async support\n\nDefault to \"allow_async\": true for page updates. Set it to false only when the next step needs the updated page immediately, or when async execution rejects the request as too large. When this update operation is accepted for background execution, it returns an \"async_task\" result. Use \"get_async_task\" to wait for a \"succeeded\" status before taking a dependent action on the page. For \"apply_template\", a \"succeeded\" status does not mean template content is ready; fetch and retry until it is ready before changing or relying on that content. If this field is omitted or false, the tool waits for a synchronous result when possible, but may still return a pollable \"async_task\" response if queued execution exceeds the synchronous wait deadline.\n\n## Examples\n\n\t\t<example description=\"Update page icon and cover\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"update_properties\",\n\t\t\t\"properties\": {\"title\": \"My Page\"},\n\t\t\t\"icon\": \"🚀\",\n\t\t\t\"cover\": \"https://example.com/cover.jpg\"\n\t\t}\n\t\t</example>\n\n\t\t<example description=\"Update page properties\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"update_properties\",\n\t\t\t\"properties\": {\n\t\t\t\t\"title\": \"New Page Title\",\n\t\t\t\t\"status\": \"In Progress\",\n\t\t\t\t\"priority\": 5,\n\t\t\t\t\"checkbox\": \"__YES__\",\n\t\t\t\t\"related_tasks\": [\"26ab1f9f-4c5f-80b1-8d3b-d10a6b1d2f4e\"],\n\t\t\t\t\"date:deadline:start\": \"2024-12-25\",\n\t\t\t\t\"date:deadline:is_datetime\": 0,\n\t\t\t\t\"place:office:name\": \"HQ\",\n\t\t\t\t\"place:office:latitude\": 37.7749,\n\t\t\t\t\"place:office:longitude\": -122.4194\n\t\t\t}\n\t\t}\n\t\t</example>\n\n\t\t<example description=\"Replace the entire content of a page\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"replace_content\",\n\t\t\t\"new_str\": \"# New Section\nUpdated content goes here\"\n\t\t}\n\t\t</example>\n\n\t\t<example description=\"Update specific content in a page (search-and-replace)\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"update_content\",\n\t\t\t\"content_updates\": [\n\t\t\t\t{\n\t\t\t\t\t\"old_str\": \"# Old Section\nOld content here\",\n\t\t\t\t\t\"new_str\": \"# New Section\nUpdated content goes here\"\n\t\t\t\t}\n\t\t\t]\n\t\t}\n\t\t</example>\n\n\t\t<example description=\"Insert new content at the top of a page\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"insert_content\",\n\t\t\t\"content\": \"## Latest update\n\nStatus update goes here\",\n\t\t\t\"position\": { \"type\": \"start\" }\n\t\t}\n\t\t</example>\n\n\t\t<example description=\"Insert content after a specific location\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"update_content\",\n\t\t\t\"content_updates\": [\n\t\t\t\t{\n\t\t\t\t\t\"old_str\": \"## Previous section\nExisting content\",\n\t\t\t\t\t\"new_str\": \"## Previous section\nExisting content\n\n## New Section\nContent to insert goes here\"\n\t\t\t\t}\n\t\t\t]\n\t\t}\n\t\t</example>\n\n\t\t<example description=\"Multiple content updates in a single call\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"update_content\",\n\t\t\t\"content_updates\": [\n\t\t\t\t{\n\t\t\t\t\t\"old_str\": \"Old text 1\",\n\t\t\t\t\t\"new_str\": \"New text 1\"\n\t\t\t\t},\n\t\t\t\t{\n\t\t\t\t\t\"old_str\": \"Old text 2\",\n\t\t\t\t\t\"new_str\": \"New text 2\"\n\t\t\t\t}\n\t\t\t]\n\t\t}\n\t\t</example>\n\n## Templates\n\nYou can apply a template to an existing page using the \"apply_template\" command. The template content is appended to the page asynchronously. Get template IDs from the <templates> section in the fetch tool results for a database, or use any page ID as a template.\n\n\t\t<example description=\"Apply a template to an existing page\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"apply_template\",\n\t\t\t\"template_id\": \"a5da15f6-b853-455d-8827-f906fb52db2b\"\n\t\t}\n\t\t</example>\n\n## Verification\n\nYou can verify or unverify a page using the \"update_verification\" command. Verification marks a page as reviewed and up-to-date. Requires a Business or Enterprise plan (or the page must be in a wiki).\n\nWhen updating verification, the owner will be automatically set to the authenticated actor.\n\n\t\t<example description=\"Verify a page for 90 days\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"update_verification\",\n\t\t\t\"verification_status\": \"verified\",\n\t\t\t\"verification_expiry_days\": 90\n\t\t}\n\t\t</example>\n\n\t\t<example description=\"Verify a page indefinitely\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"update_verification\",\n\t\t\t\"verification_status\": \"verified\"\n\t\t}\n\t\t</example>\n\n\t\t<example description=\"Remove verification from a page\">\n\t\t{\n\t\t\t\"page_id\": \"f336d0bc-b841-465b-8045-024475c079dd\",\n\t\t\t\"command\": \"update_verification\",\n\t\t\t\"verification_status\": \"unverified\"\n\t\t}\n\t\t</example>",
+          "inputSchema": {
+            "type": "object",
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "page_id": {
+                "type": "string",
+                "description": "The ID of the page to update, with or without dashes."
+              },
+              "command": {
+                "type": "string",
+                "enum": [
+                  "update_properties",
+                  "update_content",
+                  "replace_content",
+                  "insert_content",
+                  "apply_template",
+                  "update_verification"
+                ],
+                "description": "The update command to execute."
+              },
+              "properties": {
+                "description": "Required for \"update_properties\" command. A JSON object that updates the page's properties. For pages in a database, use the SQLite schema definition shown in <database>. For pages outside of a database, the only allowed property is \"title\", which is the title of the page in inline markdown format. For a Files property, an uploaded file can be provided as {\"type\":\"file_upload\",\"file_upload\":{\"id\":\"<file-upload-id>\"}} inside the property's array. Use null to remove a property's value.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "maxItems": 100,
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "file_upload"
+                                ],
+                                "description": "Always `file_upload`"
+                              },
+                              "file_upload": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "description": "ID of a file upload returned by create_file_upload or create_attachment."
+                                  }
+                                },
+                                "required": [
+                                  "id"
+                                ],
+                                "additionalProperties": {},
+                                "description": "The uploaded file to attach to the Files property."
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "file_upload"
+                            ],
+                            "additionalProperties": {}
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "new_str": {
+                "description": "Required for \"replace_content\" command. The new content string to replace the entire page content with.",
+                "type": "string"
+              },
+              "content": {
+                "description": "Required for \"insert_content\" command. The markdown content to insert into the page.",
+                "type": "string"
+              },
+              "content_updates": {
+                "description": "Required for \"update_content\" command. An array of search-and-replace operations, each with old_str (content to find) and new_str (replacement content).",
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "old_str": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The existing content string to find and replace. Must exactly match the page content."
+                    },
+                    "new_str": {
+                      "type": "string",
+                      "description": "The new content string to replace old_str with."
+                    },
+                    "replace_all_matches": {
+                      "description": "If true, replaces all occurrences of old_str. If false (default), the operation fails if there are multiple matches.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "old_str",
+                    "new_str"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "position": {
+                "description": "Optional for \"insert_content\" command. Use {\"type\":\"start\"} to prepend content or {\"type\":\"end\"} to append content. Omit to append.",
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "start"
+                        ],
+                        "description": "Insert the content at the start of the page."
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "end"
+                        ],
+                        "description": "Insert the content at the end of the page."
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": {}
+                  }
+                ]
+              },
+              "allow_deleting_content": {
+                "description": "Optional for \"replace_content\" and \"update_content\" commands. Set to true to allow deletion of child pages and databases that are not referenced in the new content. If false or omitted, the operation will fail with an error listing the pages/databases that would be deleted.",
+                "type": "boolean"
+              },
+              "template_id": {
+                "description": "Required for \"apply_template\" command. The ID of a template to apply to this page. Template content is appended to any existing page content.",
+                "type": "string"
+              },
+              "verification_status": {
+                "description": "Required for \"update_verification\" command. Set to \"verified\" to mark the page as verified, or \"unverified\" to remove verification. When updating verification, the owner will be automatically set to the authenticated actor.",
+                "type": "string",
+                "enum": [
+                  "verified",
+                  "unverified"
+                ]
+              },
+              "verification_expiry_days": {
+                "description": "Optional for \"update_verification\" command when verification_status is \"verified\". Number of days until verification expires (e.g. 7, 30, 90). Omit for indefinite verification.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "icon": {
+                "description": "An emoji character (e.g. \"🚀\"), a custom emoji by name (e.g. \":rocket_ship:\"), or an external image URL. Use \"none\" to remove the icon. Omit to leave unchanged. Can be set alongside any command.",
+                "type": "string"
+              },
+              "cover": {
+                "description": "An external image URL for the page cover. Use \"none\" to remove the cover. Omit to leave unchanged. Can be set alongside any command.",
+                "type": "string"
+              },
+              "is_skill": {
+                "description": "Set to true to mark this page as a skill, or false to remove the skill designation. Can be set alongside any command.",
+                "type": "boolean"
+              },
+              "allow_async": {
+                "description": "Default to true for page updates. Set to false only when the next step needs the updated page immediately, or when async execution rejects the request as too large. When this update operation is accepted for background execution, it returns an async_task result. Use get_async_task to wait for a succeeded status before taking a dependent action on the page. For apply_template, a succeeded status does not mean template content is ready; fetch and retry until it is ready before changing or relying on that content. If omitted or false, the tool waits for a synchronous result when possible, but may still return a pollable async_task response if queued execution exceeds the synchronous wait deadline.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "page_id",
+              "command"
+            ],
+            "additionalProperties": {}
+          },
+          "annotations": {
+            "readOnlyHint": false,
+            "destructiveHint": true,
+            "openWorldHint": false
+          },
+          "_meta": {
+            "resource_name": "notion.notion-update-page",
+            "_codex_apps": {
+              "resource_uri": "/test_notion/test_link/notion-update-page",
+              "contains_mcp_source": true
+            },
+            "connector_id": "test_notion",
+            "connector_name": "Notion",
+            "connector_description": "Create docs, tasks, databases",
+            "link_id": "test_link",
+            "link_owner_profile": {}
+          }
+        }
+      },
+      "runtimeStatus": "connected"
+    }
+  ],
+  "nextCursor": null
+}

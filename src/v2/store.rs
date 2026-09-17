@@ -51,10 +51,13 @@ impl Store {
                 r.get(0)
             })
             .optional()?;
-        if version.as_deref().is_some_and(|v| v != "2") {
+        if version.as_deref().is_some_and(|v| !["2", "3"].contains(&v)) {
             return Err(Error::code(503, "schema_mismatch"));
         }
-        tx.execute("INSERT OR IGNORE INTO metadata VALUES ('schema','2')", [])?;
+        tx.execute(
+            "INSERT INTO metadata VALUES ('schema','3') ON CONFLICT(key) DO UPDATE SET value='3'",
+            [],
+        )?;
         for (key, value) in [
             ("instance", id("pxy")),
             ("generation", id("gen")),
@@ -78,6 +81,39 @@ impl Store {
         tx.execute("UPDATE metadata SET value='ready' WHERE key='recovery_state' AND value='backup_blocked'",[])?;
         // Dispatching is never replayable after process death. Accepted is safe to resume.
         for mut r in list(&tx, "response")? {
+            if r["approval_presentation"]["profile"] == super::approval_policy::PROFILE
+                && super::approval_policy::recover_response(
+                    &mut r,
+                    &super::approval_policy::Clock::read()?,
+                )?
+            {
+                put(
+                    &tx,
+                    "response",
+                    r["response_id"]
+                        .as_str()
+                        .ok_or_else(|| Error::code(503, "store_corrupt"))?,
+                    &r,
+                )?;
+                if let Some(key) = r["request_key"].as_str()
+                    && let Some(mut op) = operation(&tx, key)?
+                    && matches!(
+                        op["state"].as_str(),
+                        Some("accepted" | "running" | "unknown")
+                    )
+                {
+                    match r["phase"].as_str() {
+                        Some("unknown") => op["state"] = json!("unknown"),
+                        Some("cancelled" | "rejected") => {
+                            op["state"] = json!("failed");
+                            op["error"] = json!({"code":r["approval_policy"]["reason"]});
+                        }
+                        _ => {}
+                    }
+                    save_operation(&tx, &op)?;
+                }
+                continue;
+            }
             if matches!(r["phase"].as_str(), Some("dispatching" | "started")) {
                 r["phase"] = json!("unknown");
                 if r["interrupt_delivery"] == "dispatching" {
@@ -103,6 +139,27 @@ impl Store {
                 h["hold_revision"] = json!(h["hold_revision"].as_u64().unwrap_or(0) + 1);
                 h["restart_hold"] = json!(true);
                 put(&tx, "legacy_hold", h["response_id"].as_str().unwrap(), &h)?;
+            }
+        }
+        for mut grant in list(&tx, "mcp_grant")? {
+            if super::approval_grants::selected(&grant)
+                && matches!(
+                    grant["state"].as_str(),
+                    Some("active" | "pending" | "suspended")
+                )
+            {
+                grant["state"] = json!("revoked");
+                grant["reason"] = json!("runtime_restarted");
+                grant["availability"] =
+                    json!({"state":"inactive","reason":"runtime_restarted","retry_after_ms":null});
+                put(
+                    &tx,
+                    "mcp_grant",
+                    grant["grant_id"]
+                        .as_str()
+                        .ok_or_else(|| Error::code(503, "store_corrupt"))?,
+                    &grant,
+                )?;
             }
         }
         super::interactions::recover(&tx)?;

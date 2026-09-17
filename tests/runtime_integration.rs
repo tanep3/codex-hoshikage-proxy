@@ -160,3 +160,65 @@ async fn upstream_resolved_request_cannot_be_approved_from_stale_ui() {
     assert!(manager.decide(&id, "accept").await.is_err());
     runtime.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn catalog_limits_are_rpc_specific_and_transport_survives_rejection() {
+    let runtime = CodexRuntime::launch(&fake_config(&[])).await.unwrap();
+    for bytes in [1_100_000, 8 * 1024 * 1024 - 2, 8 * 1024 * 1024 - 1] {
+        let result = runtime
+            .request(
+                "mcpServerStatus/list",
+                serde_json::json!({"testBytes":bytes}),
+            )
+            .await;
+        if bytes + 2 <= 8 * 1024 * 1024 {
+            assert_eq!(result.unwrap().as_str().unwrap().len(), bytes as usize);
+        } else {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("catalog_too_large")
+            );
+        }
+    }
+    assert!(
+        runtime
+            .request("test/large", serde_json::json!({}))
+            .await
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .len()
+            > 8 * 1024 * 1024
+    );
+    assert_eq!(
+        runtime
+            .request("test/null", serde_json::json!({}))
+            .await
+            .unwrap(),
+        serde_json::Value::Null
+    );
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn late_response_after_cancel_cannot_satisfy_next_rpc() {
+    let runtime = CodexRuntime::launch(&fake_config(&[])).await.unwrap();
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(20),
+            runtime.request("test/late", serde_json::json!({}))
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        runtime
+            .request("test/null", serde_json::json!({}))
+            .await
+            .unwrap(),
+        serde_json::Value::Null
+    );
+    runtime.shutdown().await.unwrap();
+}

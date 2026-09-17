@@ -1,0 +1,11 @@
+{
+  "status": "design_budget_checks_not_product_tests",
+  "checked_presentation_examples": 5,
+  "single_policy_with_legal_individual_fields_bytes": 3234,
+  "single_policy_limit": 2048,
+  "registry_with_32_legal_size_descriptors_bytes": 66311,
+  "registry_limit": 65536,
+  "reserved_grant_list_bytes": 794624,
+  "reserved_interaction_list_bytes": 50339840,
+  "scope": "Serialized example consistency and reservation arithmetic. Does not prove product registration or RPC enforcement."
+}

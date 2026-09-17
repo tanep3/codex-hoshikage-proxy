@@ -286,6 +286,7 @@ pub fn prepare(home: &Path, source: Option<&Path>, generated: &str) -> Result<()
 // MCP reload is applied by Codex at the next active turn. Keep the acknowledged
 // snapshot separate from the generated file: a failed/cancelled RPC must retry.
 const MCP_KEYS: &[&str] = &[
+    "apps",
     "mcp_servers",
     "mcp_oauth_credentials_store",
     "mcp_oauth_callback_port",
@@ -334,6 +335,9 @@ impl McpRefresh {
             generated,
             pending: false,
         }))
+    }
+    pub(crate) fn is_current(&self) -> Result<bool, ConfigError> {
+        Ok(!self.pending && mcp_settings(&read_config(&self.source)?) == self.applied)
     }
     pub(crate) fn prepare(&mut self) -> Result<Option<Value>, ConfigError> {
         let desired = mcp_settings(&read_config(&self.source)?);

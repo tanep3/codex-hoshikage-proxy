@@ -42,3 +42,7 @@
 - [MCP公開カード承認 API 0.4（接続合意版）](mcp-inline-approval-api.ja.md)
 
 - [MCP公開カード承認0.4の実装・検証記録](mcp-inline-approval-validation.ja.md)
+
+- [汎用MCP承認・明示ポリシー API 0.6](mcp-approval-api-v06.ja.md)
+- [MCP承認0.6の利用者・管理者ガイド](mcp-approval-v06-guide.ja.md)
+- [MCP承認0.6の内部設計・実装・受入記録](mcp-approval-v06-implementation.ja.md)

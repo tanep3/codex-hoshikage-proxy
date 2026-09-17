@@ -2273,3 +2273,41 @@ presentationの監査レコードも正式backup／restoreに含めるが、復�
 今回のスイッチ整理は既存ON設定を継承する範囲のみで、新たな有効化操作を増やさない。検索語・アクセス先URL等の公開方針は利用者決定済み。R-01対応版にrenderer一覧・除外規則・actionsを反映した。Gatewayの接続再レビューを完了してから公開部分の実装に着手する。
 
 0.4の接続レビュー完了後に実装した。表示発行／返信意思保存と上流callキャッシュ変更を承認処理ロックで直列化し、ロック順序は承認処理→DB→メモリとする。上流通信を待つ間はこれらのロックを保持しない。[実装・検証記録](mcp-inline-approval-validation.ja.md)を参照。
+
+## MCP承認全体是正の構成（2026-09-17、詳細設計中）
+
+0.4の3 rendererと単純allowlistだけではMFR-01〜11を満たさない。以下の責務を分離し、全体の具体契約完成後に実装する。
+
+1. **CatalogInventory**：runtime・Thread・設定・復元世代ごとに定義取得を共有する。読取の一時失敗・サイズ上限・型不正を型付きで保持する。Playwrightだけを抜き出す設計を廃止し、評価対象全サーバーを処理する。lookupと取得を分離する。
+2. **EvaluatedToolRegistry**：信頼された接続と実定義の版へ、操作の意味・全引数の投影規則・作用規則を対応させる。名前や上流descriptionから実行時に許可を生成しない。台帳は設計入力であり、それ自体を本番allowlistにしない。
+3. **OperationProjection**：実callをscopeへ結び付け、公開本文と本人限定本文を作る。表示用targetと秘密検査を同時に扱い、部分的な伏字で直接承認可能としない。構造化引数は評価済み文法で意味を展開し、生JSONの公開で代用しない。
+4. **TurnGrantPolicy**：毎回の実引数から作用を検証し、利用者決定により外部送信・共有変更・削除・任意コード・秘密・認証を除外する。ツール全体のallowlistだけで後続呼出しを許可しない。初回と自動適用に同じルールを使用する。
+5. **PresentationLedger**：既存call/scope/revision/audienceへ、profile・definition generation・policy generation・完全な本文・actionsも拘束する。取得失敗による状態表示を無制限に版追加せず、同一障害のpollingで4版を使い切らない。DB保存不能時は許可不可。
+6. **ApprovalApplication**：scope・最新カタログ・表示・作用・失効・台帳を同一の承認境界で検証し、送信意思保存後に上流応答する。上流通信中はDBと承認ロックを保持しない。結果不明は再送しない。
+7. **Gateway境界**：GatewayはProxyの公開projectionのみを完全に表示し、型と上限・本人と会話・配信版を検証する。342個のtool名やrendererをGatewayに重複実装させず、評価済みprojectionのwire形式を共有する。ただし未知profile・未知actionsは拒否する。
+
+複合ツールを「一度許可したらすべての操作を許可」としない。候補設計では同じturn_toolに固定のpolicy generationを拘束し、後続の通常操作だけ適用する。browser_tabs/listを許可してもcloseは削除として個別確認し、新規タブ・選択を同じ通常操作範囲へ含める場合は最初のカードで明示する。この契約差分と既存grantの移行をGatewayと照合する。
+
+公開profileの交渉・診断enum・構造化引数・許可ポリシーのwireは[具体契約検討](mcp-approval-full-fix-api.ja.md)、カタログの資源と競合は[カタログ設計](mcp-approval-catalog-correction.ja.md)を参照。先行実装・先行配備はしない。
+
+0.5の公開範囲は[判定仕様](mcp-approval-privacy-design.ja.md)に従い、同じ規則を初回・承認・後続呼出しへ適用する。長文の本人向け表示は全ページを同一版へ拘束し、Gatewayの全ページ配信確定とProxyの全ページtoken照合を併用する。途中の拒否は妨げない。本文を保存せず、照合値にはProxyの鍵付き不透明fingerprintを用いる。
+
+GatewayレビューR-01/R-02への接続仕様は[API第11〜12節](mcp-approval-full-fix-api.ja.md)。操作詳細の現在評価、interaction.operationの受理時履歴、grant_policyの不変条件、availabilityの一時的な適用可否を分離する。CatalogInventoryの正常更新中はactive grantを保持してcallを有界待機し、更新完了時にApprovalApplicationが同じ送信意思境界で再評価する。Gatewayは許可を代行送信しない。
+
+0.5の処理分割・ロック境界・DB schema 2→3・ページ保存・設定互換の内部仕様は[Proxy内部設計](mcp-approval-v05-proxy-internals.ja.md)へ集約する。Notionの保証できない部分置換は利用者決定により実行不可とし、[Notion設計](mcp-approval-notion-design.ja.md)の判定順序とNR-01〜07を適用する。全ツールの意味・fixture照合完了とは区別する。
+
+承認通知が来ない経路の具体的な防止方法は[実行制御設計](mcp-approval-execution-boundary.ja.md)に定義する。ツール別promptだけで十分とはせず、on-request、user reviewer、管理設定、resume、Apps設定差分を含む実効条件を確認する。部分置換禁止の判定を0.5の表示経路だけに置かない。
+
+## 汎用承認とポリシー拡張への責務再整理（2026-09-17）
+
+[責務再整理](mcp-approval-layering-revision.ja.md)を改訂方針の正本とする。直前の標準APIも含む一律の部分置換禁止は撤回し、禁止自体は明示選択したポリシー内で維持する。MFR-17〜21へ適合させる。
+
+OperationProjectionは全実引数の忠実な汎用表示と、評価済み説明の付加を分離する。EvaluatedToolRegistryは単発承認の必須依存から外し、公開表示ルールと依頼中許可の評価資料として使う。取得不能・不完全・対応不明と、単に意味未評価である状態を別型にする。
+
+TurnGrantPolicyは独立した選択可能な拡張。実効policy識別・版・世代を受付時に固定し、上流設定とruntime／Threadの再利用可否へ含める。互換性のない実行へ同じ上流設定を上書きしない。表示profileと実行policyを分離し、未選択クライアントに強制prompt等の副作用を与えない。runtime構成、会話継続時の変更、wire項目とmigrationは後継詳細契約で確定する。
+
+Gateway固有のDiscord認可・投稿分割・文言は中核へ組み込まない。汎用のsubject／conversation／run境界と完全表示の証明をクライアント契約とし、GatewayがDiscordへ対応付ける。既存0.5接続合意にない項目や意味変更を実装側だけで追加しない。
+
+後継[API 0.6接続合意版](mcp-approval-api-v06.ja.md)に、approval_policy選択とbinding、preparing/ready/failed/closed、semantic_assessmentとargument_integrity、単発replyとgrant条件を具体化した。新capabilityで交渉し、0.5の必須型を無告知で変更しない。上流Threadの設定更新・分離・履歴維持は内部実証で確認し、設定受付だけを適用成功とは扱わない。
+
+API 0.6 C06-01/02の補完：応答サイズの正本を[第12節](mcp-approval-api-v06.ja.md#12-c06-01エンドポイント別の応答上限レビュー補完)へ集約し、候補registryの全量検証と発行レコードの将来状態予約を行う。準備制御は同契約第13節に従い、設定RPCとturn/startの送信意思を別記録にする。受付時のUTC／ホスト単調時計期限、worker実行権、同じbindingの再起動照合、runtime隔離の根拠を保存する。設定不明だがTurn未送信を確定できる場合はphase=unknown/execution_status=not_startedで占有を維持する。既存の一括UNKNOWN復旧処理を、準備段階の記録へ無条件適用しない。

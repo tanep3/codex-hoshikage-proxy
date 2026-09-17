@@ -17,7 +17,7 @@ pub const MAX_VERSIONS: u64 = 4;
 pub const PROFILE: &str = "source-conversation-v1";
 
 pub struct State {
-    key: [u8; 32],
+    pub(crate) key: [u8; 32],
     catalog_generation: String,
     catalog_epoch: String,
     tools: BTreeMap<(String, String), String>,

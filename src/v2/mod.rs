@@ -1,4 +1,14 @@
 //! Managed conversation and immutable output services. Isolated from legacy v1 state.
+pub mod approval_admission;
+pub mod approval_config;
+pub mod approval_display;
+pub mod approval_evaluation;
+pub mod approval_grants;
+pub mod approval_policy;
+pub mod approval_prepare;
+pub mod approval_privacy;
+pub mod approval_v06;
+pub mod catalog;
 pub mod files;
 pub mod interactions;
 pub mod store;

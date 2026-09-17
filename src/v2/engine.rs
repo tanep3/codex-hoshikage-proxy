@@ -34,6 +34,11 @@ pub async fn run(state: AppState, service: Arc<Service>, rid: String) {
         .await
         .is_err()
     {
+        if super::approval_prepare::failure(&backup_service, &backup_rid, "policy_setup_failed")
+            .unwrap_or(false)
+        {
+            return;
+        }
         let _ = backup_service.store.update("response", &backup_rid, |r| {
             r["phase"] = json!("unknown");
             r["execution_status"] = json!("unknown");
@@ -42,9 +47,46 @@ pub async fn run(state: AppState, service: Arc<Service>, rid: String) {
         });
     }
 }
+struct PolicyFinish {
+    runtime: Arc<crate::runtime::CodexRuntime>,
+    service: Arc<Service>,
+    rid: String,
+}
+impl Drop for PolicyFinish {
+    fn drop(&mut self) {
+        if let Ok(r) = self.service.store.get("response", &self.rid)
+            && r["hold_state"] != "held"
+            && let Some(binding) = r["approval_policy"]["binding_id"].as_str()
+        {
+            self.runtime.finish_policy_binding(binding);
+            if let Some(thread) = r["thread_id"].as_str() {
+                self.service
+                    .catalog
+                    .release_thread(self.runtime.id(), thread);
+            }
+        }
+    }
+}
 async fn run_inner(state: AppState, service: Arc<Service>, rid: String) {
-    let outcome = execute(&state, &service, &rid).await;
+    let _finish = PolicyFinish {
+        runtime: state.runtime.clone(),
+        service: service.clone(),
+        rid: rid.clone(),
+    };
+    let outcome = tokio::select! {
+        biased;
+        error=preparation_deadline(&service,&rid)=>Err(error),
+        outcome=execute(&state,&service,&rid)=>outcome,
+    };
     if let Err(error) = outcome {
+        match super::approval_prepare::failure(&service, &rid, error.code) {
+            Ok(true) => return,
+            Err(_) => {
+                tracing::error!("preparation failure persistence failed");
+                return;
+            }
+            Ok(false) => {}
+        }
         let result = service.store.update("response", &rid, |r| {
             if r["phase"] == "accepted" || error.code == "execution_rejected" {
                 r["phase"] = json!("rejected");
@@ -59,6 +101,11 @@ async fn run_inner(state: AppState, service: Arc<Service>, rid: String) {
             }
             r["error"] = json!({ "code":error.code});
             if r["phase"] == "unknown" {
+                if super::approval_v06::selected(r)
+                    && r["approval_policy"]["preparation"]["turn_start_status"] == "intent_recorded"
+                {
+                    r["approval_policy"]["preparation"]["turn_start_status"] = json!("unknown");
+                }
                 r["stop_requested"] = json!(true);
             }
             if r["phase"] == "rejected" {
@@ -85,6 +132,26 @@ async fn run_inner(state: AppState, service: Arc<Service>, rid: String) {
         if result.is_err() {
             tracing::error!("v2 execution state persistence failed");
         }
+    }
+}
+async fn preparation_deadline(s: &Service, rid: &str) -> Error {
+    let r = match s.store.get("response", rid) {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+    if !super::approval_v06::selected(&r) {
+        return std::future::pending().await;
+    }
+    match super::approval_prepare::remaining(&r) {
+        Ok(duration) => tokio::time::sleep(duration).await,
+        Err(e) => return e,
+    }
+    match s.store.get("response", rid) {
+        Ok(r) if r["approval_policy"]["preparation"]["turn_start_status"] == "not_sent" => {
+            Error::code(409, "policy_setup_timeout")
+        }
+        Err(e) => e,
+        _ => std::future::pending().await,
     }
 }
 async fn execute(state: &AppState, s: &Arc<Service>, rid: &str) -> Result<()> {
@@ -134,11 +201,15 @@ async fn execute(state: &AppState, s: &Arc<Service>, rid: &str) -> Result<()> {
     if occupied > provider_limit {
         return Err(Error::code(409, "provider_busy"));
     }
-    let _permit = state
-        .permits
-        .acquire(&model.public_provider_id)
-        .await
-        .map_err(|_| Error::code(503, "provider_unavailable"))?;
+    let acquire = state.permits.acquire(&model.public_provider_id);
+    let _permit = if super::approval_v06::selected(&r) {
+        tokio::time::timeout(super::approval_prepare::remaining(&r)?, acquire)
+            .await
+            .map_err(|_| Error::code(409, "policy_setup_timeout"))?
+    } else {
+        acquire.await
+    }
+    .map_err(|_| Error::code(503, "provider_unavailable"))?;
     let dispatch = s.store.update("response", rid, |v| {
         if v["phase"] == "accepted" && v["input_expires_at_ms"].as_u64().unwrap_or(0) <= now() {
             v["phase"] = json!("rejected");
@@ -148,7 +219,9 @@ async fn execute(state: &AppState, s: &Arc<Service>, rid: &str) -> Result<()> {
         }
         if v["phase"] == "accepted" && !v["stop_requested"].as_bool().unwrap_or(false) {
             v["phase"] = json!("dispatching");
-            v["execution_status"] = json!("unknown");
+            if !super::approval_v06::selected(v) {
+                v["execution_status"] = json!("unknown");
+            }
         }
         Ok(())
     })?;
@@ -166,33 +239,22 @@ async fn execute(state: &AppState, s: &Arc<Service>, rid: &str) -> Result<()> {
         return Ok(());
     }
     let mut events = state.runtime.subscribe();
+    let start = json!({
+        "cwd":cwd,"model":model.upstream_model_id,"modelProvider":model.codex_provider_id,
+        "approvalPolicy":"on-request","sandbox":state.sandbox_mode,
+        "dynamicTools":[{"type":"function","name":"hoshikage_publish_artifact","description":"Publish a completed file as an immutable downloadable artifact. Close the file first. Registration does not send it to the user.","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"display_name":{"type":"string"}},"required":["path"],"additionalProperties":false}}]
+    });
+    let prepared = super::approval_prepare::prepare(state, s, rid, &start).await?;
     let c = s.store.get("conversation", cid)?;
-    let thread = if let Some(t) = c["thread_id"].as_str() {
-        state
-            .runtime
-            .request(
-                "thread/resume",
-                json!({
-                    "threadId":t,
-                    "cwd":cwd,
-                    "model":model.upstream_model_id,
-                    "modelProvider":model.codex_provider_id
-                }),
-            )
-            .await
-            .map_err(rpc_error)?;
+    let thread = if let Some(t) = prepared {
+        t
+    } else if let Some(t) = c["thread_id"].as_str() {
+        state.runtime.request("thread/resume",json!({"threadId":t,"cwd":cwd,"model":model.upstream_model_id,"modelProvider":model.codex_provider_id})).await.map_err(rpc_error)?;
         t.to_owned()
     } else {
         let result = state
             .runtime
-            .request("thread/start", json!({
-                "cwd":cwd,
-                "model":model.upstream_model_id,
-                "modelProvider":model.codex_provider_id,
-                "approvalPolicy":"on-request",
-                "sandbox":state.sandbox_mode,
-                "dynamicTools":[{ "type":"function","name":"hoshikage_publish_artifact","description":"Publish a completed file as an immutable downloadable artifact. Close the file first. Registration does not send it to the user.","inputSchema":{ "type":"object","properties":{ "path":{ "type":"string"} ,"display_name":{ "type":"string"} } ,"required":["path"],"additionalProperties":false} } ]
-            }))
+            .request("thread/start", start)
             .await
             .map_err(rpc_error)?;
         result
@@ -208,6 +270,7 @@ async fn execute(state: &AppState, s: &Arc<Service>, rid: &str) -> Result<()> {
     let r = s.store.update("response", rid, |r| {
         r["thread_id"] = json!(thread);
         if r["stop_requested"] == true {
+            super::approval_prepare::close(r);
             r["phase"] = json!("cancelled");
             r["execution_status"] = json!("not_started");
             r["hold_state"] = json!("released");
@@ -244,22 +307,19 @@ async fn execute(state: &AppState, s: &Arc<Service>, rid: &str) -> Result<()> {
         .approvals
         .register_turn(&thread, capability, &cwd, suppression)
         .await;
-    let result = state
-        .runtime
-        .request(
-            "turn/start",
-            json!({
-                "threadId":thread,
-                "cwd":cwd,
-                "model":model.upstream_model_id,
-                "input":input,
-                "outputSchema":schema,
-                "approvalPolicy":"on-request",
-                "effort":model.reasoning_effort.map(crate::http::reasoning_name)
-            }),
-        )
-        .await
-        .map_err(rpc_error)?;
+    let params = json!({"threadId":thread,"cwd":cwd,"model":model.upstream_model_id,
+        "input":input,"outputSchema":schema,"approvalPolicy":"on-request",
+        "effort":model.reasoning_effort.map(crate::http::reasoning_name)});
+    let binding = super::approval_prepare::turn_intent(s, rid)?;
+    let result = if let Some(binding) = binding {
+        state
+            .runtime
+            .request_scoped(&binding, "turn/start", params)
+            .await
+    } else {
+        state.runtime.request("turn/start", params).await
+    }
+    .map_err(rpc_error)?;
     let turn = result
         .pointer("/turn/id")
         .and_then(Value::as_str)
@@ -267,6 +327,9 @@ async fn execute(state: &AppState, s: &Arc<Service>, rid: &str) -> Result<()> {
         .to_owned();
     state.approvals.bind_turn(&thread, &turn).await;
     s.store.update("response", rid, |r| {
+        if super::approval_v06::selected(r) {
+            super::approval_policy::started(&mut r["approval_policy"])?;
+        }
         r["turn_id"] = json!(turn);
         r["phase"] = json!("started");
         r["execution_status"] = json!("in_progress");
@@ -414,6 +477,7 @@ async fn execute(state: &AppState, s: &Arc<Service>, rid: &str) -> Result<()> {
         return Err(Error::code(502,"execution_unknown"));
         }
                    s.store.update("response",rid,|r|{
+        super::approval_prepare::close(r);
         r["phase"]=json!("finished");
         r["execution_status"]=json!(status);
         r["last_observed_status"]=json!(status);

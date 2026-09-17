@@ -88,9 +88,10 @@ max_concurrent_turns = 4
 
 # v2 storage limits (initial candidates; validate on the deployment host).
 [v2]
-# MCP run-scoped approval: keep disabled until acceptance is complete.
+# Enables explicitly selected run-scoped policies; does not auto-approve by itself.
+# API 0.6 full display and one-shot approval remain available when false.
 mcp_turn_approval_enabled = false
-# Operator-reviewed server/tool allowlist (empty by default).
+# Legacy profile server/tool allowlist. API 0.6 uses definition-bound evaluated policies.
 mcp_turn_grant_tools = {}
 generated_images_max_count = 16
 generated_image_max_bytes = 10485760

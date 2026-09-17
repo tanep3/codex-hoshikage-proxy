@@ -1,0 +1,411 @@
+{
+  "schema_version": 1,
+  "status": "design_expectations_not_test_results",
+  "preconditions": [
+    "verified_call_and_catalog",
+    "matching_scope",
+    "enabled_and_operator_allowed",
+    "valid_grant_if_applying",
+    "no_additional_arguments",
+    "content_dependent_edits_require_verified_complete_target_provider_semantics_and_execution_version_binding"
+  ],
+  "cases": [
+    {
+      "id": "NV01",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "SORT BY \"Created\" DESC"
+      },
+      "expected": {
+        "effects": [
+          "write"
+        ],
+        "turn_eligible": true,
+        "display": "source_conversation"
+      },
+      "purpose": "通常の並び順変更"
+    },
+    {
+      "id": "NV02",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "FORM PERMISSIONS reader"
+      },
+      "expected": {
+        "effects": [
+          "permission_change"
+        ],
+        "turn_eligible": false,
+        "display": "source_conversation"
+      },
+      "purpose": "権限変更は単発"
+    },
+    {
+      "id": "NV03",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "SORT BY \"Created\" DESC; FORM PERMISSIONS editor"
+      },
+      "expected": {
+        "effects": [
+          "write",
+          "permission_change"
+        ],
+        "turn_eligible": false,
+        "display": "source_conversation"
+      },
+      "purpose": "混在時は呼出し全体が単発"
+    },
+    {
+      "id": "NV04",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "form permissions comment_only"
+      },
+      "expected": {
+        "effects": [
+          "permission_change"
+        ],
+        "turn_eligible": false,
+        "display": "source_conversation"
+      },
+      "purpose": "大小文字と公式DSLにだけ記載のenum"
+    },
+    {
+      "id": "NV05",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "FORM PERMISSIONS read_and_write"
+      },
+      "expected": {
+        "effects": [
+          "permission_change"
+        ],
+        "turn_eligible": false,
+        "display": "source_conversation"
+      },
+      "purpose": "短いtool説明にない有効enum"
+    },
+    {
+      "id": "NV06",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "FORM OPEN"
+      },
+      "expected": {
+        "effects": [
+          "permission_change"
+        ],
+        "turn_eligible": false,
+        "display": "source_conversation"
+      },
+      "purpose": "回答受付を変更"
+    },
+    {
+      "id": "NV07",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "FORM ANONYMOUS true"
+      },
+      "expected": {
+        "effects": [
+          "permission_change"
+        ],
+        "turn_eligible": false,
+        "display": "source_conversation"
+      },
+      "purpose": "匿名回答の条件を変更"
+    },
+    {
+      "id": "NV08",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "CLEAR SORT"
+      },
+      "expected": {
+        "effects": [
+          "write"
+        ],
+        "turn_eligible": true,
+        "display": "source_conversation"
+      },
+      "purpose": "表示設定の解除とリソース削除を区別"
+    },
+    {
+      "id": "NV09",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "CHART number CAPTION \"FORM PERMISSIONS editor\""
+      },
+      "expected": {
+        "effects": [
+          "write"
+        ],
+        "turn_eligible": true,
+        "display": "source_conversation"
+      },
+      "purpose": "引用符内の命令文字を実命令と混同しない"
+    },
+    {
+      "id": "NV10",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "SORT BY \"Created\"; UNREVIEWED command"
+      },
+      "expected": {
+        "effects": [
+          "unknown"
+        ],
+        "turn_eligible": false,
+        "display": "unavailable"
+      },
+      "purpose": "入力末尾を捨てない"
+    },
+    {
+      "id": "NV11",
+      "tool": "notion.notion-update-view",
+      "arguments": {
+        "view_id": "view-test",
+        "configure": "FORM PERMISSIONS superuser"
+      },
+      "expected": {
+        "effects": [
+          "unknown"
+        ],
+        "turn_eligible": false,
+        "display": "unavailable"
+      },
+      "purpose": "未知の権限を推測しない"
+    },
+    {
+      "id": "NP01",
+      "tool": "notion.notion-update-page",
+      "arguments": {
+        "page_id": "page-test",
+        "command": "update_content",
+        "content_updates": [
+          {
+            "old_str": "旧表記",
+            "new_str": "新表記"
+          }
+        ]
+      },
+      "expected": {
+        "effects": [
+          "write"
+        ],
+        "turn_eligible": true,
+        "display": "source_conversation"
+      },
+      "purpose": "通常の文章修正、複数一致時エラーの既定",
+      "release_expected": {
+        "state": "unavailable",
+        "reason": "operation_semantics_unverified",
+        "allow_once": false,
+        "allow_turn_tool": false
+      },
+      "release_basis": "user_decision_2026_09_17_no_unbound_partial_replacement"
+    },
+    {
+      "id": "NP02",
+      "tool": "notion.notion-update-page",
+      "arguments": {
+        "page_id": "page-test",
+        "command": "update_content",
+        "content_updates": [
+          {
+            "old_str": "旧表記",
+            "new_str": "新表記",
+            "replace_all_matches": true
+          }
+        ]
+      },
+      "expected": {
+        "effects": [
+          "write"
+        ],
+        "turn_eligible": true,
+        "display": "source_conversation"
+      },
+      "purpose": "全一致箇所置換を明示",
+      "release_expected": {
+        "state": "unavailable",
+        "reason": "operation_semantics_unverified",
+        "allow_once": false,
+        "allow_turn_tool": false
+      },
+      "release_basis": "user_decision_2026_09_17_no_unbound_partial_replacement"
+    },
+    {
+      "id": "NP03",
+      "tool": "notion.notion-update-page",
+      "arguments": {
+        "page_id": "page-test",
+        "command": "update_content",
+        "content_updates": [
+          {
+            "old_str": "旧表記",
+            "new_str": ""
+          }
+        ],
+        "allow_deleting_content": true
+      },
+      "expected": {
+        "effects": [
+          "write",
+          "delete"
+        ],
+        "turn_eligible": false,
+        "display": "source_conversation"
+      },
+      "purpose": "子リソース削除許容がある呼出し",
+      "release_expected": {
+        "state": "unavailable",
+        "reason": "operation_semantics_unverified",
+        "allow_once": false,
+        "allow_turn_tool": false
+      },
+      "release_basis": "user_decision_2026_09_17_no_unbound_partial_replacement"
+    },
+    {
+      "id": "NP04",
+      "tool": "notion.notion-update-page",
+      "arguments": {
+        "page_id": "page-test",
+        "command": "insert_content",
+        "content": "<page url=\"https://www.notion.so/00000000000000000000000000000001\">既存ページ</page>"
+      },
+      "expected": {
+        "effects": [
+          "write",
+          "permission_change"
+        ],
+        "turn_eligible": false,
+        "display": "source_conversation"
+      },
+      "purpose": "既存ページの移動、権限影響不明なら単発"
+    },
+    {
+      "id": "NP05",
+      "tool": "notion.notion-update-page",
+      "arguments": {
+        "page_id": "page-test",
+        "command": "insert_content",
+        "content": "<mention-page url=\"https://www.notion.so/00000000000000000000000000000001\"/>"
+      },
+      "expected": {
+        "effects": [
+          "write"
+        ],
+        "turn_eligible": true,
+        "display": "source_conversation"
+      },
+      "purpose": "単なるページ参照と移動を区別"
+    },
+    {
+      "id": "NP06",
+      "tool": "notion.notion-update-page",
+      "arguments": {
+        "page_id": "page-test",
+        "command": "insert_content",
+        "content": "```text\n<page url=\"https://example.test/page\">例</page>\n```"
+      },
+      "expected": {
+        "effects": [
+          "write"
+        ],
+        "turn_eligible": true,
+        "display": "source_conversation"
+      },
+      "purpose": "コード例のタグは移動指示ではない"
+    },
+    {
+      "id": "NP07",
+      "tool": "notion.notion-update-page",
+      "arguments": {
+        "page_id": "page-test",
+        "command": "insert_content",
+        "content": "連絡先 person@example.test を追記"
+      },
+      "expected": {
+        "effects": [
+          "write"
+        ],
+        "turn_eligible": true,
+        "display": "requester_only"
+      },
+      "purpose": "通常編集でも連絡先は本人向け"
+    },
+    {
+      "id": "NP08",
+      "tool": "notion.notion-update-page",
+      "arguments": {
+        "page_id": "page-test",
+        "command": "update_content",
+        "content_updates": [
+          {
+            "old_str": "",
+            "new_str": "追加"
+          }
+        ]
+      },
+      "expected": {
+        "effects": [
+          "unknown"
+        ],
+        "turn_eligible": false,
+        "display": "unavailable"
+      },
+      "purpose": "空の検索文字列を受理しない",
+      "release_expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      },
+      "release_basis": "input_validation_precedes_partial_replacement_policy"
+    },
+    {
+      "id": "NP09",
+      "tool": "notion.notion-update-page",
+      "arguments": {
+        "page_id": "page-test",
+        "command": "update_content",
+        "content_updates": [
+          {
+            "old_str": "a",
+            "new_str": "b",
+            "unreviewed_flag": true
+          }
+        ]
+      },
+      "expected": {
+        "effects": [
+          "unknown"
+        ],
+        "turn_eligible": false,
+        "display": "unavailable"
+      },
+      "purpose": "追加schemaを黙って無視しない",
+      "release_expected": {
+        "state": "unavailable",
+        "reason": "unknown_arguments",
+        "allow_once": false,
+        "allow_turn_tool": false
+      },
+      "release_basis": "input_validation_precedes_partial_replacement_policy"
+    }
+  ],
+  "expectation_precedence": "release_expected overrides expected for current product; invalid or unreviewed arguments are rejected before the current update_content restriction; expected alone describes conditional semantic analysis, not execution permission",
+  "release_policy_scope": "Only executions explicitly selecting the policy that forbids unguaranteed Notion partial replacements. These release expectations do not apply to unselected executions."
+}

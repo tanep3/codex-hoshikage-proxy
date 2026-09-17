@@ -473,6 +473,11 @@ fn receive_inner(
         let matches: Vec<_> = store::list(tx,"response")?.into_iter().filter(|r| r["thread_id"]==thread && matches!(r["phase"].as_str(),Some("dispatching" | "started"))).collect();
         if matches.len()!=1 { return Ok(false); }
         let r = &matches[0];
+        if !native && r["approval_policy"]["selection"]["id"]=="evaluated-turn-notion-guard"
+            && ((method=="item/tool/requestUserInput" && p["questions"].as_array().is_some_and(|q|q.iter().any(|q|q["id"].as_str().is_some_and(|id|id.starts_with("mcp_tool_call_approval_")))))
+                || (method=="mcpServer/elicitation/request" && p["_meta"]["codex_approval_kind"]=="mcp_tool_call")) {
+            return Err(Error::code(409,"policy_check_unavailable"));
+        }
         if !r["interaction_capabilities"].as_array().is_some_and(|a|a.iter().any(|v|v==kind)) { return Ok(false); }
         ensure_ready(tx)?;
         if r["stop_requested"]==true { return Err(Error::code(409,"interaction_closed")); }
@@ -487,7 +492,7 @@ fn receive_inner(
             if existing["state"]!="pending" {return Err(Error::code(409,"interaction_closed"));}
             return Ok(true);
         }
-        if store::list(tx,"interaction")?.iter().filter(|i| i["response_id"]==rid && (!s.limits.mcp_turn_approval_enabled || matches!(i["state"].as_str(),Some("pending"|"sending")))).count()>=MAX_COUNT || store::list(tx,"interaction")?.iter().filter(|i|i["response_id"]==rid).count()>=super::mcp_grants::MAX_RECORDS { return Err(Error::code(429,"interaction_limit_exceeded")); }
+        if store::list(tx,"interaction")?.iter().filter(|i| i["response_id"]==rid && ((!s.limits.mcp_turn_approval_enabled && !super::approval_v06::selected(r)) || matches!(i["state"].as_str(),Some("pending"|"sending")))).count()>=MAX_COUNT || store::list(tx,"interaction")?.iter().filter(|i|i["response_id"]==rid).count()>=super::mcp_grants::MAX_RECORDS { return Err(Error::code(429,"interaction_limit_exceeded")); }
         let mut request=p.clone();
         for k in ["threadId","turnId"] { request.as_object_mut().unwrap().remove(k); }
         let mut i=json!({"interaction_id":iid,"response_id":rid,"conversation_id":r["conversation_id"],"workspace_id":r["workspace_id"],
@@ -495,12 +500,19 @@ fn receive_inner(
             "created_at_ms":now(),"expires_at_ms":now()+TIMEOUT_MS,"request":request,"reply_status":"not_sent","error":null});
         if native {super::mcp_grants::attach(s,r,&mut i,p)?;}
         super::mcp_grants::bounded_response(public(i.clone()), super::mcp_grants::SINGLE_BYTES)?;
+        if super::approval_v06::selected(r) {
+            let mut reserved=public(i.clone());reserved["_future_reservation"]=json!("x".repeat(16384));
+            if serde_json::to_vec(&reserved)?.len()>196608 {return Err(Error::code(503,"approval_metadata_capacity"));}
+        }
         store::put(tx,"interaction",&iid,&i)?;
         update_wait(tx, rid)?;
         Ok(true)
     })
 }
 fn public(mut i: Value) -> Value {
+    if let Some(accepted) = i.as_object_mut().unwrap().remove("_accepted_operation") {
+        i["operation"] = accepted;
+    }
     for key in [
         "rpc_id",
         "thread_id",
@@ -716,12 +728,18 @@ pub(crate) async fn reply_inner(
             "expected_scope_fingerprint",
             "approval_view",
             "expected_presentation_fingerprint",
+            "expected_policy_binding_id",
+            "expected_page_tokens",
         ],
     )?;
     if !bounded(body) {
         return Err(invalid());
     }
-    super::presentations::validate_reply(body)?;
+    if body.get("expected_policy_binding_id").is_none()
+        && body.get("expected_page_tokens").is_none()
+    {
+        super::presentations::validate_reply(body)?;
+    }
     refresh(s)?;
     let (op, fresh, rpc) = {
         let _gate = s.approval_gate.lock().unwrap();
@@ -757,9 +775,14 @@ pub(crate) async fn reply_inner(
             return Err(Error::code(409, "revision_conflict"));
         }
         validate_reply(&i, &body["response"])?;
-        super::mcp_grants::check_display(s,&i,body)?;
-        super::mcp_grants::check_scope(s,&r,&i)?;
-        super::presentations::check_reply(s,tx,&i,&r,body)?;
+        if super::approval_v06::handles(&r,&i) {
+            if automatic.is_none() {super::approval_v06::check_reply(s,tx,&i,&r,body)?;}
+        } else {
+            if body.get("expected_policy_binding_id").is_some() || body.get("expected_page_tokens").is_some() {return Err(Error::code(400,"invalid_approval_presentation"));}
+            super::mcp_grants::check_display(s,&i,body)?;
+            super::mcp_grants::check_scope(s,&r,&i)?;
+            super::presentations::check_reply(s,tx,&i,&r,body)?;
+        }
         let mut wire = body["response"].clone();
         if let Some(question)=i["native_question_id"].as_str() {
             wire=json!({"answers":{question:{"answers":[if body["response"]["action"]=="accept" {"Allow"}else{"Cancel"}]}}});
@@ -767,6 +790,9 @@ pub(crate) async fn reply_inner(
         let rpc = json!({"id":i["rpc_id"],"response":wire});
         let mut i = i;
         if let Some(id)=automatic {super::mcp_grants::apply(s,tx,&r,&mut i,id)?;}else{super::mcp_grants::create(s,tx,&r,&mut i,body)?;}
+        if super::approval_v06::handles(&r,&i) {
+            super::approval_v06::accepted_metadata(s,&mut i,&r);
+        }
         i["reply_key"] = json!(key);
         i["reply_status"] = json!("unknown");
         change(tx, &mut i, "sending", "interaction_reply_pending")?;
