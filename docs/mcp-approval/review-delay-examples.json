@@ -1,0 +1,409 @@
+{
+  "private_required": {
+    "actions": {
+      "allow_once": false,
+      "allow_turn_tool": false,
+      "decline": true,
+      "open_private_details": true,
+      "retry": false
+    },
+    "argument_integrity": {
+      "reason": null,
+      "source": "codex_call_event",
+      "status": "complete"
+    },
+    "audience": {
+      "channel_id": "ch",
+      "kind": "source_conversation",
+      "principal_id": null
+    },
+    "diagnostic": {
+      "code": "privacy_unclassified",
+      "retry_after_ms": null,
+      "retryable": false
+    },
+    "display": {
+      "disclosure": "source_conversation",
+      "fields": [],
+      "limitations": [
+        "操作の全内容を、自分だけに表示して確認してください"
+      ],
+      "omissions": [],
+      "provenance": "unavailable",
+      "title": "MCP操作の確認"
+    },
+    "execution_policy": {
+      "binding_id": "binding_7ed04d3a-f350-400e-b85a-002b86143332",
+      "generation": null,
+      "preparation": {
+        "configuration_isolation": "confirmed",
+        "deadline_at": "2026-09-17T11:40:56.575Z",
+        "recovery_state": "none",
+        "started_at": "2026-09-17T11:39:56.575Z",
+        "turn_start_status": "confirmed"
+      },
+      "reason": null,
+      "restrictions": [],
+      "selection": null,
+      "state": "ready",
+      "upstream_overrides": []
+    },
+    "expires_at": "2026-09-17T11:49:56.578Z",
+    "interaction_id": "int_fffdb5b0fa28c4b1f1e1487d326852e24ff4aeed7223592d55daa86db2f145a1",
+    "page": {
+      "content_fingerprint": "7d7527d289313ebba39dd4755fabbdd773b5ee929db94cf71e2a8e52a383f73e",
+      "count": 1,
+      "index": 0,
+      "token": "4e92fef90e75fe5b65cdd5b6b2e5c196084eef588ece6112004b428aaefa9669"
+    },
+    "presentation_fingerprint": "view_1273b982-2b14-4164-bc00-e2c4a89a8945",
+    "presentation_id": "present_66370941-2667-428f-8e6a-9c3f4ae73c93",
+    "profile": "source-conversation-v3",
+    "reason": "privacy_unclassified",
+    "renderer": "raw-arguments-v1",
+    "response_id": "resp_ac894629-79e0-45ac-b213-60e39c69bdfa",
+    "revision": 1,
+    "scope": {
+      "config_generation": "cf5b44fc-2884-42ba-9975-f149dad9db6d",
+      "context": {
+        "channel_id": "ch",
+        "principal_id": "u",
+        "run_id": "run"
+      },
+      "conversation_id": "conv_8ea23d2a-a871-458f-ba0b-fe5131f83565",
+      "definition_generation": null,
+      "execution_policy_binding_id": "binding_7ed04d3a-f350-400e-b85a-002b86143332",
+      "input_generation": 0,
+      "instance_id": "pxy_e6d17c10-f6a4-4aac-843a-cf86500dd2c8",
+      "policy_generation": null,
+      "recovery_generation": "gen_93be355a-9c29-403a-b585-4b7d7f78677b",
+      "response_id": "resp_ac894629-79e0-45ac-b213-60e39c69bdfa",
+      "server": "unknown",
+      "tool": "unreviewed",
+      "turn_id": "turn",
+      "workspace_id": "ws_d493f3ba-8b48-4dcb-8724-431eb1046eb5"
+    },
+    "scope_fingerprint": "fc26d3e3a4f8dc1de142812c16162efa0189e3bc2ec018d1120af19792795fc0",
+    "semantic_assessment": {
+      "effects": null,
+      "reason": "catalog_unavailable",
+      "status": "unavailable"
+    },
+    "state": "private_required",
+    "tool_policy": null,
+    "turn_id": "turn"
+  },
+  "catalog_loading": {
+    "actions": {
+      "allow_once": false,
+      "allow_turn_tool": false,
+      "decline": true,
+      "open_private_details": false,
+      "retry": true
+    },
+    "argument_integrity": {
+      "reason": null,
+      "source": "codex_call_event",
+      "status": "complete"
+    },
+    "audience": {
+      "channel_id": "channel",
+      "kind": "source_conversation",
+      "principal_id": null
+    },
+    "diagnostic": {
+      "code": "catalog_loading",
+      "retry_after_ms": 2000,
+      "retryable": true
+    },
+    "display": {
+      "disclosure": "source_conversation",
+      "fields": [],
+      "limitations": [],
+      "omissions": [],
+      "provenance": "unavailable",
+      "title": "MCP操作の確認"
+    },
+    "execution_policy": {
+      "binding_id": "binding_677e0360-8371-444d-b4f3-4805379be88b",
+      "generation": "policygen_f78b7dc1-90af-440d-a25c-7464eb02c8a3",
+      "preparation": {
+        "configuration_isolation": "confirmed",
+        "deadline_at": "2026-09-17T11:49:55.348Z",
+        "recovery_state": "none",
+        "started_at": "2026-09-17T11:48:55.348Z",
+        "turn_start_status": "confirmed"
+      },
+      "reason": null,
+      "restrictions": [],
+      "selection": {
+        "id": "evaluated-turn",
+        "version": 1
+      },
+      "state": "ready",
+      "upstream_overrides": []
+    },
+    "expires_at": null,
+    "interaction_id": "int_f0fbca20300fa0f32fd73af5fe21db520ef9b6fac14b643d0a729a28bc6abe48",
+    "page": null,
+    "presentation_fingerprint": null,
+    "presentation_id": null,
+    "profile": "source-conversation-v3",
+    "reason": "catalog_loading",
+    "renderer": "raw-arguments-v1",
+    "response_id": "resp_8f36bf22-460f-4c37-a4c5-880acd3d4984",
+    "revision": 1,
+    "scope": {
+      "config_generation": "c9190932-2574-4302-b02b-9a83b208d6f9",
+      "context": {
+        "channel_id": "channel",
+        "principal_id": "user",
+        "run_id": "run"
+      },
+      "conversation_id": "conv_5e38e5d7-0501-4f55-b5d5-82035a779843",
+      "definition_generation": null,
+      "execution_policy_binding_id": "binding_677e0360-8371-444d-b4f3-4805379be88b",
+      "input_generation": 0,
+      "instance_id": "pxy_59b17d96-3527-40f5-a5d7-08c4c837cda4",
+      "policy_generation": "policygen_f78b7dc1-90af-440d-a25c-7464eb02c8a3",
+      "recovery_generation": "gen_38ffcedd-77f7-4cd4-82da-42250445227b",
+      "response_id": "resp_8f36bf22-460f-4c37-a4c5-880acd3d4984",
+      "server": "playwright",
+      "tool": "browser_find",
+      "turn_id": "turn_fake_1",
+      "workspace_id": "ws_dd6df1bd-43b3-4616-a807-dec7daf9c22e"
+    },
+    "scope_fingerprint": "f0657ff4f4aa448d006f61a84a83faf5adad8e9fa904e87b539ed77e6b09629d",
+    "semantic_assessment": {
+      "effects": null,
+      "reason": "catalog_unavailable",
+      "status": "unavailable"
+    },
+    "state": "unavailable",
+    "tool_policy": {
+      "always_confirm_operations": [],
+      "decision": "not_blocked",
+      "definition_generation": null,
+      "effects": null,
+      "eligible_operations": [],
+      "grant_scope": null,
+      "policy_generation": "policygen_f78b7dc1-90af-440d-a25c-7464eb02c8a3",
+      "policy_id": "evaluated-turn",
+      "reason": "catalog_unavailable",
+      "turn_eligible": false,
+      "version": 1
+    },
+    "turn_id": "turn_fake_1"
+  },
+  "catalog_failed": {
+    "actions": {
+      "allow_once": false,
+      "allow_turn_tool": false,
+      "decline": true,
+      "open_private_details": false,
+      "retry": true
+    },
+    "argument_integrity": {
+      "reason": null,
+      "source": "codex_call_event",
+      "status": "complete"
+    },
+    "audience": {
+      "channel_id": "channel",
+      "kind": "source_conversation",
+      "principal_id": null
+    },
+    "diagnostic": {
+      "code": "catalog_failed",
+      "retry_after_ms": 2000,
+      "retryable": true
+    },
+    "display": {
+      "disclosure": "source_conversation",
+      "fields": [],
+      "limitations": [],
+      "omissions": [],
+      "provenance": "unavailable",
+      "title": "MCP操作の確認"
+    },
+    "execution_policy": {
+      "binding_id": "binding_39feddf1-5551-48a4-b581-5ce7ee7a03bf",
+      "generation": "policygen_f12230ea-a932-4dd4-b34a-327ffce0163f",
+      "preparation": {
+        "configuration_isolation": "confirmed",
+        "deadline_at": "2026-09-17T11:51:33.93Z",
+        "recovery_state": "none",
+        "started_at": "2026-09-17T11:50:33.93Z",
+        "turn_start_status": "confirmed"
+      },
+      "reason": null,
+      "restrictions": [],
+      "selection": {
+        "id": "evaluated-turn",
+        "version": 1
+      },
+      "state": "ready",
+      "upstream_overrides": []
+    },
+    "expires_at": null,
+    "interaction_id": "int_d3241db4c93842384c6a97a01916e385f27f4b2595be2ebb1c400342750849fe",
+    "page": null,
+    "presentation_fingerprint": null,
+    "presentation_id": null,
+    "profile": "source-conversation-v3",
+    "reason": "catalog_failed",
+    "renderer": "raw-arguments-v1",
+    "response_id": "resp_550c0720-9786-4f95-b489-ce7e52293f91",
+    "revision": 1,
+    "scope": {
+      "config_generation": "18f69d93-b6b8-488c-8c99-8bc4f9fc3fbc",
+      "context": {
+        "channel_id": "channel",
+        "principal_id": "user",
+        "run_id": "run"
+      },
+      "conversation_id": "conv_f0be4104-3719-41d3-ad35-0065b2f3967e",
+      "definition_generation": null,
+      "execution_policy_binding_id": "binding_39feddf1-5551-48a4-b581-5ce7ee7a03bf",
+      "input_generation": 0,
+      "instance_id": "pxy_1069d08b-f1eb-462a-8910-f9bff8c2dce8",
+      "policy_generation": "policygen_f12230ea-a932-4dd4-b34a-327ffce0163f",
+      "recovery_generation": "gen_106f7027-c30f-4d0b-bb48-9f4069dae3fe",
+      "response_id": "resp_550c0720-9786-4f95-b489-ce7e52293f91",
+      "server": "playwright",
+      "tool": "browser_find",
+      "turn_id": "turn_fake_1",
+      "workspace_id": "ws_f8e0e5a7-7d7f-4875-a714-bab27f1aa18d"
+    },
+    "scope_fingerprint": "2689a1c6c9df15c1463cfdc0ec41447fd7543c0e7121aba16df01a76c90a8b08",
+    "semantic_assessment": {
+      "effects": null,
+      "reason": "catalog_unavailable",
+      "status": "unavailable"
+    },
+    "state": "unavailable",
+    "tool_policy": {
+      "always_confirm_operations": [],
+      "decision": "not_blocked",
+      "definition_generation": null,
+      "effects": null,
+      "eligible_operations": [],
+      "grant_scope": null,
+      "policy_generation": "policygen_f12230ea-a932-4dd4-b34a-327ffce0163f",
+      "policy_id": "evaluated-turn",
+      "reason": "catalog_unavailable",
+      "turn_eligible": false,
+      "version": 1
+    },
+    "turn_id": "turn_fake_1"
+  },
+  "definition_changed_private": {
+    "actions": {
+      "allow_once": false,
+      "allow_turn_tool": false,
+      "decline": true,
+      "open_private_details": true,
+      "retry": false
+    },
+    "argument_integrity": {
+      "reason": null,
+      "source": "codex_call_event",
+      "status": "complete"
+    },
+    "audience": {
+      "channel_id": "channel",
+      "kind": "source_conversation",
+      "principal_id": null
+    },
+    "diagnostic": {
+      "code": "privacy_unclassified",
+      "retry_after_ms": null,
+      "retryable": false
+    },
+    "display": {
+      "disclosure": "source_conversation",
+      "fields": [],
+      "limitations": [
+        "操作の全内容を、自分だけに表示して確認してください"
+      ],
+      "omissions": [],
+      "provenance": "unavailable",
+      "title": "MCP操作の確認"
+    },
+    "execution_policy": {
+      "binding_id": "binding_8687c90e-b6d4-4feb-9844-0f493353a151",
+      "generation": "policygen_180cd21d-2e3a-41ac-b970-5c49b0a14565",
+      "preparation": {
+        "configuration_isolation": "confirmed",
+        "deadline_at": "2026-09-17T11:51:36.255Z",
+        "recovery_state": "none",
+        "started_at": "2026-09-17T11:50:36.255Z",
+        "turn_start_status": "confirmed"
+      },
+      "reason": null,
+      "restrictions": [],
+      "selection": {
+        "id": "evaluated-turn",
+        "version": 1
+      },
+      "state": "ready",
+      "upstream_overrides": []
+    },
+    "expires_at": "2026-09-17T12:00:36.299Z",
+    "interaction_id": "int_b4d73951204bcc07609783b8371c5efd1aa96395994760e2c16dcdfe472876f7",
+    "page": {
+      "content_fingerprint": "eadf4ca61d430dfb3096da3019fc62d8a542730c208526ae550d00fd54273943",
+      "count": 1,
+      "index": 0,
+      "token": "0784673c0d0b1b14b944e2e91566dea47041681a3a30982ec5b22e4206775682"
+    },
+    "presentation_fingerprint": "view_c206058e-63bd-4f89-b864-53aa5306f8cd",
+    "presentation_id": "present_331fcec7-9555-4898-a434-38bc427a5586",
+    "profile": "source-conversation-v3",
+    "reason": "privacy_unclassified",
+    "renderer": "raw-arguments-v1",
+    "response_id": "resp_160d1c9c-2a1b-4450-bf73-6d4b544a8f76",
+    "revision": 1,
+    "scope": {
+      "config_generation": "3918963f-e6f8-489c-8784-a9a31953406f",
+      "context": {
+        "channel_id": "channel",
+        "principal_id": "user",
+        "run_id": "run"
+      },
+      "conversation_id": "conv_fdbeac5d-4042-474c-b98c-f7b268a11da7",
+      "definition_generation": null,
+      "execution_policy_binding_id": "binding_8687c90e-b6d4-4feb-9844-0f493353a151",
+      "input_generation": 0,
+      "instance_id": "pxy_7e83fcb1-eaab-4547-bab1-84346f38ce7f",
+      "policy_generation": "policygen_180cd21d-2e3a-41ac-b970-5c49b0a14565",
+      "recovery_generation": "gen_6ada1c82-d654-4e34-9928-de7266f85fb2",
+      "response_id": "resp_160d1c9c-2a1b-4450-bf73-6d4b544a8f76",
+      "server": "playwright",
+      "tool": "browser_find",
+      "turn_id": "turn_fake_1",
+      "workspace_id": "ws_2c00d064-dc80-4613-98e5-ab0a55ecf2e0"
+    },
+    "scope_fingerprint": "2ca858ac1104bee4eecadff034d0489357d89c7cce8ccc878e38684203704a56",
+    "semantic_assessment": {
+      "effects": null,
+      "reason": "definition_changed",
+      "status": "unreviewed"
+    },
+    "state": "private_required",
+    "tool_policy": {
+      "always_confirm_operations": [],
+      "decision": "not_blocked",
+      "definition_generation": null,
+      "effects": null,
+      "eligible_operations": [],
+      "grant_scope": null,
+      "policy_generation": "policygen_180cd21d-2e3a-41ac-b970-5c49b0a14565",
+      "policy_id": "evaluated-turn",
+      "reason": "config_changed",
+      "turn_eligible": false,
+      "version": 1
+    },
+    "turn_id": "turn_fake_1"
+  }
+}

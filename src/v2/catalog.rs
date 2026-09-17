@@ -298,21 +298,25 @@ impl Manager {
             state.runtimes.remove(&key.runtime);
         }
     }
-    pub fn peek(&self, key: &Key) -> Status {
+    /// Distinguish a requested catalog from an absent optional semantic assessment.
+    pub fn observed(&self, key: &Key) -> Option<Status> {
         let state = self.state.lock().unwrap();
-        let Some(entry) = state.entries.get(key) else {
-            return Status::Loading;
-        };
+        let entry = state.entries.get(key)?;
         let status = entry.status.borrow().clone();
-        if matches!(status, Status::Ready { .. })
-            && entry
-                .completed
-                .is_none_or(|t| t.elapsed() >= Duration::from_secs(30))
-        {
-            Status::Loading
-        } else {
-            status
-        }
+        Some(
+            if matches!(status, Status::Ready { .. })
+                && entry
+                    .completed
+                    .is_none_or(|t| t.elapsed() >= Duration::from_secs(30))
+            {
+                Status::Loading
+            } else {
+                status
+            },
+        )
+    }
+    pub fn peek(&self, key: &Key) -> Status {
+        self.observed(key).unwrap_or(Status::Loading)
     }
     pub fn release(&self, key: &Key) {
         self.invalidate(key);

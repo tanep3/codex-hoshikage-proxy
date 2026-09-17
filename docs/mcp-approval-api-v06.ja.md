@@ -319,3 +319,15 @@ C06-P02：準備期限・GET連打・Proxy再起動・時計後退・ホスト�
 C06-P03：設定だけ不明とTurn開始不明を別のResponse状態で返す。隔離前に次Runを開始しない。
 C06-P04：同じResponse/bindingで未送信準備再開または結果照合。policy_setup_unknown確定後に元要求を実行しない。
 C06-P05：202応答喪失時に元要求キーで停止し、同じ停止ID／operationから復旧。停止・設定失敗を利用者のMCP拒否と偽らない。
+
+## 14. 確認中の待ち時間とカタログ更新（2026-09-17不具合修正）
+
+30秒は内部カタログの再取得間隔であり、利用者の承認期限ではない。更新中は `state=unavailable`、`reason=diagnostic.code=catalog_loading`、`diagnostic.retryable=true`、`retry_after_ms=2000`、`actions.retry=true` を返す。取得失敗は `catalog_failed` として同様に再照会可能にする。更新中・失敗を `privacy_unclassified` に変換しない。許可はfalse、拒否は待機中なら可能。ID・fingerprint・page・expires_atはnull。これは既存のunavailable型を使用する。
+
+GETは有界待機後も更新中なら上記応答を返し、既存の表示証拠を変更しない。Gatewayは待機状態を示し、GETを2秒以降に再照会できる。許可POSTは自動再送しない。更新成功後に同一定義・設定・操作なら既存ID・fingerprint・page tokenを維持し、元の確認を有効とする。許可POST自身もカタログ再取得を開始し、送信意思の保存時に最新状態を照合する。更新中のPOSTは `409 catalog_loading`、失敗は `409 catalog_failed`（いずれも許可未送信）。停止・拒否・既に受付済みの同一キー照会をカタログ更新で妨げない。
+
+private_requiredは公開用の安全な入口1ページを持ち、reasonとdiagnostic.codeを一致させ、表示ID・fingerprint・page/tokenを返す。入口ページに秘密の実引数を載せず、許可は不可。この入口のtokenを本人向け全内容の確認証拠として受け入れない。
+
+技術的な表示期限切れは、元interactionがpendingかつ上流呼出しの完全な証拠が有効なら、presentation_idを指定しないGETで現在の画面を取得して再確認する。元interaction・呼出し証拠自体の期限切れや再起動による失効は更新では延長しない。理由を表示し、AI再実行や許可再送で補わない。真の定義・設定・権限・入力変更は旧画面を適用せず、現在の画面を明示的に再確認する。
+
+受入：35秒・90秒後の単発／依頼中許可、250msを超える更新待ち、同一定義更新後の表示同一性、失敗・定義変更・停止・再起動、private_required／unavailableのGateway型照合。即時押下試験だけで完了としない。

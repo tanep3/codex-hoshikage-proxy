@@ -1487,10 +1487,14 @@ async fn v06_display_without_policy_flag_and_preparation_stop() {
 
 #[tokio::test]
 async fn v06_http_complete_display_and_explicit_five_call_grant() {
+    v06_review_delay(0, true).await;
+}
+async fn v06_review_delay(delay: u64, grant: bool) {
     let (app, s, runtime) = app_args(&[
         "--native-mcp-five",
         "--inline-browser",
         "--v06-evaluated-catalog",
+        "--slow-v06-catalog",
     ])
     .await;
     let cid = v06_conversation(&app, &s).await;
@@ -1543,10 +1547,56 @@ async fn v06_http_complete_display_and_explicit_five_call_grant() {
     .unwrap();
     assert_eq!(view["state"], "ready", "{view}");
     assert!(view.to_string().contains("query 1"), "{view}");
+    tokio::time::sleep(Duration::from_secs(delay)).await;
+    if delay > 0 {
+        let (_, waiting) = call(
+            &app,
+            &s,
+            "GET",
+            &format!(
+                "interactions/{iid}/presentation?presentation_id={}",
+                view["presentation_id"].as_str().unwrap()
+            ),
+            None,
+            json!({}),
+        )
+        .await;
+        assert_eq!(waiting["state"], "unavailable", "{waiting}");
+        std::fs::write(
+            format!("/tmp/v06-review-waiting-{delay}-{grant}.json"),
+            waiting.to_string(),
+        )
+        .unwrap();
+        assert_eq!(waiting["reason"], "catalog_loading");
+        assert_eq!(waiting["diagnostic"]["code"], "catalog_loading");
+        assert_eq!(waiting["diagnostic"]["retry_after_ms"], 2000);
+        assert_eq!(waiting.get("expires_at"), Some(&Value::Null));
+        assert!(waiting["presentation_id"].is_null());
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let (_, refreshed) = call(
+            &app,
+            &s,
+            "GET",
+            &format!(
+                "interactions/{iid}/presentation?presentation_id={}",
+                view["presentation_id"].as_str().unwrap()
+            ),
+            None,
+            json!({}),
+        )
+        .await;
+        assert_eq!(
+            refreshed, view,
+            "same definition must preserve every display proof"
+        );
+    }
     let mut body = json!({"expected_revision":view["revision"],"expected_scope_fingerprint":view["scope_fingerprint"],
         "approval_view":"source_conversation","expected_presentation_fingerprint":view["presentation_fingerprint"],
         "expected_policy_binding_id":view["execution_policy"]["binding_id"],"expected_page_tokens":[view["page"]["token"]],
         "grant_scope":"turn_tool","response":{"action":"accept","content":{}}});
+    if !grant {
+        body.as_object_mut().unwrap().remove("grant_scope");
+    }
     body["expected_policy_binding_id"] = json!("different-run");
     let (status, _) = call(
         &app,
@@ -1569,6 +1619,24 @@ async fn v06_http_complete_display_and_explicit_five_call_grant() {
     )
     .await;
     assert_eq!(status, StatusCode::ACCEPTED, "{reply}");
+    if !grant {
+        let i = s.store.get("interaction", &iid).unwrap();
+        assert_eq!(i["reply_status"], "written");
+        assert!(s.store.list("mcp_grant").unwrap().is_empty());
+        let (status, stop) = call(
+            &app,
+            &s,
+            "POST",
+            "stops",
+            Some("review-test-stop"),
+            json!({"target":{"response_id":rid}}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{stop}");
+        v06_terminal(&app, &s, rid).await;
+        runtime.shutdown().await.unwrap();
+        return;
+    }
     let terminal = v06_terminal(&app, &s, rid).await;
     assert_eq!(terminal["execution_status"], "completed", "{terminal}");
     let interactions = s.store.list("interaction").unwrap();
@@ -1805,4 +1873,186 @@ async fn v06_native_approval_remains_available_with_policy_switch_off() {
     assert_eq!(answered.len(), 5);
     assert!(s.store.list("mcp_grant").unwrap().is_empty());
     runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "real elapsed review delay"]
+async fn v06_review_35_seconds_once() {
+    v06_review_delay(35, false).await;
+}
+#[tokio::test]
+#[ignore = "real elapsed review delay"]
+async fn v06_review_35_seconds_grant() {
+    v06_review_delay(35, true).await;
+}
+#[tokio::test]
+#[ignore = "real elapsed review delay"]
+async fn v06_review_90_seconds_once() {
+    v06_review_delay(90, false).await;
+}
+#[tokio::test]
+#[ignore = "real elapsed review delay"]
+async fn v06_review_90_seconds_grant() {
+    v06_review_delay(90, true).await;
+}
+
+#[tokio::test]
+async fn v06_catalog_failure_change_and_stop_preserve_no_send_boundary() {
+    for scenario in ["fail", "changed", "stop"] {
+        let control =
+            std::env::temp_dir().join(format!("v06-catalog-control-{}", uuid::Uuid::new_v4()));
+        let arg = format!("--v06-catalog-control={}", control.display());
+        let (app, s, runtime) = app_args(&[
+            "--native-mcp-five",
+            "--inline-browser",
+            "--v06-evaluated-catalog",
+            "--slow-v06-catalog",
+            &arg,
+        ])
+        .await;
+        let cid = v06_conversation(&app, &s).await;
+        let (status, op) = call(
+            &app,
+            &s,
+            "POST",
+            &format!("conversations/{cid}/responses"),
+            Some("v06-grant-run"),
+            v06_request(json!({"id":"evaluated-turn","version":1})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{op}");
+        let rid = op["resource"]["id"].as_str().unwrap();
+        let iid = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(i) = s
+                    .store
+                    .list("interaction")
+                    .unwrap()
+                    .iter()
+                    .find(|i| i["response_id"] == rid)
+                {
+                    break i["interaction_id"].as_str().unwrap().to_owned();
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let view = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let (status, v) = call(
+                    &app,
+                    &s,
+                    "GET",
+                    &format!("interactions/{iid}/presentation"),
+                    None,
+                    json!({}),
+                )
+                .await;
+                assert_eq!(status, StatusCode::OK, "{v}");
+                if v["actions"]["allow_turn_tool"] == true {
+                    break v;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(view["state"], "ready", "{view}");
+        assert!(view.to_string().contains("query 1"), "{view}");
+
+        std::fs::write(&control, scenario).unwrap();
+        let record = s.store.get("response", rid).unwrap();
+        let key = codex_hoshikage_proxy::v2::approval_v06::catalog_key(&s, &record).unwrap();
+        s.catalog.invalidate(&key);
+        let body = json!({"expected_revision":view["revision"],"expected_scope_fingerprint":view["scope_fingerprint"],"approval_view":"source_conversation","expected_presentation_fingerprint":view["presentation_fingerprint"],"expected_policy_binding_id":view["execution_policy"]["binding_id"],"expected_page_tokens":[view["page"]["token"]],"grant_scope":"turn_tool","response":{"action":"accept","content":{}}});
+        // POST without an intervening GET must itself request current information.
+        let (status, error) = call(
+            &app,
+            &s,
+            "POST",
+            &format!("interactions/{iid}/reply"),
+            Some("review-during-refresh"),
+            body.clone(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{error}");
+        assert_eq!(error["error"]["code"], "catalog_loading", "{error}");
+        assert_eq!(
+            s.store.get("interaction", &iid).unwrap()["reply_status"],
+            "not_sent"
+        );
+        if scenario == "stop" {
+            let (status, _) = call(
+                &app,
+                &s,
+                "POST",
+                "stops",
+                Some("review-stop"),
+                json!({"target":{"response_id":rid}}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::ACCEPTED);
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let (status, after) = call(
+            &app,
+            &s,
+            "GET",
+            &format!(
+                "interactions/{iid}/presentation?presentation_id={}",
+                view["presentation_id"].as_str().unwrap()
+            ),
+            None,
+            json!({}),
+        )
+        .await;
+        if scenario == "fail" {
+            assert_eq!(status, StatusCode::OK, "{after}");
+            assert_eq!(after["reason"], "catalog_failed", "{after}");
+            assert_eq!(after["diagnostic"]["retryable"], true);
+            assert_eq!(after.get("expires_at"), Some(&Value::Null));
+            std::fs::write("/tmp/v06-review-failed.json", after.to_string()).unwrap();
+        } else if scenario == "changed" {
+            assert_eq!(status, StatusCode::CONFLICT, "{after}");
+            assert_eq!(after["error"]["code"], "presentation_stale");
+            let (_, private) = call(
+                &app,
+                &s,
+                "GET",
+                &format!("interactions/{iid}/presentation"),
+                None,
+                json!({}),
+            )
+            .await;
+            assert_eq!(private["state"], "private_required", "{private}");
+            assert_eq!(private["reason"], private["diagnostic"]["code"]);
+            std::fs::write("/tmp/v06-review-changed-private.json", private.to_string()).unwrap();
+        } else {
+            assert_eq!(after["actions"]["allow_once"], false, "{after}");
+        }
+        let (status, _) = call(
+            &app,
+            &s,
+            "POST",
+            &format!("interactions/{iid}/reply"),
+            Some("review-old-proof"),
+            body,
+        )
+        .await;
+        assert!(status.is_client_error());
+        assert_eq!(
+            s.store.get("interaction", &iid).unwrap()["reply_status"],
+            "not_sent"
+        );
+        assert!(s.store.list("mcp_grant").unwrap().is_empty());
+        if scenario != "stop" {
+            // Decline must not require working catalog or page evidence.
+            let current = s.store.get("interaction", &iid).unwrap();
+            let (status,result)=call(&app,&s,"POST",&format!("interactions/{iid}/reply"),Some("review-decline"),json!({"expected_revision":current["revision"],"response":{"action":"decline","content":null}})).await;
+            assert_eq!(status, StatusCode::ACCEPTED, "{result}");
+        }
+        runtime.shutdown().await.unwrap();
+        let _ = std::fs::remove_file(control);
+    }
 }

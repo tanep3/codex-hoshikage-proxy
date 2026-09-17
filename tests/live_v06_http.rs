@@ -156,10 +156,21 @@ async fn live_v06_full_http_turn_grant_and_next_turn_isolation() {
                         if i["state"]!="pending" || seen.contains(iid) || (index==0 && manual>0) {continue;}
                         let (status,view)=call(&app,&s,"GET",&format!("interactions/{iid}/presentation"),None,json!({})).await;
                         assert_eq!(status,StatusCode::OK,"{view}");
-                        if view["state"]=="refreshing" {continue;}
+                        if view["diagnostic"]["retryable"]==true {continue;}
                         assert_eq!(view["actions"]["allow_once"],true,"{view}");
                         assert_eq!(view["actions"]["allow_turn_tool"],index==0,"{view}");
                         std::fs::write(evidence.join(format!("view{index}.json")),view.to_string()).unwrap();
+                        if std::env::var_os("CODEX_TEST_REVIEW_DELAY").is_some() {
+                            let delay = if index == 0 {35} else {90};
+                            println!("review waiting {delay}s for run {index}");
+                            tokio::time::sleep(Duration::from_secs(delay)).await;
+                            loop {
+                                let (status, refreshed)=call(&app,&s,"GET",&format!("interactions/{iid}/presentation?presentation_id={}",view["presentation_id"].as_str().unwrap()),None,json!({})).await;
+                                assert_eq!(status,StatusCode::OK,"{refreshed}");
+                                if refreshed["diagnostic"]["retryable"]==true {tokio::time::sleep(Duration::from_secs(2)).await;continue;}
+                                assert_eq!(refreshed,view,"normal refresh changed the approval evidence");break;
+                            }
+                        }
                         let mut reply=json!({"expected_revision":view["revision"],"expected_scope_fingerprint":view["scope_fingerprint"],"approval_view":"source_conversation","expected_presentation_fingerprint":view["presentation_fingerprint"],"expected_policy_binding_id":view["execution_policy"]["binding_id"],"expected_page_tokens":[view["page"]["token"]],"response":{"action":"accept","content":{}}});
                         if index==0 {reply["grant_scope"]=json!("turn_tool");}
                         let (status,result)=call(&app,&s,"POST",&format!("interactions/{iid}/reply"),Some(&format!("reply{index}")),reply).await;

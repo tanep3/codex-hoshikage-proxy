@@ -108,7 +108,24 @@ fn unknown_semantics_allow_only_after_complete_private_display() {
     );
     assert!(public["audience"]["principal_id"].is_null());
     assert_eq!(public["state"], "private_required");
+    assert_eq!(public["reason"], public["diagnostic"]["code"]);
+    assert!(public["presentation_id"].is_string());
+    assert!(public["presentation_fingerprint"].is_string());
+    assert_eq!(public["page"]["count"], 1);
+    assert!(public["page"]["token"].is_string());
+    let same = approval_v06::get(
+        &f.s,
+        &iid,
+        "source_conversation",
+        0,
+        public["presentation_id"].as_str(),
+    )
+    .unwrap();
+    assert_eq!(public, same);
     assert_eq!(public["actions"]["allow_once"], false);
+    if let Ok(path) = std::env::var("V06_PRIVATE_EVIDENCE") {
+        std::fs::write(path, public.to_string()).unwrap();
+    }
     assert!(!public.to_string().contains("TEST_SECRET_ONLY"));
     let view = approval_v06::get(&f.s, &iid, "requester", 0, None).unwrap();
     assert_eq!(view["state"], "ready");

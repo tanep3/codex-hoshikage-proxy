@@ -52,6 +52,20 @@ fn main() {
             && id.as_str().is_some_and(|v| v.starts_with("mcp_fake_"))
         {
             let q = format!("mcp_tool_call_approval_call_{mcp_call}");
+            if request["error"].is_object() {
+                // A stopped approval can be rejected using a JSON-RPC error.
+                write_json(&json!({"method":"test/serverReply","params":request}));
+                continue;
+            }
+            if request["result"] == json!({"answers":{q.clone():{"answers":["Cancel"]}}}) {
+                write_json(&json!({"method":"test/serverReply","params":request}));
+                turn_status = "interrupted";
+                turns.insert(turn_id.clone(), (thread_id.clone(), turn_status.into()));
+                write_json(
+                    &json!({"method":"turn/completed","params":{"threadId":thread_id,"turnId":turn_id,"turn":{"id":turn_id,"status":"interrupted"}}}),
+                );
+                continue;
+            }
             assert_eq!(
                 request["result"],
                 json!({"answers":{q:{"answers":["Allow"]}}})
@@ -144,6 +158,9 @@ fn main() {
                 continue;
             }
             "mcpServerStatus/list" => {
+                if std::env::args().any(|a| a == "--slow-v06-catalog") {
+                    std::thread::sleep(Duration::from_millis(900));
+                }
                 if std::env::args().any(|a| a == "--v06-notion-catalog") {
                     let result: Value = serde_json::from_str(include_str!(
                         "../../tests/fixtures/mcp-v06-notion-catalog.json"
@@ -153,10 +170,27 @@ fn main() {
                     continue;
                 }
                 if std::env::args().any(|a| a == "--v06-evaluated-catalog") {
-                    let result: Value = serde_json::from_str(include_str!(
+                    let mut result: Value = serde_json::from_str(include_str!(
                         "../../tests/fixtures/mcp-v06-catalog.json"
                     ))
                     .unwrap();
+                    if let Some(path) = std::env::args()
+                        .find_map(|a| a.strip_prefix("--v06-catalog-control=").map(str::to_owned))
+                    {
+                        match std::fs::read_to_string(path).unwrap_or_default().as_str() {
+                            "fail" => {
+                                write_json(
+                                    &json!({"id":id,"error":{"code":-32603,"message":"injected catalog failure"}}),
+                                );
+                                continue;
+                            }
+                            "changed" => {
+                                result["data"][0]["tools"]["browser_find"]["description"] =
+                                    json!("changed definition")
+                            }
+                            _ => {}
+                        }
+                    }
                     write_json(&json!({"id":id,"result":result}));
                     continue;
                 }

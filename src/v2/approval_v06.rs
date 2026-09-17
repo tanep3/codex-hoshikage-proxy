@@ -76,28 +76,31 @@ pub fn catalog_key(s: &Service, r: &Value) -> Option<super::catalog::Key> {
         config: mcp_grants::generation(s).ok()?,
     })
 }
-fn evaluation(
-    s: &Service,
-    r: &Value,
-    op: &Value,
-) -> Result<super::approval_evaluation::Evaluation> {
-    let status = catalog_key(s, r)
-        .map(|key| s.catalog.peek(&key))
-        .unwrap_or(super::catalog::Status::Failed("catalog_binding_mismatch"));
-    Ok(super::approval_evaluation::evaluate(
-        r,
-        op,
-        &status,
-        &mcp_grants::generation(s)?,
-    ))
+fn observed_catalog(s: &Service, r: &Value) -> Option<super::catalog::Status> {
+    catalog_key(s, r).and_then(|key| s.catalog.observed(&key))
 }
 pub(crate) fn operation(s: &Service, i: &Value, r: &Value) -> Result<Value> {
+    operation_with_catalog(
+        s,
+        i,
+        r,
+        &observed_catalog(s, r).unwrap_or(super::catalog::Status::Loading),
+    )
+    .map(|(op, _)| op)
+}
+fn operation_with_catalog(
+    s: &Service,
+    i: &Value,
+    r: &Value,
+    status: &super::catalog::Status,
+) -> Result<(Value, super::approval_evaluation::Evaluation)> {
     let mut op = mcp_grants::raw_operation_snapshot(s, i, r)?;
     op["profile"] = json!(approval_policy::PROFILE);
     op["execution_policy"] = r["approval_policy"].clone();
-    let evaluation = evaluation(s, r, &op)?;
-    op["semantic_assessment"] = evaluation.assessment;
-    op["tool_policy"] = evaluation.tool_policy;
+    let evaluation =
+        super::approval_evaluation::evaluate(r, &op, status, &mcp_grants::generation(s)?);
+    op["semantic_assessment"] = evaluation.assessment.clone();
+    op["tool_policy"] = evaluation.tool_policy.clone();
     op["turn_grant_eligible"] = json!(false);
     op["ineligible_reason"] = if op["tool_policy"].is_null() {
         json!("policy_not_selected")
@@ -114,7 +117,7 @@ pub(crate) fn operation(s: &Service, i: &Value, r: &Value) -> Result<Value> {
     if op["scope"].is_object() {
         op["scope"]["execution_policy_binding_id"] = r["approval_policy"]["binding_id"].clone();
         op["scope"]["policy_generation"] = r["approval_policy"]["generation"].clone();
-        op["scope"]["definition_generation"] = evaluation.definition_generation;
+        op["scope"]["definition_generation"] = evaluation.definition_generation.clone();
         op["scope_fingerprint"] = json!(digest(
             s,
             &json!([
@@ -125,7 +128,7 @@ pub(crate) fn operation(s: &Service, i: &Value, r: &Value) -> Result<Value> {
         )?);
     }
     op["arguments_delivery"] = json!(if complete { "inline" } else { "unavailable" });
-    Ok(op)
+    Ok((op, evaluation))
 }
 pub fn operation_details(s: &Service, iid: &str) -> Result<Value> {
     interactions::refresh(s)?;
@@ -148,7 +151,13 @@ fn snapshot(s: &Service, i: &Value, r: &Value, audience: &str) -> Result<View> {
     if !["requester", "source_conversation"].contains(&audience) {
         return Err(Error::code(400, "invalid_approval_presentation"));
     }
-    let op = operation(s, i, r)?;
+    let catalog = observed_catalog(s, r);
+    let (op, evaluation) = operation_with_catalog(
+        s,
+        i,
+        r,
+        catalog.as_ref().unwrap_or(&super::catalog::Status::Loading),
+    )?;
     let expiry = mcp_grants::call_expiry(s, i)
         .unwrap_or(0)
         .min(i["expires_at_ms"].as_u64().unwrap_or(0));
@@ -185,13 +194,30 @@ fn snapshot(s: &Service, i: &Value, r: &Value, audience: &str) -> Result<View> {
     } else {
         None
     };
+    let catalog_reason = catalog.as_ref().and_then(|status| match status {
+        super::catalog::Status::Loading => Some("catalog_loading"),
+        super::catalog::Status::Failed(_) => Some("catalog_failed"),
+        _ => None,
+    });
+    // Terminal/binding failures take precedence; catalog refresh must not alter
+    // disclosure, stored presentation versions, or permission evidence.
+    let reason = if matches!(reason, None | Some("policy_check_unavailable")) {
+        catalog_reason.or(reason)
+    } else {
+        reason
+    };
     let mut pages = vec![];
     if let Some(reason) = reason {
         base["state"] = json!("unavailable");
         base["reason"] = json!(reason);
         base["diagnostic"]["code"] = json!(reason);
+        base["expires_at_ms"] = Value::Null;
+        if matches!(reason, "catalog_loading" | "catalog_failed") {
+            base["diagnostic"]["retryable"] = json!(true);
+            base["diagnostic"]["retry_after_ms"] = json!(2000);
+            base["actions"]["retry"] = json!(true);
+        }
     } else {
-        let evaluation = evaluation(s, r, &op)?;
         if evaluation.description.is_some() {
             base["renderer"] = json!("evaluated-operation-v1");
         }
@@ -217,9 +243,11 @@ fn snapshot(s: &Service, i: &Value, r: &Value, audience: &str) -> Result<View> {
                     };
                     base["state"] = json!("private_required");
                     base["reason"] = json!(reason);
+                    base["diagnostic"]["code"] = json!(reason);
                     base["display"]["limitations"] =
                         json!(["操作の全内容を、自分だけに表示して確認してください"]);
                     base["actions"]["open_private_details"] = json!(true);
+                    pages = vec![base["display"].clone()];
                 } else {
                     if audience == "source_conversation" {
                         for page in &mut p {
@@ -237,6 +265,10 @@ fn snapshot(s: &Service, i: &Value, r: &Value, audience: &str) -> Result<View> {
                 base["diagnostic"]["code"] = json!(reason);
             }
         }
+    }
+    if base["state"] == "unavailable" {
+        base.as_object_mut().unwrap().remove("expires_at_ms");
+        base["expires_at"] = Value::Null;
     }
     let hash = digest(s, &json!([base, pages]))?;
     Ok(View { base, pages, hash })
@@ -311,6 +343,19 @@ pub fn check_reply(
         .as_str()
         .ok_or_else(|| Error::code(409, "presentation_audience_mismatch"))?;
     let view = snapshot(s, i, r, audience)?;
+    if matches!(
+        view.base["reason"].as_str(),
+        Some("catalog_loading" | "catalog_failed")
+    ) {
+        return Err(Error::code(
+            409,
+            if view.base["reason"] == "catalog_loading" {
+                "catalog_loading"
+            } else {
+                "catalog_failed"
+            },
+        ));
+    }
     if body.get("grant_scope").is_some()
         && (body["grant_scope"] != "turn_tool" || view.base["actions"]["allow_turn_tool"] != true)
     {

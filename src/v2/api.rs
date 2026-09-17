@@ -337,7 +337,7 @@ async fn checked(
                 .cwd_policy
                 .validate(s.workspace_path(string(&record, "conversation_id")?)?)
                 .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
-            refresh_v06_catalog(&s, &state, &response).await;
+            refresh_v06_catalog(&s, &state, &response).await?;
             let (audience, page, presentation_id) = super::approval_v06::query(uri.query())?;
             let iid = parts[1].to_owned();
             return blocking(move || {
@@ -371,7 +371,7 @@ async fn checked(
             .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
         let response = s.store.get("response", string(&record, "response_id")?)?;
         let value = if super::approval_v06::selected(&response) {
-            refresh_v06_catalog(&s, &state, &response).await;
+            refresh_v06_catalog(&s, &state, &response).await?;
             super::approval_v06::operation_details(&s, parts[1])?
         } else {
             super::mcp_grants::operation(&s, parts[1])?
@@ -388,7 +388,7 @@ async fn checked(
             .cwd_policy
             .validate(s.workspace_path(string(&record, "conversation_id")?)?)
             .map_err(|_| Error::code(403, "workspace_access_revoked"))?;
-        refresh_v06_catalog(&s, &state, &record).await;
+        refresh_v06_catalog(&s, &state, &record).await?;
         return Ok(Json(super::retention::wire(super::mcp_grants::list(
             &s, parts[1],
         )?))
@@ -429,6 +429,10 @@ async fn checked(
             // Own the send independently of the HTTP observer. An aborted HTTP
             // future must not discard a durably accepted reply.
             let result = tokio::spawn(async move {
+                if record["state"] == "pending" && body["response"]["action"] == "accept" {
+                    let response = s.store.get("response", string(&record, "response_id")?)?;
+                    refresh_v06_catalog(&s, &state, &response).await?;
+                }
                 super::interactions::reply(&s, &state.runtime, &iid, &key, &body).await
             })
             .await
@@ -616,14 +620,20 @@ fn replay(s: &Service, key: &str, kind: &str, body: &Value) -> Result<Option<Val
     })
 }
 
-async fn refresh_v06_catalog(s: &Service, state: &AppState, response: &Value) {
+async fn refresh_v06_catalog(s: &Service, state: &AppState, response: &Value) -> Result<()> {
     if super::approval_v06::selected(response)
         && response["phase"] == "started"
         && response["stop_requested"] != true
         && let Some(key) = super::approval_v06::catalog_key(s, response)
-        && let Ok(receiver) = s.catalog.request(key.clone(), state.runtime.clone())
     {
-        let _ = super::catalog::Manager::view(receiver).await;
+        let receiver = s
+            .catalog
+            .request(key.clone(), state.runtime.clone())
+            .map_err(|code| Error::code(503, code))?;
+        // The shared catalog retains Loading/Ready/Failed. Presentation/reply
+        // re-read it inside their transaction, so a later failure or expiry
+        // cannot be hidden by pinning an earlier successful wait result.
+        super::catalog::Manager::view(receiver).await;
         if let Some(rid) = response["response_id"].as_str()
             && let Ok(current) = s.store.get("response", rid)
             && (current["phase"] != "started" || current["stop_requested"] == true)
@@ -631,4 +641,5 @@ async fn refresh_v06_catalog(s: &Service, state: &AppState, response: &Value) {
             s.catalog.release_thread(&key.runtime, &key.thread);
         }
     }
+    Ok(())
 }
