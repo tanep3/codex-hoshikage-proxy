@@ -182,3 +182,20 @@ MCP追加・呼出し・削除の無再起動試験は[隔離環境の実モデ�
 - 配備情報：`~/.config/codex-hoshikage-proxy/last-update.json`。試験Response：`resp_19b6446a-01be-4ce7-b106-0836858ebe5c`。
 
 Proxyの接続準備は完了。実Discordの新UI・ボタン操作の受入成功は別途記録する。新たな要求受理後に状態を安易に巻き戻さない。
+
+
+## 2026-09-17 19:54 JST：汎用MCP承認API 0.6の常駐反映
+
+実装コミット `3a38734595c8312b434144012e49e3d5aebb6697` のreleaseバイナリを反映した。表示・単発承認・明示的な実行ポリシーを分離した合意0.6に対応する。全自動回帰試験、Clippy（警告禁止）、fmt、隔離した実Codex試験を通過後に配備した。
+
+- 最初の更新前確認でlegacy依頼が実行中だったため停止を見合わせた。その後、利用者から当該Codexが暴走しているため再起動してよいとの明示指示を受け、停止・バックアップ・更新を実施した。
+- 対象Response `resp_295d8f46-0131-422a-884f-26f35d8c9206` は更新後の上流照会で `interrupted` と確認。元の依頼は再送していない。
+- 状態・設定退避：`~/.config/codex-hoshikage-proxy.before-mcp-layered-06-20260917T105418Z`（権限700、シンボリックリンク保持、Unix socket除外）。旧バイナリ：`~/.cargo/bin/codex-hoshikage-proxy.before-mcp-layered-06-20260917T105418Z`。
+- バイナリSHA-256：`8367cb4ab07f40fd8488960b9549f8f3338841b7c9c41127bc51109940977bae`。実行中プロセスのバイナリとも一致。適用記録は `~/.config/codex-hoshikage-proxy/last-update.json`。
+- DB schema 2→3の移行、instance／復元世代の維持、既存保存回答のバイト一致を確認。APIキー・Proxy設定・環境ファイルはハッシュ一致で維持を確認した。
+- LAN経由ready、認証なし401、v1モデル一覧、`mcp_approval_v06.enabled=true`／`source-conversation-v3`、旧MCP機能の互換性を確認。
+- 実行前停止済みResponse `resp_4786b9fb-def9-405f-b770-f755e5538b43` で0.6宣言受付、not_started/cancelled、同一キーの重複抑止、空の対話／画像一覧を確認。
+- 常駐実Codexの新規検証Response `resp_3c14ed62-736e-4a9f-9da3-4f0b0834ffb7` は `PROXY_V06_DEPLOY_OK` を返してcompleted、回答保存ready。同一キー再送は同じResponseとなった。外部ツール実行・Discord投稿なし。
+- systemdはactive/running、NRestarts=0、待受 `0.0.0.0:4040`。既存のターン許可機能ONを維持。0.6では各実行がポリシーを明示選択し、表示だけではポリシーを有効にしない。
+
+利用者の指定に従い、Discordを含む統合試験はGateway側で実施する。Gatewayのコード・サービス・設定は変更していない。Proxy側の実装・単独受入・常駐反映は完了。新規要求を受理済みなので、旧バイナリだけへ戻したり退避DBを安易に上書きしたりしない。

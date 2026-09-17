@@ -205,3 +205,8 @@ T01〜T06のProxy担当を実装し、製品HTTP受付へ接続した。source-c
 ### Gatewayへの引渡し
 
 具体契約は`docs/mcp-approval-api-v06.ja.md`、完全JSON例は`docs/mcp-approval/api-v06-examples.json`。Gateway側の統合試験では、本人・会話の照合、公開/本人向け全ページ、単発/依頼中/拒否、停止/Steer、再起動・通信断を確認する。利用者から「統合テストはGateway側でおこないます」と指定されたため、Proxy側からDiscordへの試験投稿やGateway常駐更新は行わない。これはProxyの実装待ちではなく、Gateway担当の統合受入である。
+
+
+## 常駐反映完了（2026-09-17 19:54 JST）
+
+実装コミット `3a38734` を常駐へ反映し、DB schema 3、API 0.6 capability、既存設定・保存回答の保持、実Codexの正常完了・回答保存・重複抑止を確認した。配備と利用者が許可した旧実行の中断は[運用記録](server-operations.md)の2026-09-17 19:54 JSTの項を参照。Proxy担当分は完了し、Discord統合受入は利用者指定どおりGateway側で行う。
