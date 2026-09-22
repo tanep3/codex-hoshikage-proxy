@@ -1,0 +1,303 @@
+{
+  "fixture_sha256": "3521e9d8ab0c32e11809fc2d6ff95d62677569719089866765b06fb52e26763e",
+  "server": {
+    "name": "Playwright",
+    "version": "1.64.0-alpha-2026-09-14"
+  },
+  "cases": [
+    {
+      "label": "Refresh view",
+      "before": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.goto('http://127.0.0.1:35517/');\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-23-439Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [active] [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: initial\n  - status [ref=e13]: version 0"
+          }
+        ]
+      },
+      "tool": "browser_click",
+      "arguments": {
+        "target": "e4"
+      },
+      "after": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Refresh view' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-24-582Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [active] [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: refreshed\n  - status [ref=e13]: version 0"
+          }
+        ]
+      }
+    },
+    {
+      "label": "Show detail A",
+      "before": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Refresh view' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-24-582Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [active] [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: refreshed\n  - status [ref=e13]: version 0"
+          }
+        ]
+      },
+      "tool": "browser_click",
+      "arguments": {
+        "target": "e5"
+      },
+      "after": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Show detail A' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-25-669Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [active] [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: detail A\n  - status [ref=e13]: version 0"
+          }
+        ]
+      }
+    },
+    {
+      "label": "Show detail B",
+      "before": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Show detail A' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-25-669Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [active] [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: detail A\n  - status [ref=e13]: version 0"
+          }
+        ]
+      },
+      "tool": "browser_click",
+      "arguments": {
+        "target": "e6"
+      },
+      "after": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Show detail B' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-26-756Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [active] [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: detail B\n  - status [ref=e13]: version 0"
+          }
+        ]
+      }
+    },
+    {
+      "label": "Show list",
+      "before": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Show detail B' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-26-756Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [active] [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: detail B\n  - status [ref=e13]: version 0"
+          }
+        ]
+      },
+      "tool": "browser_click",
+      "arguments": {
+        "target": "e7"
+      },
+      "after": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Show list' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-27-826Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [active] [ref=e7]\n  - button \"Only available items\" [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: list\n  - status [ref=e13]: version 0"
+          }
+        ]
+      }
+    },
+    {
+      "label": "Only available items",
+      "before": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Show list' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-27-826Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [active] [ref=e7]\n  - button \"Only available items\" [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: list\n  - status [ref=e13]: version 0"
+          }
+        ]
+      },
+      "tool": "browser_click",
+      "arguments": {
+        "target": "e8"
+      },
+      "after": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Only available items' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-28-895Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [active] [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: available\n  - status [ref=e13]: version 0"
+          }
+        ]
+      }
+    },
+    {
+      "label": "Displayed availability",
+      "before": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Only available items' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-28-895Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [active] [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: available\n  - status [ref=e13]: version 0"
+          }
+        ]
+      },
+      "tool": "browser_select_option",
+      "arguments": {
+        "target": "e10",
+        "values": [
+          "available"
+        ]
+      },
+      "after": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByLabel('Displayed availability').selectOption('available');\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-28-931Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [active] [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\"\n      - option \"Available\" [selected]\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: available\n  - status [ref=e13]: version 0"
+          }
+        ]
+      }
+    },
+    {
+      "label": "Clear display filter",
+      "before": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByLabel('Displayed availability').selectOption('available');\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-28-931Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [active] [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\"\n      - option \"Available\" [selected]\n  - button \"Clear display filter\" [ref=e11]\n  - status [ref=e12]: available\n  - status [ref=e13]: version 0"
+          }
+        ]
+      },
+      "tool": "browser_click",
+      "arguments": {
+        "target": "e11"
+      },
+      "after": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Clear display filter' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-30-011Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=e1]:\n  - heading \"Catalog\" [level=1] [ref=e2]\n  - paragraph [ref=e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=e4]\n  - button \"Show detail A\" [ref=e5]\n  - button \"Show detail B\" [ref=e6]\n  - button \"Show list\" [ref=e7]\n  - button \"Only available items\" [ref=e8]\n  - generic [ref=e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=e10]:\n      - option \"All\"\n      - option \"Available\" [selected]\n  - button \"Clear display filter\" [active] [ref=e11]\n  - status [ref=e12]: all\n  - status [ref=e13]: version 0"
+          }
+        ]
+      }
+    }
+  ],
+  "races": [
+    {
+      "mutation": "replace",
+      "original_ref": "f1e4",
+      "before": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.goto('http://127.0.0.1:35517/');\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-30-106Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [active] [ref=f1e1]:\n  - heading \"Catalog\" [level=1] [ref=f1e2]\n  - paragraph [ref=f1e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=f1e4]\n  - button \"Show detail A\" [ref=f1e5]\n  - button \"Show detail B\" [ref=f1e6]\n  - button \"Show list\" [ref=f1e7]\n  - button \"Only available items\" [ref=f1e8]\n  - generic [ref=f1e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=f1e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=f1e11]\n  - status [ref=f1e12]: initial\n  - status [ref=f1e13]: version 0"
+          }
+        ]
+      },
+      "after_mutation": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n```yaml\n- generic [active] [ref=f1e1]:\n  - heading \"Catalog\" [level=1] [ref=f1e2]\n  - paragraph [ref=f1e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=f1e14]\n  - button \"Show detail A\" [ref=f1e5]\n  - button \"Show detail B\" [ref=f1e6]\n  - button \"Show list\" [ref=f1e7]\n  - button \"Only available items\" [ref=f1e8]\n  - generic [ref=f1e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=f1e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=f1e11]\n  - status [ref=f1e12]: initial\n  - status [ref=f1e13]: version 1\n```"
+          }
+        ]
+      },
+      "call": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Error\nError: Ref f1e4 not found in the current page snapshot. Try capturing new snapshot."
+          }
+        ],
+        "isError": true
+      },
+      "simulated_delete": false
+    },
+    {
+      "mutation": "handler",
+      "original_ref": "f2e4",
+      "before": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.goto('http://127.0.0.1:35517/');\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-30-311Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [active] [ref=f2e1]:\n  - heading \"Catalog\" [level=1] [ref=f2e2]\n  - paragraph [ref=f2e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=f2e4]\n  - button \"Show detail A\" [ref=f2e5]\n  - button \"Show detail B\" [ref=f2e6]\n  - button \"Show list\" [ref=f2e7]\n  - button \"Only available items\" [ref=f2e8]\n  - generic [ref=f2e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=f2e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=f2e11]\n  - status [ref=f2e12]: initial\n  - status [ref=f2e13]: version 0"
+          }
+        ]
+      },
+      "after_mutation": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n```yaml\n- generic [active] [ref=f2e1]:\n  - heading \"Catalog\" [level=1] [ref=f2e2]\n  - paragraph [ref=f2e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [ref=f2e4]\n  - button \"Show detail A\" [ref=f2e5]\n  - button \"Show detail B\" [ref=f2e6]\n  - button \"Show list\" [ref=f2e7]\n  - button \"Only available items\" [ref=f2e8]\n  - generic [ref=f2e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=f2e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=f2e11]\n  - status [ref=f2e12]: initial\n  - status [ref=f2e13]: version 1\n```"
+          }
+        ]
+      },
+      "call": {
+        "content": [
+          {
+            "type": "text",
+            "text": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Refresh view' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:35517/\n- Page Title: Local approval fixture\n### Snapshot\n- [Snapshot](./page-2026-09-17T20-31-31-545Z.yml)"
+          },
+          {
+            "type": "text",
+            "text": "- generic [ref=f2e1]:\n  - heading \"Catalog\" [level=1] [ref=f2e2]\n  - paragraph [ref=f2e3]: View details and filter the displayed catalog. No purchases.\n  - button \"Refresh view\" [active] [ref=f2e4]\n  - button \"Show detail A\" [ref=f2e5]\n  - button \"Show detail B\" [ref=f2e6]\n  - button \"Show list\" [ref=f2e7]\n  - button \"Only available items\" [ref=f2e8]\n  - generic [ref=f2e9]:\n    - text: Displayed availability\n    - combobox \"Displayed availability\" [ref=f2e10]:\n      - option \"All\" [selected]\n      - option \"Available\"\n  - button \"Clear display filter\" [ref=f2e11]\n  - status [ref=f2e12]: SIMULATED DELETE\n  - status [ref=f2e13]: version 1"
+          }
+        ]
+      },
+      "simulated_delete": true
+    }
+  ],
+  "authority": "test driver explicit calls; NOT delegated approval"
+}

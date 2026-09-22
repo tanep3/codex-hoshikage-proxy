@@ -1,0 +1,45 @@
+{
+  "live": false,
+  "model": "gpt-5.6-luna",
+  "codex_version": "0.153.4",
+  "tools_on_mock_wire": [],
+  "captured_requests": 1,
+  "results": [
+    {
+      "case": "scope-click-filter",
+      "seconds": 0.055,
+      "status": "completed",
+      "item_types": [
+        "userMessage",
+        "agentMessage"
+      ],
+      "output": {
+        "decision": "unknown",
+        "effect": "probe",
+        "reason": "mock transport",
+        "evidence_ids": []
+      },
+      "tokens": [
+        {
+          "total": {
+            "totalTokens": 2,
+            "inputTokens": 1,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 1,
+            "reasoningOutputTokens": 0
+          },
+          "last": {
+            "totalTokens": 2,
+            "inputTokens": 1,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 1,
+            "reasoningOutputTokens": 0
+          },
+          "modelContextWindow": 258400
+        }
+      ]
+    }
+  ]
+}

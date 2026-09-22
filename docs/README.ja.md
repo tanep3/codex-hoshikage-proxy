@@ -46,3 +46,7 @@
 - [汎用MCP承認・明示ポリシー API 0.6](mcp-approval-api-v06.ja.md)
 - [MCP承認0.6の利用者・管理者ガイド](mcp-approval-v06-guide.ja.md)
 - [MCP承認0.6の内部設計・実装・受入記録](mcp-approval-v06-implementation.ja.md)
+
+- [操作の意味に基づく承認委任：Proxyレビュー（追加調整中）](mcp-semantic-approval-delegation-review.ja.md)
+
+- [意味ベース承認委任：操作・証拠一覧と実証計画（案）](mcp-semantic-approval-feasibility-plan.ja.md)
