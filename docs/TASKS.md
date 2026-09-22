@@ -15,7 +15,8 @@ GatewayはProxyを使用せず、専用Codex App Serverをstdioで直接所有�
 - [x] Provider認証状態を正式RPC・通知から管理し、失効モデルを一覧から除外
 - [x] OpenWebUI Pipe 0.7で秘密型、原因別エラー、診断ログを実装
 - [x] Fake App Server、HTTP/WebSocket、全回帰、Clippyを完了
-- [ ] 実CodexとOpenWebUIで受入後、常駐反映を別工程で行う
+- [x] 実Codexで`/codex`初期化・account RPC、登録済みOpenWebUI Pipe 0.7読込を確認して常駐反映
+- [ ] Proxy専用Codexへ再ログイン後、ChatGPTモデル復帰とOpenWebUI実生成を確認
 
 以下は2026-09-23以前の実装・受入履歴である。現行作業の未了判定には上記一覧を使う。
 

@@ -67,6 +67,18 @@ HTTP終了待ちの上限は5秒、サービスの停止上限は15秒とする�
 
 v1のみの旧版では実行メタデータを`state/responses/executions.jsonl`へ同期保存する。新形式の記録と旧`mappings.jsonl`を維持し、更新・ロールバック時に状態ディレクトリを削除しない。
 
+## 2026-09-23 Codex Native API版への移行
+
+08:03 JSTに実装コミット`8912e0e3a232166dc348946e98687ba19910ec5e`のreleaseバイナリを常駐環境へ反映した。Gatewayは専用Codex App Serverへ分離済みのためProxyへ接続しない。ProxyはOpenAI互換`/v1`と、Codex App Server JSON-RPCを忠実に転送する`/codex`を提供する。旧Gateway専用`/v2/codex`、Gateway向け承認・意味ポリシー、`[v2]`設定を撤去した。
+
+更新前に旧V2 Response 202件がfinished、8件がcancelled、V1台帳に実行中・結果不明がないことを確認して停止した。Unix socketを除く専用状態一式を`~/.config/codex-hoshikage-proxy.before-native-20260922T230254Z/`へ、旧バイナリを`~/.cargo/bin/codex-hoshikage-proxy.before-native-20260922T230254Z`へ退避した。旧V2 DBは削除していない。初回起動でV1継続用のexecution 236件、mapping 33件を`state/responses/control.sqlite3`へ読取移行し、以後の書込み先をV1専用DBへ変更した。
+
+反映バイナリとrelease成果物のSHA-256は`60036ba8f8a51c514ee037235b997685d5a79c2e925b933abda96af5767c4c1e`で一致。systemdはactive/running、NRestarts=0、`0.0.0.0:4040`待受、認証付きreadiness 200、認証なし401、旧V2 404を確認した。実Codex 0.156.0との`/codex` WebSocketで`initialize`と`account/read`を往復し、切断後に接続専用App Serverが残らないことも確認した。
+
+Proxy専用CodexのChatGPTセッションは失効していた。新実装は`authentication_required / account_missing`と判定し、失効済みChatGPTモデルを`/v1/models`へ残さない。したがって反映直後のOpenWebUIモデル件数は0であり、これは接続障害ではなく再ログイン待ちを正しく表す。再ログイン後のモデル復帰と実ChatGPT生成は別途確認する。
+
+同時に登録済みOpenWebUI Pipeを0.7.0へ更新した。FunctionのValves・所有者・有効状態を保持し、変更前行を`/home/tane/tools/docker/open-webui/data/pipe-backup-20260922T223353Z/function-row.json`へ権限600で保存した。登録済みソースのSHA-256は`0a263539995171c5be47c90c33a61b1dfc550a71ce3b75cd21ff6de61529eae6`。コンテナ内で読込み、Proxy API keyが`SecretStr`となることと、認証失効時にモデルが公開されないことを確認した。
+
 ## 2026-09-11 制御API v1適用記録
 
 09:03 JSTに実装コミット`6875bb0859878d3ac7f3d4dcd185e1db88c05244`のreleaseビルドを適用した。

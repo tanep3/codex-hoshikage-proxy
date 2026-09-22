@@ -123,3 +123,5 @@ Codex画像生成ツールが作成したPNGは、完了したResponseの生成�
 ## PIPE 0.7.0の認証表示
 
 Proxy APIキーを秘密型で保持し、OpenWebUIのAuthorizationやCookieをProxyへ転送しない。Proxy APIキー不一致とCodexログイン失効を別の日本語メッセージで表示する。ProxyのHTTP応答本文、token、URL中の資格情報は利用者向けエラーやログへ出さない。ChatGPT認証失効中でも、利用可能なHoshikageやOllamaは継続して一覧・実行できる。
+
+2026-09-23に登録済み`codex_hoshikage_proxy`を0.7.0へ更新した。既存Valves・所有者・有効状態を保持し、登録ソースの読込みと秘密型をコンテナ内で確認した。更新時点ではProxy専用CodexのChatGPTログインが失効しているためモデルは0件であり、再ログイン後の復帰確認が必要である。
