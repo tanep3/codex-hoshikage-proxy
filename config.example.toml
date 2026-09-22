@@ -2,14 +2,16 @@
 # CODEX_HOSHIKAGE_PROXY_CONFIG may override that path when needed.
 
 [server]
-# v2 workspace/artifact management is enabled by default alongside /v1.
-# No version switch is needed. Set PROXY_API_KEY before starting.
+# Non-loopback listening requires PROXY_API_KEY.
 host = "127.0.0.1"
 port = 4040
 default_cwd = "${HOME}/work"
 # Maximum time without any Codex App Server event for one Turn.
 # This is an inactivity timeout, not a total task duration.
 turn_idle_timeout_seconds = 600
+codex_native_max_connections = 16
+codex_native_max_message_bytes = 8388608
+codex_native_shutdown_grace_seconds = 5
 # Probe Codex for a stalled Turn after this much silence.
 turn_stall_detection_seconds = 180
 # Number of consecutive no-progress probes before reporting turn_stalled.
@@ -85,29 +87,3 @@ max_concurrent_turns = 4
 # Ollama models are discovered from the Ollama catalog.
 # If Ollama is stopped or unavailable, discovery gives up after 5 seconds
 # and the Proxy continues without Ollama's dynamic models.
-
-# v2 storage limits (initial candidates; validate on the deployment host).
-[v2]
-# Enables explicitly selected run-scoped policies; does not auto-approve by itself.
-# API 0.6 full display and one-shot approval remain available when false.
-mcp_turn_approval_enabled = false
-# Legacy profile server/tool allowlist. API 0.6 uses definition-bound evaluated policies.
-mcp_turn_grant_tools = {}
-generated_images_max_count = 16
-generated_image_max_bytes = 10485760
-generated_images_settle_seconds = 600
-artifact_max_bytes = 268435456
-artifact_store_max_bytes = 8589934592
-capture_concurrency = 2
-capture_timeout_seconds = 120
-download_concurrency = 4
-download_timeout_seconds = 300
-artifact_retention_seconds = 604800
-lease_max_lifetime_seconds = 2592000
-output_max_bytes = 8388608
-output_store_max_bytes = 1073741824
-output_retention_seconds = 604800
-execution_input_max_bytes = 16777216
-execution_input_store_max_bytes = 268435456
-unresolved_input_retention_seconds = 86400
-disk_free_floor_bytes = 2147483648

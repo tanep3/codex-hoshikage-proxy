@@ -336,9 +336,6 @@ impl McpRefresh {
             pending: false,
         }))
     }
-    pub(crate) fn is_current(&self) -> Result<bool, ConfigError> {
-        Ok(!self.pending && mcp_settings(&read_config(&self.source)?) == self.applied)
-    }
     pub(crate) fn prepare(&mut self) -> Result<Option<Value>, ConfigError> {
         let desired = mcp_settings(&read_config(&self.source)?);
         if desired == self.applied && !self.pending {

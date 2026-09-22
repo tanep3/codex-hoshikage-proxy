@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 import httpx
+from pydantic import SecretStr
 from openwebui.codex_hoshikage_pipe import Pipe
 
 
@@ -22,6 +23,31 @@ class Events(httpx.AsyncByteStream):
 
 
 class ApprovalTests(unittest.IsolatedAsyncioTestCase):
+    def test_proxy_key_and_provider_authentication_errors_are_distinct_and_redacted(self):
+        self.assertIn(
+            'Proxy APIキー',
+            Pipe._proxy_error(401, b'{"error":{"code":"invalid_api_key","message":"secret"}}'),
+        )
+        provider = Pipe._proxy_error(
+            401,
+            b'{"error":{"code":"provider_authentication_required","message":"token abc"}}',
+        )
+        self.assertIn('Codexのログイン', provider)
+        self.assertNotIn('token abc', provider)
+        unknown = Pipe._proxy_error(
+            500,
+            b'{"error":{"code":"upstream_failed","message":"Bearer highly-secret"}}',
+        )
+        self.assertEqual(unknown, 'Proxyでエラーが発生しました（HTTP 500, upstream_failed）。')
+        self.assertNotIn('highly-secret', unknown)
+
+    def test_proxy_api_key_is_a_secret_and_only_sent_as_bearer_header(self):
+        pipe = Pipe()
+        pipe.valves.PROXY_API_KEY = SecretStr('secret-key')
+        headers = pipe._headers()
+        self.assertEqual(headers['authorization'], 'Bearer secret-key')
+        self.assertNotIn('secret-key', repr(pipe.valves.PROXY_API_KEY))
+
     async def test_overlapping_approvals_are_both_presented(self):
         pending = ['a', 'b']
         shown = []

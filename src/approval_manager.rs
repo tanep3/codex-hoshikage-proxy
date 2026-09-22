@@ -59,7 +59,6 @@ struct TurnApprovalContext {
 
 pub struct ApprovalManager {
     runtime: Arc<CodexRuntime>,
-    relay: std::sync::RwLock<Option<std::sync::Weak<crate::v2::service::Service>>>,
     turn_contexts: Mutex<HashMap<String, TurnApprovalContext>>,
     records: Mutex<HashMap<String, ApprovalRecord>>,
     file_change_paths: Mutex<HashMap<String, Vec<String>>>,
@@ -75,7 +74,6 @@ impl ApprovalManager {
     ) -> Arc<Self> {
         Arc::new(Self {
             runtime,
-            relay: Default::default(),
             turn_contexts: Mutex::new(HashMap::new()),
             records: Mutex::new(HashMap::new()),
             file_change_paths: Mutex::new(HashMap::new()),
@@ -93,39 +91,11 @@ impl ApprovalManager {
                     Ok(event) => event,
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                         tracing::warn!(skipped, "approval listener missed runtime events");
-                        let relay = manager
-                            .relay
-                            .read()
-                            .unwrap()
-                            .as_ref()
-                            .and_then(std::sync::Weak::upgrade);
-                        if let Some(s) = relay
-                            && let Err(error) = crate::v2::interactions::event_loss(&s)
-                        {
-                            tracing::error!(
-                                code = error.code,
-                                "interaction gap persistence failed"
-                            );
-                        }
                         continue;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 };
-                let relay = manager
-                    .relay
-                    .read()
-                    .unwrap()
-                    .as_ref()
-                    .and_then(std::sync::Weak::upgrade);
                 if event.get("kind").and_then(Value::as_str) != Some("server_request") {
-                    if let Some(s) = relay.as_ref()
-                        && let Err(error) = crate::v2::interactions::observe(s, &event)
-                    {
-                        tracing::error!(
-                            code = error.code,
-                            "interaction observation persistence failed"
-                        );
-                    }
                     if event["method"] == "serverRequest/resolved" {
                         let params = &event["params"];
                         let mut records = manager.records.lock().await;
@@ -171,68 +141,10 @@ impl ApprovalManager {
                     continue;
                 };
                 let mut params = event.get("params").cloned().unwrap_or_else(|| json!({}));
-                if let Some(s) = relay.as_ref() {
-                    match crate::v2::interactions::receive(s, &rpc_id, method, &params) {
-                        Ok(true) => {
-                            if s.limits.mcp_turn_approval_enabled {
-                                let pending = s
-                                    .store
-                                    .list("interaction")
-                                    .unwrap_or_default()
-                                    .into_iter()
-                                    .find(|i| {
-                                        i["rpc_id"] == rpc_id
-                                            && i["thread_id"] == params["threadId"]
-                                            && i["state"] == "pending"
-                                    });
-                                if let Some(i) = pending {
-                                    let iid = i["interaction_id"].as_str().unwrap().to_owned();
-                                    let service = s.clone();
-                                    let runtime = manager.runtime.clone();
-                                    tokio::spawn(async move {
-                                        if let Ok(Some(grant)) =
-                                            crate::v2::mcp_grants::await_auto_grant_with_runtime(
-                                                &service, &runtime, &iid,
-                                            )
-                                            .await
-                                        {
-                                            let body = json!({"expected_revision":i["revision"],"response":{"action":"accept","content":{}}});
-                                            if let Err(e) = crate::v2::interactions::reply_inner(
-                                                &service,
-                                                &runtime,
-                                                &iid,
-                                                &format!("auto-{iid}"),
-                                                &body,
-                                                Some(&grant),
-                                            )
-                                            .await
-                                            {
-                                                tracing::warn!(
-                                                    code = e.code,
-                                                    "MCP grant application not delivered"
-                                                );
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                            continue;
-                        }
-                        Ok(false) => {}
-                        Err(error) => {
-                            tracing::warn!(code = error.code, "interaction relay rejected request")
-                        }
-                    }
-                }
                 if !matches!(
                     method,
                     "item/commandExecution/requestApproval" | "item/fileChange/requestApproval"
                 ) {
-                    // The managed execution worker owns the one registered dynamic tool.
-                    if method == "item/tool/call" && params["tool"] == "hoshikage_publish_artifact"
-                    {
-                        continue;
-                    }
                     if params["turnId"].as_str().is_none()
                         && let Some(thread) = params["threadId"].as_str()
                         && let Some(turn) = manager
@@ -296,10 +208,6 @@ impl ApprovalManager {
                 .await
                 .insert(item_id.to_owned(), paths);
         }
-    }
-
-    pub fn attach_interaction_relay(&self, s: &Arc<crate::v2::service::Service>) {
-        *self.relay.write().unwrap() = Some(Arc::downgrade(s));
     }
 
     async fn attach_known_file_change_paths(&self, params: &mut Value) {

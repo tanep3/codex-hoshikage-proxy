@@ -1,6 +1,23 @@
 # Codex Hoshikage Proxy Tasks
 
-最終更新: 2026-09-11
+最終更新: 2026-09-23
+
+## 2026-09-23 構造改定の作業順
+
+GatewayはProxyを使用せず、専用Codex App Serverをstdioで直接所有する。ProxyはOpenAI互換`/v1`と、Codex App Server JSON-RPCを忠実に転送する`/codex`を提供する。旧`/v2/codex`とGateway向け承認・成果物・意味ポリシーは廃止する。
+
+- [x] 改定前の作業を`400cbfa`へcheckpoint commit
+- [x] 要件、システム設計、`/codex`契約、OpenWebUI Pipe認証設計を更新
+- [x] 旧V2・意味ベース承認資料を履歴資料として明示
+- [x] `/codex` WebSocketと接続専用App Serverを実装
+- [x] V1の画像、会話継続、承認、制御を旧V2内部から分離
+- [x] 旧`/v2/codex` route、設定、store、Gateway専用ポリシーを削除
+- [x] Provider認証状態を正式RPC・通知から管理し、失効モデルを一覧から除外
+- [x] OpenWebUI Pipe 0.7で秘密型、原因別エラー、診断ログを実装
+- [x] Fake App Server、HTTP/WebSocket、全回帰、Clippyを完了
+- [ ] 実CodexとOpenWebUIで受入後、常駐反映を別工程で行う
+
+以下は2026-09-23以前の実装・受入履歴である。現行作業の未了判定には上記一覧を使う。
 
 ## 現在地
 

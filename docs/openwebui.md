@@ -115,13 +115,13 @@ path. A manually cancelled approval also ends the turn and releases the provider
 - **`thread_not_found` after a Proxy restart**: the Pipe should recover automatically from the visible
   OpenWebUI history. If recovery still fails, reload the Pipe once to clear its in-memory mapping.
 
-## Pipe 0.5.1 approval fixes and v2 status
+## Pipe approval fixes and API status
 
 The Pipe reconciles pending approvals every 0.5 seconds, presents overlapping requests sequentially with operation details, and validates the Turn/Thread when posting a decision. Resolved or expired requests are discarded. Monitor failures surface as stream errors; decisions with unknown outcomes are never automatically retried.
 
 Run `python -m unittest discover -s tests -p "test_openwebui_pipe.py"` with httpx and pydantic installed. After `cargo build --bins`, this also tests the actual Proxy with a fake App Server over HTTP. Browser confirmation remains a separate acceptance check.
 
-Pipe 0.5.1 still uses `/v1/responses` and the v1 control extensions. Enabling Proxy v2 does not migrate the Pipe automatically. V2 adoption requires durable chat/branch mapping and request keys, explicit stop handling distinct from disconnection, and artifact authorization/presentation. On 2026-09-11 OpenWebUI was upgraded from 0.6.36 to 0.11.3 and the registered Pipe was updated to 0.5.1. Its Proxy URL is now http://192.168.0.120:4040; the key is stored in Valves rather than source code. The previous Function row was backed up privately before a targeted SQLite transaction; the installed loader checks source changes before reusing its cached module.
+The Pipe uses `/v1/responses` and the V1 control extensions. The retired Gateway-only `/v2/codex` API is not used. `/codex` is the native JSON-RPC transport for direct App Server clients and is not a replacement for the OpenWebUI Manifold Pipe.
 
 Five local tests passed, including an actual Proxy/fake App Server approval round trip. Four approval regression tests also passed against the registered source inside the OpenWebUI container, followed by model discovery and a real Codex response (`PIPE_DEPLOY_OK`). Browser dialog rendering remains unverified.
 
@@ -130,3 +130,7 @@ Five local tests passed, including an actual Proxy/fake App Server approval roun
 Multimodal message parts are preserved. Uploaded images are read through OpenWebUI file authorization and converted to data URLs (10 MiB per image, 15 MiB total input). Failed image reads abort the request instead of silently sending text only.
 
 Completed Responses expose PNGs from Codex image-generation tools through the documented generated-image extension. The Pipe saves the bytes as files owned by the OpenWebUI user and renders Markdown image links without exposing the Proxy key. This does not collect arbitrary workspace files or implement the general v2 artifact menu.
+
+## Pipe 0.7.0 authentication diagnostics
+
+The Proxy API key is stored as a secret Valve. It is distinct from the Codex login used by the ChatGPT provider. A mismatched Proxy key and an expired Codex login produce different messages. The Pipe never forwards OpenWebUI Authorization or Cookie values, and it does not expose upstream response bodies or credentials in user-facing errors. When ChatGPT authentication is revoked, the Proxy removes those models from `/v1/models`; other available providers remain usable.

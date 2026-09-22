@@ -3,6 +3,7 @@ use codex_hoshikage_proxy::{
     config::{ValidatedConfig, default_config_path},
     http::{AppState, router},
     journal::EventJournal,
+    native::{NativeBridge, NativeConfig},
     runtime::CodexRuntime,
     store::ResponseStore,
 };
@@ -16,77 +17,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
     let config_path = default_config_path();
     let config = ValidatedConfig::load(&config_path)?;
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("admin") {
-        if args.get(1).map(String::as_str) == Some("backup")
-            && args.get(2).map(String::as_str) == Some("restore")
-        {
-            let index = args
-                .iter()
-                .position(|a| a == "--from")
-                .ok_or("--from required")?;
-            let bundle = args.get(index + 1).ok_or("--from path required")?;
-            let result = codex_hoshikage_proxy::v2::backup::restore(
-                &config.codex_home.parent().unwrap().join("state/v2"),
-                std::path::Path::new(bundle),
-            )?;
-            println!("{result}");
-            return Ok(());
-        }
-        codex_hoshikage_proxy::v2::admin::client(
-            &config.codex_home.parent().unwrap().join("state/v2"),
-            &args[1..],
-        )
-        .await?;
-        return Ok(());
-    }
-    if !config.v2_enabled
-        && config
-            .codex_home
-            .parent()
-            .unwrap()
-            .join("state/v2-restore-pending.json")
-            .exists()
-    {
-        return Err("pending v2 restore cannot be bypassed by disabling v2".into());
-    }
-    if config.v2_enabled {
-        let state_root = config.codex_home.parent().unwrap().join("state");
-        let marker = state_root.join("v2-restore-pending.json");
-        if marker.exists() {
-            let m: serde_json::Value = serde_json::from_slice(&std::fs::read(marker)?)?;
-            let db = rusqlite::Connection::open_with_flags(
-                state_root.join("v2/metadata.sqlite3"),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )?;
-            let completed: Option<String> = rusqlite::OptionalExtension::optional(db.query_row(
-                "SELECT value FROM metadata WHERE key='restore_complete'",
-                [],
-                |r| r.get(0),
-            ))?;
-            if completed.as_deref() != m["restore_id"].as_str() {
-                return Err(
-                    "incomplete restore; repeat the same admin backup restore command".into(),
-                );
-            }
-        }
-    }
-    let v2_root = config.codex_home.parent().unwrap().join("state/v2");
-    if !config.v2_enabled && v2_root.join("metadata.sqlite3").exists() {
-        return Err("v2 state exists; enable v2 or perform an explicit state retirement before starting without its coordination".into());
-    }
-    // Acquire the durable owner lock before opening legacy writers or launching Codex.
-    let v2_service = if config.v2_enabled {
-        Some(std::sync::Arc::new(
-            codex_hoshikage_proxy::v2::service::Service::open_with_limits(
-                &v2_root,
-                &config.default_cwd.join(".managed-workspaces"),
-                config.v2_limits.clone(),
-            )?,
-        ))
-    } else {
-        None
-    };
     config.prepare_codex_home()?;
     let journal = std::sync::Arc::new(
         EventJournal::open(
@@ -128,32 +58,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         responses,
     );
     state.generated_images_root = Some(config.codex_home.join("generated_images"));
-    if let Some(service) = v2_service {
-        service.mcp.lock().unwrap().config_paths =
-            std::iter::once(config.codex_home.join("config.toml"))
-                .chain(
-                    config
-                        .codex_user_home
-                        .as_ref()
-                        .map(|p| p.join("config.toml")),
-                )
-                .collect();
-        state.v2 = Some(service.clone());
-        let _maintenance =
-            codex_hoshikage_proxy::v2::events::start_maintenance(state.clone(), service.clone());
-        let _admin = codex_hoshikage_proxy::v2::admin::serve(service.clone())?;
-        for record in service.store.list("response")? {
-            if record["phase"] == "accepted"
-                && let Some(id) = record["response_id"].as_str()
-            {
-                tokio::spawn(codex_hoshikage_proxy::v2::engine::run(
-                    state.clone(),
-                    service.clone(),
-                    id.to_owned(),
-                ));
-            }
-        }
-    }
+    state.native = Some(std::sync::Arc::new(NativeBridge::new(
+        NativeConfig {
+            command: config.codex_command.clone(),
+            args: config.codex_args.clone(),
+            codex_home: config.codex_home.clone(),
+            max_message_bytes: config.codex_native_max_message_bytes,
+            shutdown_grace: Duration::from_secs(config.codex_native_shutdown_grace_seconds),
+        },
+        config.codex_native_max_connections,
+    )));
     let server = axum::serve(listener, router(state))
         .with_graceful_shutdown(async {
             let _ = shutdown_receiver.await;

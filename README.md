@@ -43,6 +43,7 @@ The proxy provides:
 - Independent reasoning-effort selection for ChatGPT models.
 - Durable request lookup, duplicate prevention, Turn steer/interrupt, and conversation model changes
   within one provider. See the [Control API v1 contract (Japanese)](docs/control-api.ja.md).
+- A Codex Native API at `/codex` for bidirectional Codex App Server JSON-RPC.
 
 In short: it is a bridge between familiar OpenAI-compatible clients and Codex.
 
@@ -74,10 +75,10 @@ streaming, disconnect interruption, approval cancellation/expiry, and errors aft
 
 - This model misidentified an image color with `detail=low`, including when the proxy was bypassed.
   Use `high` for images in this configuration for now.
-- Client-defined tool-call/result and full usage conversion remain incomplete. Opt-in v2 clients can use the [interaction relay API](docs/interaction-api.ja.md) for user input, MCP elicitation, and permission requests; Gateway UI integration and acceptance are pending. Unsupported client tool specifications are rejected before execution; unsupported interactions receive an error and trigger interruption of the affected Turn.
+- Client-defined tool-call/result and full usage conversion remain incomplete. Codex-native features are being moved to the bidirectional `/codex` JSON-RPC transport instead of being guessed into OpenAI-compatible shapes.
 - App Server failure causes the proxy to exit with an error. The bundled systemd service restarts it
   after five seconds; interrupted requests are not automatically replayed.
-- Saved final answers can be retrieved through extension API v2. Final-output retrieval in v1 and historical SSE replay remain unsupported. Control APIs use a shared
+- Final-output retrieval in v1 and historical SSE replay remain unsupported. Control APIs use a shared
   operator scope without per-user isolation.
 - Long-running/high-load operation and compatibility with every model/client have not been validated.
 

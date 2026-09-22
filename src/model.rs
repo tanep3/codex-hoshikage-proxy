@@ -51,6 +51,8 @@ pub enum ModelError {
     NotFound(String),
     #[error("provider unavailable: {0}")]
     ProviderUnavailable(String),
+    #[error("provider authentication required: {0}")]
+    ProviderAuthenticationRequired(String),
     #[error("invalid model registry: {0}")]
     InvalidRegistry(String),
     #[error("unsupported parameter: reasoning effort is not supported by provider {0}")]

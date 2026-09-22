@@ -39,8 +39,6 @@ async fn test_app_with_store(
     store: Option<Arc<ResponseStore>>,
 ) -> (axum::Router, Arc<CodexRuntime>, Arc<ResponseStore>) {
     let mut raw = RawConfig::default();
-    // Exercise legacy compatibility independently of the v2 service.
-    raw.server.v2_enabled = false;
     raw.providers.get_mut("chatgpt").unwrap().enabled = args.contains(&"--model-pages");
     raw.providers.get_mut("hoshikage").unwrap().base_url = None;
     raw.models.insert(
@@ -432,6 +430,46 @@ async fn model_catalog_follows_pages_and_rejects_cursor_loops() {
         assert_eq!(ids.contains(&"chatgpt/gpt-test-second"), !repeat);
         runtime.shutdown().await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn revoked_chatgpt_auth_is_not_advertised_as_available() {
+    let (app, runtime) =
+        test_app_with_runtime(&["--model-pages", "--auth-revoked"], Duration::from_secs(5)).await;
+    let models = json_body(api(&app, "/v1/models", None, None).await).await;
+    assert!(
+        models["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|model| model["owned_by"] != "chatgpt")
+    );
+    let capabilities = json_body(api(&app, "/v1/codex/capabilities", None, None).await).await;
+    assert_eq!(
+        capabilities["providers"]["chatgpt"]["status"],
+        "authentication_required"
+    );
+    assert_eq!(
+        capabilities["providers"]["chatgpt"]["reason"],
+        "token_revoked"
+    );
+    let response = api(
+        &app,
+        "/v1/responses",
+        Some(serde_json::json!({
+            "model":"chatgpt/gpt-test-first",
+            "input":"hello"
+        })),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(
+        response_text(response)
+            .await
+            .contains("provider_authentication_required")
+    );
+    runtime.shutdown().await.unwrap();
 }
 
 #[tokio::test]

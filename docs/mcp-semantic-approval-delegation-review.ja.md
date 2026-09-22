@@ -1,5 +1,7 @@
 # 操作の意味に基づく依頼中承認委任：Proxyレビュー
 
+> **中止した設計検討:** Gatewayは専用Codex App Serverを直接所有し、Proxyは意味ベース承認を実装しない。本書は2026-09-23以前の検討記録としてのみ保持する。
+
 2026-09-17 / Proxy回答0.3（Gateway回答0.1の重点確認を反映）
 
 対象：[Gateway調整案0.1](../../codex-hoshikage-gateway/docs/proxy-semantic-approval-delegation-proposal.ja.md)。**要求の方向性・責務分担に基本合意。詳細設計と実現性の検証へ進める。具体API、対象範囲、数値条件、製品実装Go、常駐有効化は未合意。** この文書は現行API 0.6を変更しない。

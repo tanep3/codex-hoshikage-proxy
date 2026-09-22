@@ -1,5 +1,7 @@
 # v2実装設計
 
+> **廃止済みの履歴資料:** 2026-09-23の構造改定により旧`/v2/codex`専用実装は撤去対象である。現行設計は[システム設計書](codex-hoshikage-proxy-system-design.md)と[Codex Native API契約](codex-native-api.ja.md)を参照する。
+
 [契約0.2](workspace-artifact-api-v2.ja.md)に対する実装。公開契約、[運用手順](v2-operations.ja.md)、[受入記録](v2-implementation-status.ja.md)を分けて管理する。
 
 ## 責務と保存境界

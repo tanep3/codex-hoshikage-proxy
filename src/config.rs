@@ -23,7 +23,6 @@ pub enum ConfigError {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct RawConfig {
-    pub v2: crate::v2::limits::Limits,
     pub server: RawServerConfig,
     pub codex: RawCodexConfig,
     pub security: RawSecurityConfig,
@@ -36,7 +35,6 @@ pub struct RawConfig {
 impl Default for RawConfig {
     fn default() -> Self {
         Self {
-            v2: Default::default(),
             server: RawServerConfig::default(),
             codex: RawCodexConfig::default(),
             security: RawSecurityConfig::default(),
@@ -67,10 +65,12 @@ impl Default for RawApprovalConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct RawServerConfig {
-    pub v2_enabled: bool,
     pub host: String,
     pub port: u16,
     pub default_cwd: Option<String>,
+    pub codex_native_max_connections: usize,
+    pub codex_native_max_message_bytes: usize,
+    pub codex_native_shutdown_grace_seconds: u64,
     pub turn_stall_detection_seconds: u64,
     pub turn_stall_confirmation_count: u32,
     pub turn_heartbeat_seconds: u64,
@@ -80,10 +80,12 @@ pub struct RawServerConfig {
 impl Default for RawServerConfig {
     fn default() -> Self {
         Self {
-            v2_enabled: true,
             host: "127.0.0.1".into(),
             port: 4040,
             default_cwd: None,
+            codex_native_max_connections: 16,
+            codex_native_max_message_bytes: 8 * 1024 * 1024,
+            codex_native_shutdown_grace_seconds: 5,
             turn_stall_detection_seconds: 180,
             turn_stall_confirmation_count: 3,
             turn_heartbeat_seconds: 30,
@@ -262,8 +264,6 @@ impl Default for RawCompatibilityConfig {
 
 #[derive(Debug, Clone)]
 pub struct ValidatedConfig {
-    pub v2_enabled: bool,
-    pub v2_limits: crate::v2::limits::Limits,
     pub listen_addr: SocketAddr,
     pub codex_command: String,
     pub codex_args: Vec<String>,
@@ -275,6 +275,9 @@ pub struct ValidatedConfig {
     pub codex_home: PathBuf,
     pub codex_user_home: Option<PathBuf>,
     pub api_key: Option<String>,
+    pub codex_native_max_connections: usize,
+    pub codex_native_max_message_bytes: usize,
+    pub codex_native_shutdown_grace_seconds: u64,
     pub approval_timeout_seconds: u64,
     pub auto_approve_workspace: bool,
     pub turn_idle_timeout_seconds: u64,
@@ -357,6 +360,21 @@ impl ValidatedConfig {
                 "codex.command must not be empty".into(),
             ));
         }
+        if raw.server.codex_native_max_connections == 0 {
+            return Err(ConfigError::Invalid(
+                "server.codex_native_max_connections must be greater than zero".into(),
+            ));
+        }
+        if !(1024..=64 * 1024 * 1024).contains(&raw.server.codex_native_max_message_bytes) {
+            return Err(ConfigError::Invalid(
+                "server.codex_native_max_message_bytes must be between 1024 and 67108864".into(),
+            ));
+        }
+        if !(1..=300).contains(&raw.server.codex_native_shutdown_grace_seconds) {
+            return Err(ConfigError::Invalid(
+                "server.codex_native_shutdown_grace_seconds must be between 1 and 300".into(),
+            ));
+        }
         if raw.security.allowed_cwds.is_empty() {
             return Err(ConfigError::Invalid(
                 "security.allowed_cwds must not be empty".into(),
@@ -435,14 +453,6 @@ impl ValidatedConfig {
                 "non-loopback server requires security.api_key_env with a non-empty environment value".into(),
             ));
         }
-        raw.v2
-            .validate()
-            .map_err(|e| ConfigError::Invalid(e.to_string()))?;
-        if raw.server.v2_enabled && api_key.is_none() {
-            return Err(ConfigError::Invalid(
-                "v2 requires a non-empty API key".into(),
-            ));
-        }
         let registry = RawModelRegistryConfig {
             default_model: raw.defaults.model,
             providers: raw.providers,
@@ -452,8 +462,6 @@ impl ValidatedConfig {
             listen_addr,
             codex_command: raw.codex.command,
             codex_args: raw.codex.args,
-            v2_enabled: raw.server.v2_enabled,
-            v2_limits: raw.v2,
             cwd_policy: CwdPolicy {
                 allowed_roots: roots,
             },
@@ -484,6 +492,9 @@ impl ValidatedConfig {
                 None
             },
             api_key,
+            codex_native_max_connections: raw.server.codex_native_max_connections,
+            codex_native_max_message_bytes: raw.server.codex_native_max_message_bytes,
+            codex_native_shutdown_grace_seconds: raw.server.codex_native_shutdown_grace_seconds,
             approval_timeout_seconds: raw.approval.timeout_seconds,
             auto_approve_workspace: raw.approval.auto_approve_workspace,
             turn_idle_timeout_seconds: raw.server.turn_idle_timeout_seconds,
@@ -621,7 +632,6 @@ mod tests {
         ];
         raw.security.api_key = Some("config-secret".into());
         let config = ValidatedConfig::from_raw(raw).unwrap();
-        assert!(config.v2_enabled);
         assert_eq!(config.api_key.as_deref(), Some("config-secret"));
     }
 

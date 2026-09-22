@@ -6,6 +6,17 @@
 
 MCPターン許可では、契約書の補完とコーディングを並行して進めてしまった。文書の完成を実装開始条件として確認しなかったことが原因である。先行コードを正本にして仕様を追認せず、文書を先に完成させる。先行コードは未完了として保持し、開始条件が満たされるまで追加実装を停止する。配備は別の条件で判定する。
 
+## 2026-09-23 構造改定への適用
+
+利用者の構造決定によりGatewayはProxyから分離し、旧V2とGateway向け承認設計は廃止する。実装開始前の正本は次の四点とする。
+
+1. [要件定義](codex-hoshikage-proxy-requirements.md)の2026-09-23改定
+2. [システム設計](codex-hoshikage-proxy-system-design.md)の構造改定とNative Bridge内部設計
+3. [Codex Native API契約](codex-native-api.ja.md) 1.0
+4. [OpenWebUI Pipe 0.7設計](openwebui-pipe-v07-design.ja.md)
+
+旧V2・MCP意味ポリシー文書は履歴資料であり、現行実装の開始条件や受入基準に使用しない。上記四文書の整合と`git diff --check`を確認してから製品コードを変更する。
+
 ## 開始条件
 
 | 工程 | 開始条件 | 完了時に残す証拠 |

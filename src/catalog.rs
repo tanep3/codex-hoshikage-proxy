@@ -3,7 +3,7 @@ use crate::{
     model::{ModelError, ModelRegistry, PublicModel, ResolvedModel},
     runtime::{CodexRuntime, RuntimeError},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -32,7 +32,25 @@ pub struct ModelCatalogManager {
     runtime: Arc<CodexRuntime>,
     registry: RwLock<ModelRegistry>,
     available: RwLock<HashMap<String, bool>>,
+    provider_status: RwLock<HashMap<String, ProviderStatus>>,
     refresh_lock: Mutex<()>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderStatus {
+    pub status: &'static str,
+    pub reason: Option<&'static str>,
+    pub checked_at: String,
+}
+
+fn provider_status(status: &'static str, reason: Option<&'static str>) -> ProviderStatus {
+    ProviderStatus {
+        status,
+        reason,
+        checked_at: time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_else(|_| "unknown".into()),
+    }
 }
 
 impl ModelCatalogManager {
@@ -46,13 +64,85 @@ impl ModelCatalogManager {
             .iter()
             .map(|(id, provider)| (id.clone(), provider.enabled && provider.base_url.is_none()))
             .collect();
+        let provider_status = config
+            .providers
+            .iter()
+            .filter(|(_, provider)| provider.enabled)
+            .map(|(id, _)| {
+                (
+                    id.clone(),
+                    provider_status("temporarily_unavailable", Some("not_checked")),
+                )
+            })
+            .collect();
         Ok(Self {
             config,
             runtime,
             registry: RwLock::new(registry),
             available: RwLock::new(available),
+            provider_status: RwLock::new(provider_status),
             refresh_lock: Mutex::new(()),
         })
+    }
+
+    pub fn start_status_observer(self: &Arc<Self>) {
+        let catalog = Arc::clone(self);
+        let mut events = catalog.runtime.subscribe();
+        tokio::spawn(async move {
+            loop {
+                let event = match events.recv().await {
+                    Ok(event) => event,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
+                let method = event.get("method").and_then(Value::as_str);
+                let next = match method {
+                    Some("account/updated") => {
+                        if event
+                            .pointer("/params/authMode")
+                            .is_some_and(Value::is_null)
+                        {
+                            Some(provider_status(
+                                "authentication_required",
+                                Some("account_missing"),
+                            ))
+                        } else {
+                            Some(provider_status(
+                                "temporarily_unavailable",
+                                Some("account_changed"),
+                            ))
+                        }
+                    }
+                    Some("modelProvider/authRecoveryStarted") => Some(provider_status(
+                        "temporarily_unavailable",
+                        Some("auth_recovery_started"),
+                    )),
+                    Some("modelProvider/authRecoveryCompleted") => Some(provider_status(
+                        "temporarily_unavailable",
+                        Some("auth_recovery_completed"),
+                    )),
+                    _ if event.get("kind").and_then(Value::as_str) == Some("transport_closed") => {
+                        Some(provider_status(
+                            "temporarily_unavailable",
+                            Some("runtime_unavailable"),
+                        ))
+                    }
+                    _ => None,
+                };
+                if let Some(next) = next {
+                    catalog
+                        .provider_status
+                        .write()
+                        .await
+                        .insert("chatgpt".into(), next);
+                    catalog
+                        .available
+                        .write()
+                        .await
+                        .insert("chatgpt".into(), false);
+                }
+            }
+        });
     }
 
     pub async fn refresh(&self) {
@@ -81,7 +171,18 @@ impl ModelCatalogManager {
             .iter()
             .map(|(id, provider)| (id.clone(), provider.enabled && provider.base_url.is_none()))
             .collect::<HashMap<_, _>>();
-        available.extend(http.available);
+        available.extend(http.available.clone());
+        let mut statuses = self.provider_status.read().await.clone();
+        for (provider, is_available) in &http.available {
+            statuses.insert(
+                provider.clone(),
+                if *is_available {
+                    provider_status("available", None)
+                } else {
+                    provider_status("temporarily_unavailable", Some("catalog_unavailable"))
+                },
+            );
+        }
         let non_chatgpt_upstream_ids = self
             .config
             .models
@@ -102,64 +203,130 @@ impl ModelCatalogManager {
             .get("chatgpt")
             .is_some_and(|provider| provider.enabled)
         {
-            match tokio::time::timeout(MODEL_CATALOG_TIMEOUT, self.list_codex_models()).await {
+            let account = tokio::time::timeout(
+                MODEL_CATALOG_TIMEOUT,
+                self.runtime
+                    .request("account/read", json!({"refreshToken":true})),
+            )
+            .await;
+            let authenticated = match account {
                 Ok(Ok(result)) => {
-                    let mut imported = 0;
-                    if let Some(data) = result.get("data").and_then(|value| value.as_array()) {
-                        for model in data {
-                            let Some(upstream_id) =
-                                model.get("id").and_then(|value| value.as_str())
-                            else {
-                                continue;
-                            };
-                            let provider = model
-                                .get("modelProvider")
-                                .or_else(|| model.get("model_provider"))
-                                .and_then(|value| value.as_str());
-                            if non_chatgpt_upstream_ids.contains(upstream_id)
-                                || provider
-                                    .is_some_and(|value| value != "openai" && value != "chatgpt")
-                            {
-                                continue;
-                            }
-                            let efforts = model
-                                .get("supportedReasoningEfforts")
-                                .and_then(|value| value.as_array())
-                                .map(|values| {
-                                    values
-                                        .iter()
-                                        .filter_map(|value| value.get("reasoningEffort"))
-                                        .filter_map(|value| value.as_str())
-                                        .map(str::to_owned)
-                                        .collect::<Vec<_>>()
-                                })
-                                .unwrap_or_default();
-                            if registry
-                                .add_discovered_model("chatgpt".into(), upstream_id.into(), efforts)
-                                .is_ok()
-                            {
-                                imported += 1;
-                            }
-                        }
+                    let requires = result["requiresOpenaiAuth"].as_bool().unwrap_or(true);
+                    if requires && !result["account"].is_object() {
+                        available.insert("chatgpt".into(), false);
+                        statuses.insert(
+                            "chatgpt".into(),
+                            provider_status("authentication_required", Some("account_missing")),
+                        );
+                        false
+                    } else {
+                        true
                     }
-                    available.insert("chatgpt".into(), true);
-                    tracing::info!(
-                        chatgpt_imported = imported,
-                        "refreshed ChatGPT model catalog"
+                }
+                Ok(Err(RuntimeError::Rpc { message, .. }))
+                    if message.contains("token_revoked") || message.contains("Unauthorized") =>
+                {
+                    available.insert("chatgpt".into(), false);
+                    statuses.insert(
+                        "chatgpt".into(),
+                        provider_status("authentication_required", Some("token_revoked")),
                     );
+                    false
                 }
                 Ok(Err(error)) => {
+                    tracing::warn!(error = %error, "ChatGPT account state unavailable");
                     available.insert("chatgpt".into(), false);
-                    tracing::warn!(error = %error, "ChatGPT model catalog unavailable");
+                    statuses.insert(
+                        "chatgpt".into(),
+                        provider_status("temporarily_unavailable", Some("account_check_failed")),
+                    );
+                    false
                 }
                 Err(_) => {
+                    tracing::warn!("ChatGPT account state timed out");
                     available.insert("chatgpt".into(), false);
-                    tracing::warn!("ChatGPT model catalog timed out");
+                    statuses.insert(
+                        "chatgpt".into(),
+                        provider_status("temporarily_unavailable", Some("account_check_timeout")),
+                    );
+                    false
+                }
+            };
+            if authenticated {
+                match tokio::time::timeout(MODEL_CATALOG_TIMEOUT, self.list_codex_models()).await {
+                    Ok(Ok(result)) => {
+                        let mut imported = 0;
+                        if let Some(data) = result.get("data").and_then(|value| value.as_array()) {
+                            for model in data {
+                                let Some(upstream_id) =
+                                    model.get("id").and_then(|value| value.as_str())
+                                else {
+                                    continue;
+                                };
+                                let provider = model
+                                    .get("modelProvider")
+                                    .or_else(|| model.get("model_provider"))
+                                    .and_then(|value| value.as_str());
+                                if non_chatgpt_upstream_ids.contains(upstream_id)
+                                    || provider.is_some_and(|value| {
+                                        value != "openai" && value != "chatgpt"
+                                    })
+                                {
+                                    continue;
+                                }
+                                let efforts = model
+                                    .get("supportedReasoningEfforts")
+                                    .and_then(|value| value.as_array())
+                                    .map(|values| {
+                                        values
+                                            .iter()
+                                            .filter_map(|value| value.get("reasoningEffort"))
+                                            .filter_map(|value| value.as_str())
+                                            .map(str::to_owned)
+                                            .collect::<Vec<_>>()
+                                    })
+                                    .unwrap_or_default();
+                                if registry
+                                    .add_discovered_model(
+                                        "chatgpt".into(),
+                                        upstream_id.into(),
+                                        efforts,
+                                    )
+                                    .is_ok()
+                                {
+                                    imported += 1;
+                                }
+                            }
+                        }
+                        available.insert("chatgpt".into(), true);
+                        statuses.insert("chatgpt".into(), provider_status("available", None));
+                        tracing::info!(
+                            chatgpt_imported = imported,
+                            "refreshed ChatGPT model catalog"
+                        );
+                    }
+                    Ok(Err(error)) => {
+                        available.insert("chatgpt".into(), false);
+                        statuses.insert(
+                            "chatgpt".into(),
+                            provider_status("temporarily_unavailable", Some("catalog_unavailable")),
+                        );
+                        tracing::warn!(error = %error, "ChatGPT model catalog unavailable");
+                    }
+                    Err(_) => {
+                        available.insert("chatgpt".into(), false);
+                        statuses.insert(
+                            "chatgpt".into(),
+                            provider_status("temporarily_unavailable", Some("catalog_timeout")),
+                        );
+                        tracing::warn!("ChatGPT model catalog timed out");
+                    }
                 }
             }
         }
         *self.registry.write().await = registry;
         *self.available.write().await = available;
+        *self.provider_status.write().await = statuses;
     }
 
     async fn list_codex_models(&self) -> Result<Value, RuntimeError> {
@@ -221,6 +388,10 @@ impl ModelCatalogManager {
             .collect()
     }
 
+    pub async fn provider_statuses(&self) -> HashMap<String, ProviderStatus> {
+        self.provider_status.read().await.clone()
+    }
+
     pub async fn resolve(
         &self,
         requested_model: Option<&str>,
@@ -233,6 +404,17 @@ impl ModelCatalogManager {
         if let Some((provider_id, _)) = public_model_id.split_once('/')
             && self.available.read().await.get(provider_id) == Some(&false)
         {
+            if self
+                .provider_status
+                .read()
+                .await
+                .get(provider_id)
+                .is_some_and(|status| status.status == "authentication_required")
+            {
+                return Err(ModelError::ProviderAuthenticationRequired(
+                    provider_id.into(),
+                ));
+            }
             return Err(ModelError::ProviderUnavailable(provider_id.into()));
         }
         let registry = self.registry.read().await;
@@ -245,6 +427,17 @@ impl ModelCatalogManager {
             .copied()
             .unwrap_or(false)
         {
+            if self
+                .provider_status
+                .read()
+                .await
+                .get(&resolved.public_provider_id)
+                .is_some_and(|status| status.status == "authentication_required")
+            {
+                return Err(ModelError::ProviderAuthenticationRequired(
+                    resolved.public_provider_id,
+                ));
+            }
             return Err(ModelError::ProviderUnavailable(resolved.public_provider_id));
         }
         Ok(resolved)

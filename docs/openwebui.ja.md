@@ -2,7 +2,7 @@
 
 **日本語** | [English](openwebui.md)
 
-このガイドのAPI参照版はOpenWebUI `v0.11.0`です。このサーバーでは2026-09-11に`0.6.36`から`0.11.3`へ更新され、標準Manifold Pipeは画像対応の`0.6.0`を反映済みです。登録先の実際の版と設定を確認してください。
+このガイドのAPI参照版はOpenWebUI `v0.11.0`です。付属Pipeの現行ソースは`0.7.0`です。PipeはOpenAI互換`/v1`を使い、Codex Native API `/codex`へは接続しません。
 
 ## 1. OpenWebUIからProxyへ到達できるようにする
 
@@ -17,15 +17,17 @@ Pipeへ設定するURLは `/v1` を付けないProxyのベースURLです。Pipe
 
 ## 2. ProxyのAPI Keyを設定する
 
-現在のProxyではloopbackを含めAPIキーが必要です。Proxy設定へキーを記述します。
+LAN待受ではProxy APIキーが必須です。Proxy設定へキーを記述します。
 
 ```toml
 [security]
 api_key = "YOUR_PROXY_API_KEY"
 ```
 
-実運用では長くランダムな値を使ってください。この同じ値をOpenWebUIのPipe設定 `PROXY_API_KEY` へ入力します。
+実運用では長くランダムな値を使ってください。この同じ値をOpenWebUIのPipe設定 `PROXY_API_KEY` へ入力します。0.7.0ではValves上で秘密値として扱います。
 `api_key_env` を使う場合は、Proxyプロセスの環境変数へ設定します。
+
+これはPipeからProxyへ接続するための鍵です。ProxyがChatGPTを利用するCodexログインとは別物です。Proxy APIキーが正しくてもCodexログインが失効していれば、ChatGPTモデルは一覧から除外され、再ログインを促すエラーになります。
 
 ## 3. Pipeを登録して設定する
 
@@ -91,16 +93,16 @@ PipeはOpenWebUI標準の `__event_call__` 承認イベントを使います。P
 ## 6. 困ったとき
 
 - **NetworkProblem**: OpenWebUIコンテナからURLへ到達できるか確認。`127.0.0.1` ではなくホストのLAN IPを使い、4040番ポートが待受中か確認。
-- **401**: PipeのキーとProxyの `security.api_key` が完全に一致しているか確認。
+- **「Proxy APIキーが未設定または一致しません」**: PipeのキーとProxyの `security.api_key` が完全に一致しているか確認。
+- **「Codexのログインが失効しています」**: Proxy稼働ユーザーの専用`CODEX_HOME`でCodexへ再ログイン。PipeのAPIキーを変更しない。
 - **`/v1/chat/completions` が404**: 古いProxyまたは違うポートを見ています。現在のProxyを再起動し、`/v1`なしのベースURLを設定。
 - **モデルが一部しか出ない**: Pipeを更新し、プロバイダ有効化とモデル登録を確認。ツール呼び出し非対応のHoshikageモデルは意図的に除外されます。
 - **`tool_calling_not_supported`**: プロバイダ一覧でツール対応と報告されるモデルを選んでください。
 - **Proxy再起動後の`thread_not_found`**: PipeがOpenWebUIの会話履歴から自動復旧します。それでも失敗する場合は、Pipeを一度再読み込みしてメモリ上の対応表を消してください。
 
-## 7. Gateway拡張API v2との関係
+## 7. Proxy APIとの関係
 
-PIPE 0.5.1はOpenAI互換`/v1/responses`と制御API v1を使用します。v2が有効になっただけでは、PIPEの機能は切り替わりません。v2を利用すれば、会話IDでの継続、確定回答の再取得、成果物の一覧・取得、Turn開始前の停止を実装できます。
-移行にはOpenWebUIのユーザー・チャット・分岐とProxy会話の対応、要求キーの永続化、明示停止と通信切断の区別、成果物の認可・表示をPIPE側で設計する必要があります。現在の固定論理会話IDを用いた文脈共有実験とは分けて扱います。
+PipeはOpenAI互換`/v1/responses`とV1制御拡張を利用します。旧Gateway専用`/v2/codex`は廃止され、Pipeからも利用しません。`/codex`はCodex App Server JSON-RPCを直接扱うクライアント用であり、OpenWebUIの標準Manifold Pipeへ無理に持ち込みません。
 
 ## 8. このサーバーへの反映記録（2026-09-11）
 
@@ -117,3 +119,7 @@ OpenWebUI `0.11.3`の登録済み`codex_hoshikage_proxy`をPIPE `0.5.1`へ更新
 Codex画像生成ツールが作成したPNGは、完了したResponseの生成画像APIから取得し、OpenWebUIの利用者所有ファイルとして保存してMarkdown画像で表示する。ProxyのAPIキーを画像URLへ埋め込まない。画像生成ツール以外がワークスペースへ作った任意ファイルの自動回収や、v2の汎用成果物メニューへの移行は含まない。
 
 0.6.0反映確認: 実際の添付画像を使い、実Codexが赤い服の人物と縞模様の猫を具体的に識別した。生成画像は元PNGとバイト一致し、OpenWebUIの元利用者所有ファイルとして保存・Markdownリンクを作成できた。以前表示されなかった作画回答には、バックアップ後にその画像リンクを追記した。ブラウザでの最終表示は再読み込み後に確認する。
+
+## PIPE 0.7.0の認証表示
+
+Proxy APIキーを秘密型で保持し、OpenWebUIのAuthorizationやCookieをProxyへ転送しない。Proxy APIキー不一致とCodexログイン失効を別の日本語メッセージで表示する。ProxyのHTTP応答本文、token、URL中の資格情報は利用者向けエラーやログへ出さない。ChatGPT認証失効中でも、利用可能なHoshikageやOllamaは継続して一覧・実行できる。

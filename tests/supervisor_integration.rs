@@ -31,7 +31,6 @@ impl ProxyProcess {
         let config = format!(
             r#"
 [server]
-v2_enabled = false
 port = {port}
 default_cwd = {cwd}
 [codex]

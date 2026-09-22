@@ -1,5 +1,7 @@
 # ワーク・成果物・回答復旧 API v2 契約案
 
+> **廃止済みの履歴資料:** 2026-09-23にGatewayがProxyを使用しない構造へ変更したため、本契約と`/v2/codex`は廃止対象になった。現行のCodex Native APIは[`/codex`契約](codex-native-api.ja.md)を参照する。本書を新規実装の根拠にしない。
+
 
 追加契約：[対話要求の取得・回答API](interaction-api.ja.md)。`interaction_capabilities` と対話取得・回答エンドポイントは対応クライアント向けの任意拡張。
 版: 0.2 / 2026-09-11。状態: **Gateway・Proxy間で合意済み。実装・このサーバーへの配備済み。Gatewayの生成画像配信・表示の正常系は2026-09-13に確認済み。障害時のGateway結合・負荷などの製品受入は未完了。**

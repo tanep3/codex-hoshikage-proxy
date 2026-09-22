@@ -218,6 +218,7 @@ fn main() {
                 json!({"id":id,"result":"late"})
             }
             "test/null" => json!({"id": id, "result": null}),
+            "test/echo" => json!({"id": id, "result": request}),
             "test/server-request" => {
                 let rpc_id = request
                     .pointer("/params/serverId")
@@ -230,6 +231,12 @@ fn main() {
             }
             "test/error" => {
                 json!({"id": id, "error": {"code": -32602, "message": "invalid params"}})
+            }
+            "account/read" if std::env::args().any(|arg| arg == "--auth-revoked") => {
+                json!({"id":id,"error":{"code":-32001,"message":"401 Unauthorized: token_revoked"}})
+            }
+            "account/read" => {
+                json!({"id":id,"result":{"account":{"type":"chatgpt","email":null,"planType":"plus"},"requiresOpenaiAuth":true}})
             }
             "model/list" => {
                 let second =

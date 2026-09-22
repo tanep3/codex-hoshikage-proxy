@@ -1,5 +1,7 @@
 # 意味ベース承認委任：操作・証拠一覧と実現性検証計画
 
+> **中止した検証計画:** Gatewayは専用Codex App Serverを直接所有し、Proxyは意味ベース承認を実装しない。本書と付属fixtureは設計判断の履歴資料としてのみ保持する。
+
 2026-09-17 / 案0.2（追加レビュー反映）。**設計資料。試験未実施・具体API未確定・製品実装未着手。**
 
 基準：[Proxy回答0.3](mcp-semantic-approval-delegation-review.ja.md)、[Gateway詳細設計0.1](../../codex-hoshikage-gateway/docs/mcp-semantic-approval-gateway-design.ja.md)。以下の資源・状態名は論理名であり、Gatewayが実装するJSONキーや列名ではない。

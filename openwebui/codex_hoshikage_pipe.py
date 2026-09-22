@@ -1,7 +1,7 @@
 """
 title: Codex Hoshikage Proxy
 author: Codex Hoshikage Proxy
-version: 0.6.0
+version: 0.7.0
 requirements: httpx
 
 OpenWebUI Manifold Pipe for Codex Hoshikage Proxy.
@@ -22,7 +22,7 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 
 log = logging.getLogger(__name__)
@@ -40,9 +40,9 @@ class Pipe:
             default="http://127.0.0.1:4040",
             description="Codex Hoshikage Proxy base URL",
         )
-        PROXY_API_KEY: str = Field(
-            default="",
-            description="Optional Proxy API key",
+        PROXY_API_KEY: SecretStr = Field(
+            default=SecretStr(""),
+            description="Proxy API key (required when Proxy listens outside loopback)",
         )
         REQUEST_TIMEOUT_SECONDS: float = Field(default=120.0, ge=1.0)
         HEALTHCHECK_TIMEOUT_SECONDS: float = Field(default=2.0, ge=0.1)
@@ -76,9 +76,33 @@ class Pipe:
 
     def _headers(self) -> dict[str, str]:
         headers = {"content-type": "application/json"}
-        if self.valves.PROXY_API_KEY:
-            headers["authorization"] = f"Bearer {self.valves.PROXY_API_KEY}"
+        configured = self.valves.PROXY_API_KEY
+        key = (
+            configured.get_secret_value()
+            if isinstance(configured, SecretStr)
+            else str(configured)
+        )
+        if key:
+            headers["authorization"] = f"Bearer {key}"
         return headers
+
+    @staticmethod
+    def _proxy_error(status: int, content: bytes) -> str:
+        code = ""
+        try:
+            body = json.loads(content.decode(errors="replace"))
+            error = body.get("error", {}) if isinstance(body, dict) else {}
+            if isinstance(error, dict):
+                code = str(error.get("code") or "")
+        except Exception:
+            pass
+        if status == 401 and code == "invalid_api_key":
+            return "Proxy APIキーが未設定または一致しません。OpenWebUIのPipe設定を確認してください。"
+        if status == 401 and code == "provider_authentication_required":
+            return "Codexのログインが失効しています。Proxyを実行している環境でCodexへ再ログインしてください。"
+        if code:
+            return f"Proxyでエラーが発生しました（HTTP {status}, {code}）。"
+        return f"Proxyでエラーが発生しました（HTTP {status}）。"
 
     def _base_url(self) -> str:
         return self.valves.PROXY_BASE_URL.rstrip("/")
@@ -98,7 +122,12 @@ class Pipe:
             )
             response.raise_for_status()
             models = response.json().get("data", [])
-        except Exception:
+        except httpx.HTTPStatusError as error:
+            message = self._proxy_error(error.response.status_code, error.response.content)
+            log.warning("Proxy model catalog failed: %s", message)
+            return []
+        except Exception as error:
+            log.warning("Proxy model catalog unavailable: %s", type(error).__name__)
             return []
 
         result: list[dict[str, str]] = []
@@ -197,11 +226,23 @@ class Pipe:
                     timeout=self._healthcheck_timeout(),
                 )
                 ready.raise_for_status()
-            except Exception as error:
-                message = (
-                    "Codex Hoshikage Proxy is unavailable or not ready. "
-                    "Start the proxy and try again."
+            except httpx.HTTPStatusError as error:
+                message = self._proxy_error(
+                    error.response.status_code, error.response.content
                 )
+                if error.response.status_code == 503:
+                    message = "Proxyは起動していますが、まだ準備が完了していません。しばらくしてから再試行してください。"
+                if __event_emitter__ is not None:
+                    try:
+                        await __event_emitter__(
+                            {"type": "status", "data": {"status": "error", "description": message, "done": True}}
+                        )
+                    except Exception:
+                        pass
+                yield message
+                return
+            except Exception:
+                message = "Proxyへ接続できません。常駐サービスの状態を確認してください。"
                 if __event_emitter__ is not None:
                     try:
                         await __event_emitter__(
@@ -327,12 +368,11 @@ class Pipe:
             json=payload,
         ) as response:
             if response.is_error:
-                detail = (await response.aread()).decode(errors="replace")
+                content = await response.aread()
+                detail = content.decode(errors="replace")
                 if response.status_code == 404 and "thread_not_found" in detail:
                     raise _ProxyThreadNotFound(detail)
-                raise RuntimeError(
-                    f"Proxy returned {response.status_code} for {response.url}: {detail}"
-                )
+                raise RuntimeError(self._proxy_error(response.status_code, content))
             response_id: Optional[str] = None
             turn_id = response.headers.get("x-codex-turn-id")
             approval_task = None

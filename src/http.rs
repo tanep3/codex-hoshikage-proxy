@@ -12,7 +12,7 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, State, WebSocketUpgrade},
     http::{HeaderMap, StatusCode},
     middleware,
     response::{
@@ -23,6 +23,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     sync::{
@@ -31,6 +32,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use subtle::ConstantTimeEq;
 use tokio::{
     sync::{broadcast, mpsc},
     time,
@@ -45,7 +47,7 @@ pub struct AppState {
     pub default_cwd: std::path::PathBuf,
     pub generated_images_root: Option<std::path::PathBuf>,
     pub api_key: Option<String>,
-    pub v2: Option<Arc<crate::v2::service::Service>>,
+    pub native: Option<Arc<crate::native::NativeBridge>>,
     pub turn_idle_timeout: Duration,
     pub turn_stall_detection: Duration,
     pub turn_stall_confirmation_count: u32,
@@ -88,6 +90,8 @@ impl AppState {
         responses: Arc<ResponseStore>,
     ) -> Self {
         let provider_limits = catalog.provider_limits();
+        let catalog = Arc::new(catalog);
+        catalog.start_status_observer();
         let approvals = ApprovalManager::new(
             Arc::clone(&runtime),
             approval_timeout,
@@ -125,11 +129,11 @@ impl AppState {
         Self {
             generated_images_root: None,
             runtime,
-            catalog: Arc::new(catalog),
+            catalog,
             cwd_policy,
             default_cwd,
             api_key,
-            v2: None,
+            native: None,
             turn_idle_timeout,
             turn_stall_detection,
             turn_stall_confirmation_count,
@@ -225,7 +229,7 @@ pub(crate) struct ApiError {
 }
 
 impl ApiError {
-    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
         Self {
             status,
             code,
@@ -252,11 +256,7 @@ impl IntoResponse for ApiError {
 
 pub fn router(state: AppState) -> Router {
     Router::new()
-        .route(
-            "/v2/codex/{*path}",
-            axum::routing::any(crate::v2::api::handle)
-                .layer(axum::extract::DefaultBodyLimit::max(16777216)),
-        )
+        .route("/codex", get(codex_native))
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/v1/models", get(list_models))
@@ -306,54 +306,12 @@ async fn authenticate(
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|value| value == expected);
+        .is_some_and(|value| {
+            let supplied = Sha256::digest(value.as_bytes());
+            let configured = Sha256::digest(expected.as_bytes());
+            bool::from(supplied.ct_eq(&configured))
+        });
     if authorized {
-        if let Some(service) = &state.v2 {
-            let path = request.uri().path();
-            let mut is_managed = false;
-            if let Some(tail) = path.strip_prefix("/v1/codex/turns/") {
-                let turn = tail.split('/').next().unwrap_or("");
-                is_managed = service
-                    .store
-                    .list("response")
-                    .map(|rs| rs.iter().any(|r| r["turn_id"] == turn))
-                    .unwrap_or(true);
-            }
-            if let Some(rid) = path.strip_prefix("/v1/codex/responses/") {
-                is_managed = service
-                    .store
-                    .get("response", rid)
-                    .map(|_| true)
-                    .unwrap_or_else(|e| e.status != 404);
-            }
-            if let Some(approval_id) = path.strip_prefix("/v1/codex/approvals/")
-                && let Ok(view) = state.approvals.get(approval_id).await
-            {
-                is_managed = service
-                    .store
-                    .list("response")
-                    .map(|rs| {
-                        rs.iter().any(|r| {
-                            r["thread_id"].is_string() && r["thread_id"] == view.details["threadId"]
-                        })
-                    })
-                    .unwrap_or(true);
-            }
-            if is_managed {
-                for (name, value) in [
-                    ("x-proxy-instance-id", &service.store.instance),
-                    ("x-proxy-recovery-generation", &service.store.generation),
-                ] {
-                    if request.headers().get(name).and_then(|h| h.to_str().ok()) != Some(value) {
-                        return (
-                            if request.headers().contains_key(name){StatusCode::CONFLICT}else{StatusCode::PRECONDITION_REQUIRED},
-                            Json(json!({"error":{"code":if !request.headers().contains_key(name){"instance_precondition_required"}else if name=="x-proxy-instance-id"{"instance_mismatch"}else{"recovery_generation_mismatch"}}})),
-                        )
-                            .into_response();
-                    }
-                }
-            }
-        }
         next.run(request).await
     } else {
         (
@@ -368,6 +326,32 @@ async fn authenticate(
         )
             .into_response()
     }
+}
+
+async fn codex_native(
+    State(state): State<AppState>,
+    websocket: WebSocketUpgrade,
+) -> Result<Response, ApiError> {
+    let native = state.native.ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "codex_native_unavailable",
+            "Codex Native API is unavailable",
+        )
+    })?;
+    let permit = native.try_acquire().map_err(|_| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "codex_native_connection_limit",
+            "Codex Native API connection limit reached",
+        )
+    })?;
+    let max_message_bytes = native.max_message_bytes();
+    Ok(websocket
+        .max_message_size(max_message_bytes)
+        .max_frame_size(max_message_bytes)
+        .on_upgrade(move |socket| native.serve(socket, permit))
+        .into_response())
 }
 
 async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
@@ -530,11 +514,6 @@ async fn healthz() -> impl IntoResponse {
 async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
     if state.runtime.snapshot().await == crate::domain::RuntimeState::Ready
         && state.responses.control.records().is_ok()
-        && state.v2.as_ref().is_none_or(|s| {
-            s.store
-                .metadata("recovery_state")
-                .is_ok_and(|v| v == "ready")
-        })
     {
         (StatusCode::OK, Json(HealthBody { status: "ready" }))
     } else {
@@ -1223,31 +1202,6 @@ async fn begin_turn_with_mode(
             .reserve(Execution::new(response_id.into(), None, None))
             .map_err(control_store_error)?;
     }
-    let mut legacy_reservation = if let Some(service) = &state.v2 {
-        Some(
-            crate::v2::coordination::reserve_legacy(
-                service.clone(),
-                &cwd,
-                response_id,
-                &model.public_provider_id,
-                state
-                    .catalog
-                    .provider_limits()
-                    .get(&model.public_provider_id)
-                    .copied()
-                    .unwrap_or(1),
-            )
-            .map_err(|e| {
-                ApiError::new(
-                    StatusCode::from_u16(e.status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
-                    e.code,
-                    "workspace or provider unavailable",
-                )
-            })?,
-        )
-    } else {
-        None
-    };
     drop(control_guard.take());
     let permit = state
         .permits
@@ -1270,27 +1224,6 @@ async fn begin_turn_with_mode(
             .clone();
         control_guard = Some(lock.lock_owned().await);
     }
-    if let Some(context) = &previous
-        && let Some(service) = &state.v2
-        && service
-            .store
-            .list("legacy_hold")
-            .map_err(|e| {
-                ApiError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    e.code,
-                    "managed state unavailable",
-                )
-            })?
-            .iter()
-            .any(|r| r["quarantined"] == true && r["thread_id"] == context.thread_id)
-    {
-        return Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "conversation_unavailable",
-            "legacy thread is quarantined after administrative hold release",
-        ));
-    }
     let resuming = previous.is_some();
     // Persist before either upstream call; a cancelled future must not lose this boundary.
     state
@@ -1303,9 +1236,6 @@ async fn begin_turn_with_mode(
             r.cwd = Some(cwd.to_string_lossy().into_owned());
         })
         .map_err(control_store_error)?;
-    if let Some(reservation) = legacy_reservation.as_mut() {
-        reservation.dispatched();
-    }
     let thread_id = if let Some(context) = previous {
         let result = state.runtime.request("thread/resume",json!({
             "threadId":context.thread_id,"model":model.upstream_model_id,"modelProvider":model.codex_provider_id,
@@ -2140,7 +2070,7 @@ pub(crate) async fn request_interrupt(
                 json!({"threadId":thread_id,"turnId":turn_id}),
             )
             .await;
-        let not_active = matches!(&result, Err(RuntimeError::Protocol(message)) if message.contains("no active turn to interrupt") && message.contains("(-32600)"));
+        let not_active = matches!(&result, Err(RuntimeError::Rpc { code: -32600, message }) if message.contains("no active turn to interrupt"));
         if !not_active || attempt == 19 {
             return result;
         }
@@ -2276,6 +2206,11 @@ fn model_error(error: ModelError) -> ApiError {
         ModelError::ProviderUnavailable(message) => ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "provider_unavailable",
+            message,
+        ),
+        ModelError::ProviderAuthenticationRequired(message) => ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "provider_authentication_required",
             message,
         ),
         ModelError::UnsupportedReasoning(message) | ModelError::UnsupportedEffort(message) => {
@@ -2454,7 +2389,9 @@ fn add_identity_headers(response: &mut Response, record: &Value) {
     }
 }
 
-async fn capabilities() -> Json<Value> {
+async fn capabilities(State(state): State<AppState>) -> Json<Value> {
+    state.catalog.refresh().await;
+    let providers = state.catalog.provider_statuses().await;
     Json(
         json!({"contract_version":"1.0", "responses":true, "streaming":true,
         "conversation_resume":true, "conversation_model_change":true, "identity_on_start":true, "request_lookup":true,
@@ -2465,7 +2402,8 @@ async fn capabilities() -> Json<Value> {
             "event_reconnect":"snapshot_only", "event_history_replay":false,
             "steer_idempotency":false, "disconnect_interrupts":true,
             "approval_kinds":["commandExecution","fileChange"], "user_input":false, "mcp_elicitation":false, "permissions_approval":false,
-            "model_change_scope":"same_provider", "continuation":"successful_response_only"}}),
+            "model_change_scope":"same_provider", "continuation":"successful_response_only"},
+        "providers":providers}),
     )
 }
 
@@ -2638,23 +2576,6 @@ async fn control_interrupt(
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
     let target = execution_for_turn(&state, &id)?;
-    if let Some(service) = &state.v2
-        && service.store.get("response", &target.response_id).is_ok()
-    {
-        let outcome = service
-            .stop(
-                &format!("v1-stop-{}", target.response_id),
-                &json!({"target":{"response_id":target.response_id}}),
-            )
-            .map_err(|e| {
-                ApiError::new(
-                    StatusCode::from_u16(e.status).unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
-                    e.code,
-                    "managed stop failed",
-                )
-            })?;
-        return Ok((StatusCode::ACCEPTED, Json(outcome)).into_response());
-    }
     let lock = state
         .control_locks
         .lock()
@@ -2735,29 +2656,6 @@ async fn control_steer(
             "expected_turn_id must match URL turn",
         ));
     }
-    if let Some(service) = &state.v2 {
-        let stopped = service
-            .store
-            .list("response")
-            .map_err(|e| {
-                ApiError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    e.code,
-                    "managed state unavailable",
-                )
-            })?
-            .iter()
-            .any(|r| {
-                r["turn_id"] == id && (r["stop_requested"] == true || r["phase"] != "started")
-            });
-        if stopped {
-            return Err(ApiError::new(
-                StatusCode::CONFLICT,
-                "turn_not_steerable",
-                "managed turn is stopping or inactive",
-            ));
-        }
-    }
     let input = normalize_input(&request.input)?;
     if input.is_empty()
         || input.iter().all(|part| {
@@ -2810,51 +2708,12 @@ async fn control_steer(
             "turn is inactive, unknown, awaiting approval, or interrupt requested",
         ));
     }
-    if let Some(service) = &state.v2 {
-        crate::v2::mcp_grants::steer(
-            service,
-            record.thread_id.as_deref().unwrap_or_default(),
-            &id,
-        )
-        .map_err(|e| {
-            ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                e.code,
-                "could not invalidate prior turn grants",
-            )
-        })?;
-    }
-    let binding = if let Some(service) = &state.v2 {
-        service
-            .store
-            .list("response")
-            .map_err(|e| {
-                ApiError::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    e.code,
-                    "managed state unavailable",
-                )
-            })?
-            .into_iter()
-            .find(|r| r["turn_id"] == id && crate::v2::approval_v06::selected(r))
-            .and_then(|r| {
-                r["approval_policy"]["binding_id"]
-                    .as_str()
-                    .map(str::to_owned)
-            })
-    } else {
-        None
-    };
     let params = json!({"threadId":record.thread_id,"expectedTurnId":id,"input":input});
-    let result = if let Some(binding) = binding {
-        state
-            .runtime
-            .request_scoped(&binding, "turn/steer", params)
-            .await
-    } else {
-        state.runtime.request("turn/steer", params).await
-    }
-    .map_err(control_runtime_error)?;
+    let result = state
+        .runtime
+        .request("turn/steer", params)
+        .await
+        .map_err(control_runtime_error)?;
     if result["turnId"].as_str() != Some(&id) {
         return Err(ApiError::new(
             StatusCode::BAD_GATEWAY,
@@ -2870,7 +2729,7 @@ async fn control_steer(
 }
 
 fn control_runtime_error(error: RuntimeError) -> ApiError {
-    if matches!(&error, RuntimeError::Protocol(message) if message.contains("(-32602)")) {
+    if matches!(&error, RuntimeError::Rpc { code: -32602, .. }) {
         ApiError::new(
             StatusCode::CONFLICT,
             "upstream_control_rejected",
@@ -2891,7 +2750,7 @@ fn start_error(
     error: RuntimeError,
     resuming: bool,
 ) -> ApiError {
-    if matches!(&error, RuntimeError::Protocol(message) if message.contains("(-32602)"))
+    if matches!(&error, RuntimeError::Rpc { code: -32602, .. })
         && let Err(error) = state
             .responses
             .control

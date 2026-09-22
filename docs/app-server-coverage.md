@@ -1,5 +1,7 @@
 # Codex App Server対応状況
 
+> **2026-09-23構造改定:** 本表のメソッド別実装状況はOpenAI互換`/v1`へ投影する機能の対応状況を示す。Codexの全機能は、メソッドごとの再実装ではなく`/codex` WebSocketでJSON-RPCを忠実に転送する。Gateway固有API・意味ベース承認はProxyの対象外である。
+
 確認日: 2026-09-13。参照: [公式App Server仕様](https://learn.chatgpt.com/docs/app-server)。
 今回追加した入力・出力・ページ送りの項目は、ローカルCodexの`app-server generate-json-schema`出力とも照合済み。
 この表はOpenAI互換プロキシとしての主要経路の確認結果であり、App Server全APIの実装を意味しない。

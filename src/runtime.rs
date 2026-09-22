@@ -27,6 +27,8 @@ pub enum RuntimeError {
     Spawn(#[from] std::io::Error),
     #[error("Codex App Server request failed: {0}")]
     Protocol(String),
+    #[error("Codex App Server RPC error {code}: {message}")]
+    Rpc { code: i64, message: String },
     #[error("Codex App Server initialization failed: {0}")]
     Initialization(String),
     #[error("Codex App Server is not ready")]
@@ -107,30 +109,8 @@ impl Drop for WriteGuard<'_> {
     }
 }
 
-#[derive(Default)]
-struct PolicyThread {
-    active: bool,
-    binding: Option<String>,
-    in_flight: usize,
-}
-struct PolicyCall<'a> {
-    threads: &'a SyncMutex<HashMap<String, PolicyThread>>,
-    thread: String,
-}
-impl Drop for PolicyCall<'_> {
-    fn drop(&mut self) {
-        let mut threads = self.threads.lock().unwrap();
-        if let Some(entry) = threads.get_mut(&self.thread) {
-            entry.in_flight = entry.in_flight.saturating_sub(1);
-            if entry.in_flight == 0 && entry.binding.is_none() {
-                threads.remove(&self.thread);
-            }
-        }
-    }
-}
 pub struct CodexRuntime {
     id: String,
-    policy_threads: SyncMutex<HashMap<String, PolicyThread>>,
     state: Arc<RwLock<RuntimeState>>,
     stdin: Arc<Mutex<ChildStdin>>,
     pending: Pending,
@@ -150,87 +130,24 @@ impl CodexRuntime {
     }
     pub async fn refresh_configuration(&self) -> Result<(), RuntimeError> {
         let mut refresh = self.mcp_refresh.lock().await;
-        if let Some(refresh) = refresh.as_mut() {
-            if self
-                .policy_threads
-                .lock()
-                .unwrap()
-                .values()
-                .any(|t| t.binding.is_some() && t.active)
-            {
-                return if refresh
-                    .is_current()
-                    .map_err(|_| RuntimeError::Protocol("MCP configuration unavailable".into()))?
-                {
-                    Ok(())
-                } else {
-                    Err(RuntimeError::Protocol(
-                        "MCP configuration is bound to an active execution".into(),
-                    ))
-                };
-            }
-            if let Some(desired) = refresh
+        if let Some(refresh) = refresh.as_mut()
+            && let Some(desired) = refresh
                 .prepare()
                 .map_err(|_| RuntimeError::Protocol("MCP configuration unavailable".into()))?
-            {
-                self.request_raw("config/mcpServer/reload", Value::Null)
-                    .await?;
-                refresh.acknowledge(desired);
-            }
+        {
+            self.request_raw("config/mcpServer/reload", Value::Null)
+                .await?;
+            refresh.acknowledge(desired);
         }
         Ok(())
     }
-    /// Restore a bound thread before allowing global reload or another owner.
-    /// It cannot send model input or execute arbitrary methods.
-    pub async fn restore_policy_thread(
-        &self,
-        binding: &str,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, RuntimeError> {
-        if !matches!(method, "thread/unsubscribe" | "thread/resume")
-            || !params["threadId"].is_string()
-            || (method == "thread/resume" && params["config"] != json!({}))
-        {
-            return Err(RuntimeError::Protocol("invalid policy restoration".into()));
-        }
-        let _call = self.check_policy_thread(Some(binding), method, &params)?;
-        self.request_raw(method, params).await
-    }
-
     pub async fn launch(config: &ValidatedConfig) -> Result<Arc<Self>, RuntimeError> {
-        if config.v2_enabled {
-            let version = tokio::time::timeout(
-                Duration::from_secs(5),
-                Command::new(&config.codex_command)
-                    .arg("--version")
-                    .kill_on_drop(true)
-                    .output(),
-            )
-            .await
-            .map_err(|_| RuntimeError::Initialization("Codex version probe timed out".into()))??;
-            if !version.status.success()
-                || String::from_utf8_lossy(&version.stdout)
-                    .split_whitespace()
-                    .nth(1)
-                    != Some("0.153.4")
-            {
-                return Err(RuntimeError::Initialization(
-                    "v2 dynamic-tool adapter requires verified Codex CLI 0.153.4".into(),
-                ));
-            }
-        }
         let mcp_refresh = crate::user_config::McpRefresh::new(
             &config.codex_home,
             config.codex_user_home.as_deref(),
         )
         .map_err(|e| RuntimeError::Initialization(e.to_string()))?;
         let mut command = Command::new(&config.codex_command);
-        if config.v2_limits.mcp_turn_approval_enabled {
-            command
-                .arg("-c")
-                .arg("features.tool_call_mcp_elicitation=false");
-        }
         command
             .kill_on_drop(true)
             .args(&config.codex_args)
@@ -250,7 +167,6 @@ impl CodexRuntime {
         let (notifications, _) = broadcast::channel(256);
         let runtime = Arc::new(Self {
             id: uuid::Uuid::new_v4().to_string(),
-            policy_threads: SyncMutex::new(HashMap::new()),
             state: Arc::new(RwLock::new(RuntimeState::Starting { attempt: 1 })),
             stdin: Arc::new(Mutex::new(stdin)),
             pending: Arc::new(SyncMutex::new(HashMap::new())),
@@ -267,7 +183,7 @@ impl CodexRuntime {
         runtime.spawn_reader(stdout);
         runtime.spawn_process_monitor();
 
-        if let Err(error) = runtime.initialize(config.v2_enabled).await {
+        if let Err(error) = runtime.initialize().await {
             let mut state = runtime.state.write().await;
             *state = reduce_runtime(
                 &state,
@@ -283,14 +199,14 @@ impl CodexRuntime {
         Ok(runtime)
     }
 
-    async fn initialize(&self, experimental: bool) -> Result<(), RuntimeError> {
+    async fn initialize(&self) -> Result<(), RuntimeError> {
         let params = json!({
             "clientInfo": {
                 "name": "codex-hoshikage-proxy",
                 "title": "Codex Hoshikage Proxy",
                 "version": env!("CARGO_PKG_VERSION")
             },
-            "capabilities": {"experimentalApi":experimental}
+            "capabilities": {"experimentalApi":false}
         });
         {
             let mut state = self.state.write().await;
@@ -305,108 +221,7 @@ impl CodexRuntime {
         Ok(())
     }
 
-    /// Scoped execution owns this thread until its settings have been cleared.
-    /// The v2 store owner must first exclude active/unknown previous executions.
-    pub async fn bind_policy_thread(
-        &self,
-        thread: &str,
-        binding: &str,
-    ) -> Result<(), RuntimeError> {
-        let refresh = self.mcp_refresh.lock().await;
-        if let Some(refresh) = refresh.as_ref()
-            && !refresh
-                .is_current()
-                .map_err(|_| RuntimeError::Protocol("MCP configuration unavailable".into()))?
-        {
-            return Err(RuntimeError::Protocol(
-                "MCP configuration must be refreshed before policy binding".into(),
-            ));
-        }
-        let mut threads = self.policy_threads.lock().unwrap();
-        let entry = threads.entry(thread.into()).or_default();
-        if entry.binding.as_deref() == Some(binding) {
-            entry.active = true;
-            return Ok(());
-        }
-        if entry.binding.is_some() || entry.in_flight != 0 {
-            return Err(RuntimeError::Protocol(
-                "thread policy binding is busy".into(),
-            ));
-        }
-        entry.binding = Some(binding.into());
-        entry.active = true;
-        Ok(())
-    }
-    pub fn finish_policy_binding(&self, binding: &str) {
-        for entry in self.policy_threads.lock().unwrap().values_mut() {
-            if entry.binding.as_deref() == Some(binding) {
-                entry.active = false;
-            }
-        }
-    }
-    pub fn release_policy_thread(&self, thread: &str, binding: &str) -> Result<(), RuntimeError> {
-        let mut threads = self.policy_threads.lock().unwrap();
-        if let Some(entry) = threads.get(thread) {
-            if entry.binding.as_deref() != Some(binding) || entry.in_flight != 0 {
-                return Err(RuntimeError::Protocol(
-                    "thread policy binding is busy".into(),
-                ));
-            }
-            threads.remove(thread);
-        }
-        Ok(())
-    }
-    pub async fn request_scoped(
-        &self,
-        binding: &str,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, RuntimeError> {
-        let _call = self.check_policy_thread(Some(binding), method, &params)?;
-        self.request_checked(method, params).await
-    }
-    fn check_policy_thread(
-        &self,
-        binding: Option<&str>,
-        method: &str,
-        params: &Value,
-    ) -> Result<Option<PolicyCall<'_>>, RuntimeError> {
-        if matches!(
-            method,
-            "thread/read"
-                | "thread/items/list"
-                | "thread/turns/list"
-                | "mcpServerStatus/list"
-                | "turn/interrupt"
-        ) {
-            return Ok(None);
-        }
-        let Some(thread) = params["threadId"].as_str() else {
-            return Ok(None);
-        };
-        let mut threads = self.policy_threads.lock().unwrap();
-        let entry = threads.entry(thread.into()).or_default();
-        if entry.binding.is_some() && entry.binding.as_deref() != binding {
-            return Err(RuntimeError::Protocol(
-                "thread is owned by an approval policy binding".into(),
-            ));
-        }
-        if binding.is_some() && entry.binding.as_deref() != binding {
-            if entry.in_flight == 0 {
-                threads.remove(thread);
-            }
-            return Err(RuntimeError::Protocol(
-                "thread policy binding not registered".into(),
-            ));
-        }
-        entry.in_flight += 1;
-        Ok(Some(PolicyCall {
-            threads: &self.policy_threads,
-            thread: thread.into(),
-        }))
-    }
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, RuntimeError> {
-        let _call = self.check_policy_thread(None, method, &params)?;
         self.request_checked(method, params).await
     }
     async fn request_checked(&self, method: &str, params: Value) -> Result<Value, RuntimeError> {
@@ -417,28 +232,7 @@ impl CodexRuntime {
             // Serialize refresh acknowledgement with execution boundaries. Never
             // restart the process or replace a conversation to refresh tools.
             let mut refresh = self.mcp_refresh.lock().await;
-            let bound = self
-                .policy_threads
-                .lock()
-                .unwrap()
-                .values()
-                .any(|entry| entry.binding.is_some() && entry.active);
-            if bound && method == "config/mcpServer/reload" {
-                return Err(RuntimeError::Protocol(
-                    "MCP reload is blocked by an active approval policy binding".into(),
-                ));
-            }
             if let Some(refresh) = refresh.as_mut() {
-                if bound {
-                    if !refresh.is_current().map_err(|_| {
-                        RuntimeError::Protocol("MCP configuration unavailable".into())
-                    })? {
-                        return Err(RuntimeError::Protocol(
-                            "MCP configuration changed during an approval policy binding".into(),
-                        ));
-                    }
-                    return self.request_raw(method, params).await;
-                }
                 let desired = refresh.prepare().map_err(|e| {
                     RuntimeError::Protocol(format!("MCP configuration refresh failed: {e}"))
                 })?;
@@ -583,10 +377,10 @@ impl CodexRuntime {
                                         .map_err(|error| RuntimeError::Protocol(error.to_string()))
                                 }
                             }
-                            (_, Some(error)) => Err(RuntimeError::Protocol(format!(
-                                "{} ({})",
-                                error.message, error.code
-                            ))),
+                            (_, Some(error)) => Err(RuntimeError::Rpc {
+                                code: error.code,
+                                message: error.message,
+                            }),
                             _ => Err(RuntimeError::Protocol(
                                 "response has neither result nor error".into(),
                             )),
@@ -753,7 +547,6 @@ mod cancellation_tests {
         let (notifications, _) = broadcast::channel(16);
         Arc::new(CodexRuntime {
             id: uuid::Uuid::new_v4().to_string(),
-            policy_threads: SyncMutex::new(HashMap::new()),
             state: Arc::new(RwLock::new(RuntimeState::Ready)),
             stdin: Arc::new(Mutex::new(stdin)),
             pending: Arc::new(SyncMutex::new(HashMap::new())),
@@ -819,64 +612,6 @@ mod cancellation_tests {
         assert!(runtime.pending.lock().unwrap().is_empty());
         assert!(!runtime.transport_closed.load(Ordering::Acquire));
         drop(lock);
-        runtime.shutdown().await.unwrap();
-    }
-}
-
-#[cfg(test)]
-mod policy_boundary_tests {
-    use super::*;
-    #[tokio::test]
-    async fn active_legacy_rpc_prevents_policy_rebinding_and_binding_prevents_unscoped_writes() {
-        let runtime = super::cancellation_tests::runtime();
-        let params = json!({"threadId":"thread"});
-        let legacy = runtime
-            .check_policy_thread(None, "thread/resume", &params)
-            .unwrap();
-        assert!(
-            runtime
-                .bind_policy_thread("thread", "binding")
-                .await
-                .is_err()
-        );
-        drop(legacy);
-        runtime
-            .bind_policy_thread("thread", "binding")
-            .await
-            .unwrap();
-        assert!(
-            runtime
-                .check_policy_thread(None, "turn/start", &params)
-                .is_err()
-        );
-        assert!(
-            runtime
-                .check_policy_thread(Some("other"), "turn/start", &params)
-                .is_err()
-        );
-        let owned = runtime
-            .check_policy_thread(Some("binding"), "thread/resume", &params)
-            .unwrap();
-        assert!(runtime.release_policy_thread("thread", "binding").is_err());
-        assert!(runtime.bind_policy_thread("thread", "new").await.is_err());
-        assert!(
-            runtime
-                .check_policy_thread(None, "turn/interrupt", &params)
-                .is_ok()
-        );
-        assert!(
-            runtime
-                .request("config/mcpServer/reload", Value::Null)
-                .await
-                .is_err()
-        );
-        drop(owned);
-        runtime.release_policy_thread("thread", "binding").unwrap();
-        assert!(
-            runtime
-                .check_policy_thread(None, "turn/start", &params)
-                .is_ok()
-        );
         runtime.shutdown().await.unwrap();
     }
 }

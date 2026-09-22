@@ -5,13 +5,12 @@ use codex_hoshikage_proxy::{
 use serde_json::json;
 use std::fs;
 #[tokio::test]
-async fn refresh_same_thread_retries_failed_reload_and_preserves_policy() {
+async fn refresh_same_thread_retries_failed_reload_and_preserves_private_config() {
     let root = std::env::temp_dir().join(format!("mcp-refresh-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(root.join("user")).unwrap();
     let source = root.join("user/config.toml");
     fs::write(&source, "").unwrap();
     let mut raw = RawConfig::default();
-    raw.server.v2_enabled = false;
     raw.server.default_cwd = Some(root.to_string_lossy().into());
     raw.security.allowed_cwds = vec![root.to_string_lossy().into()];
     raw.codex.user_home = Some(root.join("user"));

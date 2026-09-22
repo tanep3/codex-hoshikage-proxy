@@ -7,7 +7,7 @@
 | 文書名 | Codex Hoshikage Proxy システム設計書 |
 | プロジェクト名 | Codex Hoshikage Proxy |
 | 文書種別 | システム設計書 |
-| 対象フェーズ | 製品版（v1互換API・v2 Gateway契約） |
+| 対象フェーズ | 製品版（OpenAI互換API・Codex Native API） |
 | 状態 | Draft |
 | 対応要件 | `codex-hoshikage-proxy-requirements.md` |
 | 想定公開先 | GitHub |
@@ -15,15 +15,17 @@
 | OpenWebUI連携実装言語 | Python |
 | 設定ルート | `~/.config/codex-hoshikage-proxy` |
 
-### v2製品契約の実装方針
+### 旧v2製品契約（廃止決定・履歴）
 
-[合意済み契約0.2](workspace-artifact-api-v2.ja.md)をワーク・成果物・回答復旧の規範とする。
+以下は旧Gateway接続を実装した当時の記録であり、2026-09-23以降の製品規範ではない。現行の正本は[Codex Native API契約](codex-native-api.ja.md)と本書「2026-09-23 構造改定」である。
+
+[旧契約0.2](workspace-artifact-api-v2.ja.md)はワーク・成果物・回答復旧の当時の規範だった。
 SQLiteによる会話・操作・占有・停止意思・保存物・リース・監査のtransaction、私有ファイルの同期公開、
 会話IDでの永続実行、HTTP切断と明示停止の分離を実装する。Discord認可・キュー・配信結果はGatewayが所有する。
-以下の旧Draft記述と競合する場合はv2契約を優先する。既存v1の提供範囲は維持し、v2の実装・受入状況は
+以下は廃止前の構造を説明する。既存v1の提供範囲は維持し、旧v2の実装・受入状況は
 [v2実装記録](v2-implementation-status.ja.md)で別管理する。実装構造は[v2実装設計](v2-system-design.ja.md)、管理操作は[v2運用手順](v2-operations.ja.md)を参照する。未検証機能を利用可能と表示しない。
 
-### 実装・検証状況（2026-09-13更新）
+### 旧構造の実装・検証状況（2026-09-13時点の履歴）
 
 本書には未実装の要求・設計を含むため、全体の状態はDraftのままとする。現在の提供範囲は
 [App Server対応表](app-server-coverage.md)、実機で確認した範囲は[実接続テスト結果](live-codex-validation.md)を参照する。
@@ -32,15 +34,28 @@ Codex 0.153.4＋gpt-5.6-lunaで主要APIと切断・承認キャンセル／期�
 App Server異常終了時のProxy終了とsystemdによる再起動に対応した。完全なtool call／usage変換、長時間・高負荷検証などは未完了である。
 
 制御API v1（要求IDの永続照会、Steer／中断、承認制御、snapshot SSE）と同一Provider内の会話モデル変更も実装し、実Codexで検証した。
-現行の標準構成ではv2のSQLiteへ会話・実行・停止・成果物・リース・監査を保存し、旧v1台帳も移行する。JSONLのイベントジャーナルと移行元の退避は継続する。本文の旧Draftテーブル構想をそのまま実装したものではなく、現行構造は[v2実装設計](v2-system-design.ja.md)を参照する。
+当時の標準構成ではv2のSQLiteへ会話・実行・停止・成果物・リース・監査を保存し、旧v1台帳も移行していた。JSONLのイベントジャーナルと移行元の退避も継続していた。これは廃止前の[v2実装設計](v2-system-design.ja.md)の記録である。
 質問・MCP追加確認・権限専用承認は、対応を宣言したv2クライアント向けに[対話中継API](interaction-api.ja.md)を実装した。GatewayのUI実装・結合受入は未完了。未宣言・未対応の要求にはエラーを返し、対象Turnの停止を要求する。詳細と配備状況は[追加修正・受入記録](proxy-hardening-2026-09-13.ja.md)を参照する。
-正確な契約・責務境界は[制御API v1](control-api.ja.md)と[v2契約](workspace-artifact-api-v2.ja.md)、適用済みの構成は[常駐設定](server-operations.md)を参照する。
+制御API v1は維持する。旧v2の責務境界は[廃止契約](workspace-artifact-api-v2.ja.md)、適用済み構成は[常駐設定](server-operations.md)を参照する。
 
 ---
 
 ## 2. 設計目的
 
-本設計は、Codex App Server を常駐 Agent Runtime として利用し、外部へ OpenAI 互換 API を提供する Codex Hoshikage Proxy の内部構造を定義する。
+本設計は、Codex App Server をAgent Runtimeとして利用し、外部へOpenAI互換APIとCodex Native APIを提供するCodex Hoshikage Proxyの内部構造を定義する。
+
+### 2026-09-23 構造改定
+
+GatewayはProxyから完全に分離し、Gateway専用Codex App Serverをstdioで直接所有する。ProxyはGatewayの状態、承認表示、意味ベース委任を保持しない。
+
+Proxyは二つの独立した公開面を持つ。
+
+1. `/v1/*`：ChatGPT、Hoshikage、OllamaをOpenAI互換形式へ変換する。
+2. `/codex`：接続専用Codex App ServerのJSON-RPCをWebSocketで双方向転送する。
+
+`/codex`はメソッド別の独自REST変換を行わない。接続ごとにApp ServerプロセスとJSON-RPC名前空間を分離し、`initialize`を含むCodexの正式プロトコルをクライアントへ保持する。詳細は[Codex Native API契約](codex-native-api.ja.md)を正本とする。
+
+旧`/v2/codex`、そのSQLite資源、interaction、presentation、grant、意味評価、特定ツールポリシーは削除対象とする。以下に残るV2・Gateway関連節は履歴資料であり、新規実装の根拠にしない。V1から旧V2内部へ生じた依存を先に分離し、V1の画像、会話継続、承認、制御機能を維持してから撤去する。
 
 本システムは、HTTP リクエストを順番に処理する巨大な Handler として実装しない。
 
@@ -2222,12 +2237,40 @@ pub struct CodexScenario {
 35. Approval capabilityはRequest Contextへ正規化し、標準OpenAIフィールドへ混入させない
 36. SSE開始後のApprovalエラーはHTTP Status変更ではなくSSEエラーイベントで終了する
 37. Approval Wire DecisionはCodex Decisionと1対1で対応させ、Yes / Noへ縮約しない
+38. `/codex`はWebSocketとstdioの汎用JSON-RPC移送とし、Gateway固有契約を持たない
+39. `/codex`の各接続は専用App Serverプロセス、JSON-RPC名前空間、終了境界を持つ
+40. Proxy API keyとCodex provider認証を別状態として観測・通知する
 
 ---
 
 以上を Codex Hoshikage Proxy の現時点のシステム設計Draftとする。実装・テスト完了後にVerifiedへ更新する。
 
-## MCPターン限定許可の設計方針（2026-09-16）
+## Codex Native Bridge 内部設計（2026-09-23）
+
+`NativeBridge`は`/codex`の一接続に一つ生成する。既存OpenAI互換API用の`CodexRuntime`とはApp Serverプロセスを共有しない。
+
+1. HTTP層でBearer認証、接続数、Upgrade条件を検証する。
+2. WebSocket確立後、専用App Serverをstdioで起動する。
+3. WebSocket text一件と改行JSON一件を双方向に転送する。JSONの内容は変換しない。
+4. 片側切断、protocol違反、上限超過、子プロセス終了のいずれかで両方向を終了し、子プロセスを猶予付きで停止する。
+
+入力・出力は別の有界queueを持つ。遅いクライアントや停止したstdinのために無制限に蓄積しない。終了時に未完了要求を別プロセスへ再送しない。
+
+設定は旧`v2`節から分離し、次を持つ。`/codex`は標準機能なので有効化スイッチを設けない。
+
+| 設定 | 既定値 | 検証 |
+| --- | ---: | --- |
+| `server.codex_native_max_connections` | 16 | 1以上 |
+| `server.codex_native_max_message_bytes` | 8 MiB | 1 KiB以上64 MiB以下 |
+| `server.codex_native_shutdown_grace_seconds` | 5 | 1以上300以下 |
+
+旧V2の撤去は、(1)V1依存抽出、(2)`/codex`追加、(3)V1・Native回帰試験、(4)V2 route/config/store削除、(5)旧DBを参照しない起動確認、の順に行う。旧DBは自動削除せず、運用者が退避・削除できるよう履歴として扱う。
+
+OpenWebUIの認証・provider状態は[Pipe 0.7設計](openwebui-pipe-v07-design.ja.md)を正本とする。
+
+> **以下のGateway向けMCP承認設計は廃止済みの履歴であり、現行Proxy設計ではない。** Gatewayは専用Codex App Serverを直接所有する。
+
+## MCPターン限定許可の設計方針（2026-09-16、廃止済み）
 
 Proxyが許可状態・照合・失効・監査を所有し、Gatewayが表示・本人確認・明示選択を所有する。Discord固有IDを扱う専用ロジックは持たない。既存の一回限りinteraction返信は後方互換を維持する。
 

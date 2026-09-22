@@ -72,7 +72,7 @@ impl Execution {
 
 struct Inner {
     file: File,
-    database: Option<rusqlite::Connection>,
+    database: rusqlite::Connection,
     records: HashMap<String, Execution>,
     failed: bool,
 }
@@ -86,16 +86,14 @@ impl ControlStore {
         std::fs::create_dir_all(root)?;
         let path = root.join("executions.jsonl");
         let mut records = HashMap::new();
-        let database = crate::v2::migration::open(root)?;
-        let contents = if let Some(db) = &database {
-            Ok(crate::v2::migration::read(db, "execution")?
+        let database = crate::control_db::open(root)?;
+        let contents = Ok::<_, std::io::Error>(
+            crate::control_db::read(&database, "execution")?
                 .iter()
                 .map(Value::to_string)
                 .collect::<Vec<_>>()
-                .join("\n"))
-        } else {
-            std::fs::read_to_string(&path)
-        };
+                .join("\n"),
+        );
         match contents {
             Ok(contents) => {
                 // Fail closed even on a torn tail: never silently forget a reserved ID.
@@ -188,19 +186,14 @@ impl ControlStore {
     fn append(inner: &mut Inner, record: Execution) -> std::io::Result<()> {
         let mut bytes = serde_json::to_vec(&record)?;
         bytes.push(b'\n');
-        let result = if let Some(db) = &inner.database {
-            crate::v2::migration::put(
-                db,
-                "execution",
-                &record.response_id,
-                &serde_json::to_value(&record)?,
-            )
-        } else {
-            inner
-                .file
-                .write_all(&bytes)
-                .and_then(|()| inner.file.sync_all())
-        };
+        let result = crate::control_db::put(
+            &inner.database,
+            "execution",
+            &record.response_id,
+            &serde_json::to_value(&record)?,
+        )
+        .and_then(|()| inner.file.write_all(&bytes))
+        .and_then(|()| inner.file.sync_all());
         if let Err(e) = result {
             inner.failed = true;
             return Err(e);
@@ -212,16 +205,12 @@ impl ControlStore {
         &self,
     ) -> std::io::Result<Option<Vec<crate::store::ResponseMapping>>> {
         let inner = self.inner.lock().unwrap();
-        inner
-            .database
-            .as_ref()
-            .map(|db| {
-                crate::v2::migration::read(db, "mapping")?
-                    .into_iter()
-                    .map(|v| serde_json::from_value(v).map_err(std::io::Error::other))
-                    .collect()
-            })
-            .transpose()
+        Ok(Some(
+            crate::control_db::read(&inner.database, "mapping")?
+                .into_iter()
+                .map(|v| serde_json::from_value(v).map_err(std::io::Error::other))
+                .collect::<Result<Vec<_>, _>>()?,
+        ))
     }
     pub fn persist_mapping(
         &self,
@@ -231,11 +220,8 @@ impl ControlStore {
         if inner.failed {
             return Err(std::io::Error::other("control store is unavailable"));
         }
-        let Some(db) = &inner.database else {
-            return Ok(false);
-        };
-        if let Err(e) = crate::v2::migration::put(
-            db,
+        if let Err(e) = crate::control_db::put(
+            &inner.database,
             "mapping",
             &mapping.response_id,
             &serde_json::to_value(mapping)?,
@@ -327,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_tail_fails_closed_and_fingerprints_canonicalize_json_keys() {
+    fn sqlite_state_survives_corrupt_legacy_mirror_and_fingerprints_are_canonical() {
         let root = root();
         let store = ControlStore::open(&root).unwrap();
         store
@@ -340,7 +326,8 @@ mod tests {
             .unwrap()
             .write_all(b"{broken")
             .unwrap();
-        assert!(ControlStore::open(&root).is_err());
+        let restored = ControlStore::open(&root).unwrap();
+        assert_eq!(restored.get("one").unwrap().unwrap().response_id, "one");
         let a: Value = serde_json::from_str(r#"{"b":2,"a":{"z":3,"y":1}}"#).unwrap();
         let b: Value = serde_json::from_str(r#"{"a":{"y":1,"z":3},"b":2}"#).unwrap();
         assert_eq!(fingerprint(&a), fingerprint(&b));

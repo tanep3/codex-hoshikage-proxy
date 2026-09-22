@@ -1,14 +1,12 @@
 use codex_hoshikage_proxy::{
     config::{RawConfig, ValidatedConfig},
     domain::RuntimeState,
-    runtime::CodexRuntime,
+    runtime::{CodexRuntime, RuntimeError},
 };
 use std::{env, path::PathBuf, time::Duration};
 
 fn fake_config(args: &[&str]) -> ValidatedConfig {
     let mut raw = RawConfig::default();
-    // Exercise legacy compatibility independently of the v2 service.
-    raw.server.v2_enabled = false;
     raw.security.allowed_cwds = vec![
         env::current_dir()
             .expect("current directory")
@@ -85,7 +83,13 @@ async fn server_request_ids_do_not_consume_client_responses() {
         .request("test/error", serde_json::json!({}))
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("invalid params (-32602)"));
+    assert!(matches!(
+        error,
+        RuntimeError::Rpc {
+            code: -32602,
+            ref message
+        } if message == "invalid params"
+    ));
     runtime.shutdown().await.unwrap();
 }
 

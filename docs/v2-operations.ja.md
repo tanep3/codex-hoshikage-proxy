@@ -1,5 +1,7 @@
 # v2の設定・運用
 
+> **廃止済みの履歴資料:** 旧`/v2/codex`向けの運用記録であり、新規運用には適用しない。現行APIは[Codex Native API契約](codex-native-api.ja.md)を参照する。旧DBは自動削除せず、撤去時に退避方針を明示する。
+
 実装対象は[契約0.2](workspace-artifact-api-v2.ja.md)。[受入記録](v2-implementation-status.ja.md)の未確認項目を本番保証に含めない。このサーバーへの配備状態は[常駐運用記録](server-operations.md)を参照。
 
 ## 有効化と保存先
