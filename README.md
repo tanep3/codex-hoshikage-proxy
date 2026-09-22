@@ -57,6 +57,7 @@ In short: it is a bridge between familiar OpenAI-compatible clients and Codex.
 
 Start here:
 
+- [API reference (all endpoints)](docs/api-reference.md)
 - [Installation guide](docs/installation.md)
 - [User and API guide](docs/user-guide.md)
 - [OpenWebUI registration guide](docs/openwebui.md)
@@ -75,7 +76,7 @@ streaming, disconnect interruption, approval cancellation/expiry, and errors aft
 
 - This model misidentified an image color with `detail=low`, including when the proxy was bypassed.
   Use `high` for images in this configuration for now.
-- Client-defined tool-call/result and full usage conversion remain incomplete. Codex-native features are being moved to the bidirectional `/codex` JSON-RPC transport instead of being guessed into OpenAI-compatible shapes.
+- Client-defined tool-call/result and full usage conversion remain unsupported. Codex-native features are available through the bidirectional `/codex` JSON-RPC transport instead of being guessed into OpenAI-compatible shapes.
 - App Server failure causes the proxy to exit with an error. The bundled systemd service restarts it
   after five seconds; interrupted requests are not automatically replayed.
 - Final-output retrieval in v1 and historical SSE replay remain unsupported. Control APIs use a shared
@@ -90,5 +91,3 @@ See [coverage](docs/app-server-coverage.md), [live validation](docs/live-codex-v
 ## License
 
 Copyright (c) 2026 Tane Channel Technology. Licensed under the [MIT License](LICENSE).
-
-MCP approval API 0.6 separates complete operation display and one-shot approval from explicitly selected execution policies. See the [API contract](docs/mcp-approval-api-v06.ja.md), [user/operator guide](docs/mcp-approval-v06-guide.ja.md), and [implementation and acceptance record](docs/mcp-approval-v06-implementation.ja.md) (Japanese). The OpenAI-compatible `/v1` endpoints remain available.

@@ -2,6 +2,8 @@
 
 **日本語** | [English](user-guide.md)
 
+全エンドポイントの要求・応答・使用例は[APIリファレンス](api-reference.ja.md)を参照してください。このガイドは設定、運用上の判断、代表的な使い方を説明します。
+
 ## 環境設定
 
 標準の設定ファイルは次の場所です。
@@ -217,6 +219,6 @@ Responsesに`Idempotency-Key`を付けると要求IDで照会できます。同�
 
 ## 未対応の対話・ツール指定
 
-Codexが質問、MCP追加確認、権限専用承認を要求しても、Proxyが回答や許可を代行して捏造することはない。対応を宣言したv2クライアントには[対話中継API](interaction-api.ja.md)を提供する。未宣言・未対応の場合は `unsupported_interaction` を返して対象Turnの停止を要求する。停止完了はTurn状態で確認し、エラーだけを根拠にAIを再実行しない。通常のコマンド／ファイル承認は既存APIを使う。ネットワーク承認・追加権限・ルール追加の要求はワーク内自動承認の対象外とする。
+V1が対話中継できるのは、通常のコマンド実行とファイル変更の承認です。Codexが追加質問、MCP elicitation、権限専用承認などを要求しても、Proxyが回答や許可を捏造することはありません。V1では`unsupported_interaction`を返して対象Turnの停止を要求します。停止完了はTurn状態で確認し、エラーだけを根拠にAIを再実行しないでください。Codex App Serverのserver requestを網羅的に扱うクライアントは、[Codex Native API `/codex`](codex-native-api.ja.md)を使用します。
 
-OpenAI互換APIでのクライアント定義 `tools` / `functions`、`tool_choice` / `function_call`、`parallel_tool_calls` とツール呼出し履歴の中継は未対応。動作を変える指定は受付前に400 `unsupported_parameter`で拒否する。空のツール一覧、`null`、呼出し選択の `none`、並列指定の `false` はツール利用を要求しない指定として受理する。Codex内部のツール実行とv2成果物登録ツールは別経路で継続する。配備状況と検証範囲は[追加受入記録](proxy-hardening-2026-09-13.ja.md)を参照。
+OpenAI互換APIでのクライアント定義`tools` / `functions`、`tool_choice` / `function_call`、`parallel_tool_calls`とツール呼出し履歴の中継は未対応です。動作を変える指定は受付前に`400 unsupported_parameter`で拒否します。空のツール一覧、`null`、呼出し選択の`none`、並列指定の`false`はツール利用を要求しない指定として受理します。Codex内部のツール実行は引き続き利用できます。現行の正確な範囲は[APIリファレンス](api-reference.ja.md)を参照してください。

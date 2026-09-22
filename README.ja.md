@@ -52,6 +52,7 @@ ollama/gemma4:e4b
 
 詳しくはこちら:
 
+- [APIリファレンス（全エンドポイント）](docs/api-reference.ja.md)
 - [インストールガイド](docs/installation.ja.md)
 - [ユーザー／APIガイド](docs/user-guide.ja.md)
 - [OpenWebUI登録ガイド](docs/openwebui.ja.md)

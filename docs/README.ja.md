@@ -4,6 +4,7 @@
 
 まず利用者向けドキュメントを読んでください。
 
+- [APIリファレンス（全エンドポイント）](api-reference.ja.md)
 - [インストールガイド](installation.ja.md)
 - [ユーザー／APIガイド](user-guide.ja.md)
 - [OpenWebUI登録ガイド](openwebui.ja.md)

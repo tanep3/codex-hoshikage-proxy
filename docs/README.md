@@ -4,50 +4,25 @@
 
 Start with the end-user documentation:
 
+- [API Reference (all endpoints)](api-reference.md)
 - [Installation Guide](installation.md)
 - [User and API Guide](user-guide.md)
 - [OpenWebUI Registration Guide](openwebui.md)
 - [Server service operations (Japanese)](server-operations.md)
 - [Control API v1 and Gateway contract (Japanese)](control-api.ja.md)
+- [Codex Native API `/codex` contract (Japanese)](codex-native-api.ja.md)
 
 Project references:
 
 - [Requirements](codex-hoshikage-proxy-requirements.md)
 - [System Design](codex-hoshikage-proxy-system-design.md)
 - [Tasks and acceptance notes](TASKS.md)
-- [Workspace, artifact, and output recovery API v2 contract (Japanese)](workspace-artifact-api-v2.ja.md)
 - [App Server coverage](app-server-coverage.md)
 - [Live Codex validation](live-codex-validation.md)
 - [Development checks](development.md)
 
-Installation, user/API, and OpenWebUI guides have English and Japanese versions.
+The API reference and installation, user/API, and OpenWebUI guides have English and Japanese versions.
 Server operations and the control API contract are maintained in Japanese. The requirements,
 design, and task records are internal project references and remain Japanese-first for now.
 
-- [v2の設定・運用](v2-operations.ja.md)
-- [v2実装・受入記録](v2-implementation-status.ja.md)
-- [v2実装設計](v2-system-design.ja.md)
-
-- [v2生成画像の自動登録API](generated-image-api.ja.md)
-- [Gatewayへの生成画像自動配信修正依頼（対応済み・履歴）](gateway-generated-image-delivery-change-request.ja.md)
-
-- [2026-09-13 Proxy追加修正・受入記録](proxy-hardening-2026-09-13.ja.md)
-
-- [v2 interaction relay / 対話要求の取得・回答API](interaction-api.ja.md)：Proxy実装済み。Gateway UI・結合受入は未完了。
-
-- [Shared Codex MCP, skills and plugins (Japanese)](codex-user-extensions.ja.md)
-
-- [MCP操作詳細・単一Run限定許可 API（接続合意版・受入未完了）](mcp-turn-approval-api.ja.md)
-- [要件・設計を先行させる開発工程](development-process.ja.md)
-
-- [MCP単一Run限定許可の実装・検証記録](mcp-turn-approval-validation.ja.md)
-
-- [Discordで使うMCPの許可：利用者・管理者ガイド](mcp-turn-approval-guide.ja.md)
-
-- [MCP公開カード承認 API 0.4（接続合意版）](mcp-inline-approval-api.ja.md)
-
-- [MCP公開カード承認0.4の実装・検証記録](mcp-inline-approval-validation.ja.md)
-
-- [汎用MCP承認・明示ポリシー API 0.6](mcp-approval-api-v06.ja.md)
-- [MCP承認0.6の利用者・管理者ガイド](mcp-approval-v06-guide.ja.md)
-- [MCP承認0.6の内部設計・実装・受入記録](mcp-approval-v06-implementation.ja.md)
+The old Gateway-specific `/v2/codex` and MCP approval extension documents are historical records. They do not describe the current API. See the Japanese documentation index for those archived links.

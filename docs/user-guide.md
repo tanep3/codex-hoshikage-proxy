@@ -2,6 +2,8 @@
 
 [日本語](user-guide.ja.md) | **English**
 
+See the [API reference](api-reference.md) for every endpoint, request and response shape, and usage example. This guide focuses on configuration, operational decisions, and representative workflows.
+
 ## Configuration
 
 The default configuration file is:
@@ -224,6 +226,6 @@ Control APIs assume a shared operator API key and do not isolate individual user
 
 ## Interaction support and client tools
 
-Opt-in v2 clients can use the [interaction relay API](interaction-api.ja.md); Gateway UI integration is pending. Undeclared or unsupported user questions, MCP elicitation and permission-specific approval requests return `unsupported_interaction` and trigger interruption of the affected Turn. The proxy never invents an answer or grants permission. Check the actual Turn status; an error is not proof of completed interruption and must not trigger automatic AI replay. Standard command/file approvals remain supported. Network, additional-permission and policy-amendment requests are excluded from workspace auto-approval.
+V1 relays ordinary command-execution and file-change approvals. If Codex requests user input, MCP elicitation, or permission-specific approval, the Proxy never invents an answer or grants permission. V1 returns `unsupported_interaction` and requests interruption of the affected turn. Check actual turn status; an error is not proof of completed interruption and must not trigger automatic replay. Clients that need the complete Codex App Server server-request surface should use the [Codex Native API `/codex`](codex-native-api.ja.md).
 
-Client-defined `tools` / `functions`, `tool_choice` / `function_call`, `parallel_tool_calls` and tool-call history relay are not implemented. Meaningful tool specifications are rejected before execution with HTTP 400 `unsupported_parameter`. Empty tool lists, `null`, choice `none`, and parallel `false` are accepted as no-tool settings. Codex internal tools and the v2 artifact registration tool are unaffected. See the [acceptance/deployment record](proxy-hardening-2026-09-13.ja.md).
+Client-defined `tools` / `functions`, `tool_choice` / `function_call`, `parallel_tool_calls`, and tool-call history relay are not implemented. Meaningful tool specifications are rejected before execution with HTTP 400 `unsupported_parameter`. Empty tool lists, `null`, choice `none`, and parallel `false` are accepted as no-tool settings. Codex internal tools remain available. See the [API reference](api-reference.md) for the current exact surface.
