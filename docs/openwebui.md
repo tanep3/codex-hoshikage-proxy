@@ -2,7 +2,7 @@
 
 [日本語](openwebui.ja.md) | **English**
 
-This guide targets OpenWebUI `v0.11.0` and the included standard Manifold Pipe.
+This guide targets OpenWebUI `v0.11` and the included Manifold Pipe version 0.7.1.
 
 ## 1. Start the proxy where OpenWebUI can reach it
 
@@ -134,3 +134,9 @@ Completed Responses expose PNGs from Codex image-generation tools through the do
 ## Pipe 0.7.0 authentication diagnostics
 
 The Proxy API key is stored as a secret Valve. It is distinct from the Codex login used by the ChatGPT provider. A mismatched Proxy key and an expired Codex login produce different messages. The Pipe never forwards OpenWebUI Authorization or Cookie values, and it does not expose upstream response bodies or credentials in user-facing errors. When ChatGPT authentication is revoked, the Proxy removes those models from `/v1/models`; other available providers remain usable.
+
+## Pipe 0.7.1 compatibility with OpenWebUI v0.11
+
+OpenWebUI v0.11 can automatically attach builtin function definitions to ordinary Pipe requests. The Proxy's `/v1/responses` endpoint does not execute client-defined tools, so forwarding the OpenWebUI request unchanged caused `400 unsupported_parameter`.
+
+Version 0.7.1 constructs a fresh Responses request containing only fields supported by the Proxy. Automatically injected OpenWebUI tool definitions are not forwarded. If a user explicitly selects an OpenWebUI tool, external tool server, or terminal, the Pipe reports that the selection is unsupported instead of silently ignoring it. MCP servers and Skills configured for Codex remain available through Codex itself. Error details are rendered once in the answer; the status event only closes the indicator and no longer duplicates the same message.

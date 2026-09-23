@@ -6,6 +6,7 @@ import socket
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import httpx
 from pydantic import SecretStr
@@ -272,6 +273,117 @@ codex_id = "openai"
         self.assertEqual(result[-1]['type'], 'input_image')
         with self.assertRaises(PermissionError):
             await pipe._resolve_images([], files, {'id': 'another-user'})
+
+    async def test_openwebui_builtin_tools_are_not_forwarded_to_responses_api(self):
+        captured = []
+
+        async def handler(request):
+            if request.method == 'GET':
+                return httpx.Response(200, json={'status': 'ready'})
+            captured.append(json.loads(request.content))
+            return httpx.Response(
+                200,
+                headers={'x-codex-turn-id': 'turn'},
+                stream=Events([
+                    ('response.created', {'id': 'response'}),
+                    ('response.output_text.delta', {'delta': 'OK'}),
+                    ('response.completed', {'id': 'response'}),
+                ]),
+            )
+
+        body = {
+            'model': 'codex_hoshikage_proxy.codex/chatgpt/gpt-test-first',
+            'messages': [{'role': 'user', 'content': 'hello'}],
+            'tools': [{'type': 'function', 'function': {'name': 'memory'}}],
+            'tool_choice': 'auto',
+            'parallel_tool_calls': True,
+            'temperature': 0.7,
+            'stream_options': {'include_usage': True},
+        }
+        metadata = {
+            'session_id': 'session',
+            'tools': {'memory': {'spec': {'name': 'memory'}}},
+            'tool_ids': None,
+            'features': {},
+        }
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        with patch('httpx.AsyncClient', return_value=client):
+            output = ''.join([
+                part async for part in Pipe().pipe(
+                    body,
+                    __chat_id__='chat',
+                    __metadata__=metadata,
+                    __user__={'id': 'user'},
+                )
+            ])
+
+        self.assertEqual(output, 'OK')
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(
+            set(captured[0]),
+            {'model', 'reasoning', 'metadata', 'input', 'stream'},
+        )
+        self.assertEqual(captured[0]['model'], 'chatgpt/gpt-test-first')
+        self.assertNotIn('tools', captured[0])
+        self.assertNotIn('tool_choice', captured[0])
+
+    async def test_explicit_openwebui_tool_selection_fails_before_proxy_request(self):
+        emitted = []
+
+        async def emitter(event):
+            emitted.append(event)
+
+        output = ''.join([
+            part async for part in Pipe().pipe(
+                {
+                    'model': 'codex/chatgpt/gpt-test-first',
+                    'messages': [{'role': 'user', 'content': 'hello'}],
+                    'tools': [{'type': 'function', 'function': {'name': 'weather'}}],
+                },
+                __metadata__={'tool_ids': ['weather']},
+                __event_emitter__=emitter,
+            )
+        ])
+
+        self.assertIn('OpenWebUI側で選択したツール', output)
+        self.assertIn('weather', output)
+        self.assertEqual(
+            emitted,
+            [{'type': 'status', 'data': {'status': 'error', 'done': True}}],
+        )
+
+    async def test_stream_error_detail_is_not_duplicated_in_status_event(self):
+        emitted = []
+
+        async def emitter(event):
+            emitted.append(event)
+
+        async def handler(request):
+            if request.method == 'GET':
+                return httpx.Response(200, json={'status': 'ready'})
+            return httpx.Response(
+                400,
+                json={'error': {'code': 'unsupported_parameter', 'message': 'secret'}},
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        with patch('httpx.AsyncClient', return_value=client):
+            output = ''.join([
+                part async for part in Pipe().pipe(
+                    {
+                        'model': 'codex/chatgpt/gpt-test-first',
+                        'messages': [{'role': 'user', 'content': 'hello'}],
+                    },
+                    __event_emitter__=emitter,
+                )
+            ])
+
+        self.assertEqual(output.count('Codex turn failed:'), 1)
+        self.assertNotIn('secret', output)
+        self.assertEqual(
+            emitted,
+            [{'type': 'status', 'data': {'status': 'error', 'done': True}}],
+        )
 
 
 if __name__ == '__main__':

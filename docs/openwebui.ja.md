@@ -2,7 +2,7 @@
 
 **日本語** | [English](openwebui.md)
 
-このガイドのAPI参照版はOpenWebUI `v0.11.0`です。付属Pipeの現行ソースは`0.7.0`です。PipeはOpenAI互換`/v1`を使い、Codex Native API `/codex`へは接続しません。
+このガイドのAPI参照版はOpenWebUI `v0.11`です。付属Pipeの現行ソースは`0.7.1`です。PipeはOpenAI互換`/v1`を使い、Codex Native API `/codex`へは接続しません。
 
 ## 1. OpenWebUIからProxyへ到達できるようにする
 
@@ -24,7 +24,7 @@ LAN待受ではProxy APIキーが必須です。Proxy設定へキーを記述し
 api_key = "YOUR_PROXY_API_KEY"
 ```
 
-実運用では長くランダムな値を使ってください。この同じ値をOpenWebUIのPipe設定 `PROXY_API_KEY` へ入力します。0.7.0ではValves上で秘密値として扱います。
+実運用では長くランダムな値を使ってください。この同じ値をOpenWebUIのPipe設定 `PROXY_API_KEY` へ入力します。PipeはValves上で秘密値として扱います。
 `api_key_env` を使う場合は、Proxyプロセスの環境変数へ設定します。
 
 これはPipeからProxyへ接続するための鍵です。ProxyがChatGPTを利用するCodexログインとは別物です。Proxy APIキーが正しくてもCodexログインが失効していれば、ChatGPTモデルは一覧から除外され、再ログインを促すエラーになります。
@@ -125,3 +125,11 @@ Codex画像生成ツールが作成したPNGは、完了したResponseの生成�
 Proxy APIキーを秘密型で保持し、OpenWebUIのAuthorizationやCookieをProxyへ転送しない。Proxy APIキー不一致とCodexログイン失効を別の日本語メッセージで表示する。ProxyのHTTP応答本文、token、URL中の資格情報は利用者向けエラーやログへ出さない。ChatGPT認証失効中でも、利用可能なHoshikageやOllamaは継続して一覧・実行できる。
 
 2026-09-23に登録済み`codex_hoshikage_proxy`を0.7.0へ更新した。既存Valves・所有者・有効状態を保持し、登録ソースの読込みと秘密型をコンテナ内で確認した。更新時点ではProxy専用CodexのChatGPTログインが失効しているためモデルは0件であり、再ログイン後の復帰確認が必要である。
+
+## PIPE 0.7.1のOpenWebUI v0.11対応
+
+OpenWebUI v0.11は、通常の画面操作でも組込みツール定義をPipeのリクエストへ自動追加する。Proxyの`/v1/responses`はクライアント定義ツールを実行しないため、この値をそのまま送ると`400 unsupported_parameter`になる。
+
+0.7.1はOpenWebUIのリクエストを丸ごと転送せず、Proxyが対応する項目だけで新しいリクエストを組み立てる。OpenWebUIが自動追加した組込みツール定義は転送しない。OpenWebUIの画面でツール、外部ツールサーバー、ターミナルを明示選択した場合は、機能を黙って無視せず、このPipeでは利用できない旨を表示する。CodexのMCPとSkillは、Codex側へ登録したものを利用する。
+
+エラー本文は回答欄へ1回だけ表示し、状態イベントには同じ本文を重ねて入れない。これにより同一エラーの二重表示を防ぐ。

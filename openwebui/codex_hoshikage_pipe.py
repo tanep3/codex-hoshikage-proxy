@@ -1,7 +1,7 @@
 """
 title: Codex Hoshikage Proxy
 author: Codex Hoshikage Proxy
-version: 0.7.0
+version: 0.7.1
 requirements: httpx
 
 OpenWebUI Manifold Pipe for Codex Hoshikage Proxy.
@@ -168,19 +168,34 @@ class Pipe:
         await self._refresh_openwebui_model_cache(__request__)
 
         timeout = httpx.Timeout(self.valves.REQUEST_TIMEOUT_SECONDS)
-        payload = dict(body)
-        requested_model = payload.get("model")
+        requested_model = body.get("model")
         proxy_model = requested_model
         if isinstance(requested_model, str):
             proxy_model = self._proxy_model_id(requested_model)
-            payload["model"] = proxy_model
 
+        # OpenWebUI passes its own native-function definitions to every Pipe
+        # when builtin tools are enabled.  They are instructions for the
+        # OpenWebUI model adapter, not fields that this Pipe can execute through
+        # the Proxy.  Build a new Responses request instead of forwarding the
+        # OpenWebUI request wholesale.
+        payload: dict[str, Any] = {}
+        if isinstance(proxy_model, str) and proxy_model:
+            payload["model"] = proxy_model
         if isinstance(proxy_model, str) and proxy_model.startswith("chatgpt/"):
             payload["reasoning"] = {"effort": self.valves.REASONING_EFFORT}
-        else:
-            payload.pop("reasoning", None)
 
-        source_metadata = __metadata__ or payload.get("metadata") or {}
+        source_metadata = __metadata__ or body.get("metadata") or {}
+        if not isinstance(source_metadata, dict):
+            source_metadata = {}
+        selected_tools = self._selected_openwebui_tools(source_metadata)
+        if selected_tools:
+            message = (
+                "OpenWebUI側で選択したツールは、このCodex Pipeからは実行できません"
+                f"（{', '.join(selected_tools)}）。選択を解除し、Codex側に登録したMCPやSkillを利用してください。"
+            )
+            await self._emit_error_status(__event_emitter__)
+            yield message
+            return
         # The proxy's metadata contract is string-to-string.  OpenWebUI's
         # reserved metadata also contains lists and nested dictionaries.
         metadata = {
@@ -207,15 +222,12 @@ class Pipe:
             await self._report_stream_error(error, __event_emitter__)
             yield f"画像の読み込みに失敗しました: {error}"
             return
-        payload.pop("messages", None)
         previous_response_id = self._previous_response_id(
             conversation_id,
             proxy_model if isinstance(proxy_model, str) else "",
         )
         if previous_response_id:
             payload["previous_response_id"] = previous_response_id
-        else:
-            payload.pop("previous_response_id", None)
         payload["stream"] = True
 
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -232,31 +244,12 @@ class Pipe:
                 )
                 if error.response.status_code == 503:
                     message = "Proxyは起動していますが、まだ準備が完了していません。しばらくしてから再試行してください。"
-                if __event_emitter__ is not None:
-                    try:
-                        await __event_emitter__(
-                            {"type": "status", "data": {"status": "error", "description": message, "done": True}}
-                        )
-                    except Exception:
-                        pass
+                await self._emit_error_status(__event_emitter__)
                 yield message
                 return
             except Exception:
                 message = "Proxyへ接続できません。常駐サービスの状態を確認してください。"
-                if __event_emitter__ is not None:
-                    try:
-                        await __event_emitter__(
-                            {
-                                "type": "status",
-                                "data": {
-                                    "status": "error",
-                                    "description": message,
-                                    "done": True,
-                                },
-                            }
-                        )
-                    except Exception:
-                        pass
+                await self._emit_error_status(__event_emitter__)
                 yield message
                 return
             try:
@@ -316,8 +309,12 @@ class Pipe:
         detail = str(error).strip()
         if not detail:
             detail = f"{type(error).__name__} (no error message supplied)"
-        message = f"Codex turn failed: {detail}"
         log.exception("Codex turn failed [%s]: %s", type(error).__name__, detail)
+        await self._emit_error_status(event_emitter)
+
+    @staticmethod
+    async def _emit_error_status(event_emitter: Any) -> None:
+        """Finish OpenWebUI's status indicator without duplicating reply text."""
         if event_emitter is None:
             return
         try:
@@ -326,13 +323,29 @@ class Pipe:
                     "type": "status",
                     "data": {
                         "status": "error",
-                        "description": message,
                         "done": True,
                     },
                 }
             )
         except Exception:
             log.debug("failed to report Pipe error status", exc_info=True)
+
+    @staticmethod
+    def _selected_openwebui_tools(metadata: dict[str, Any]) -> list[str]:
+        """Return user-selected OpenWebUI tools that this Pipe cannot execute."""
+        selected: list[str] = []
+        tool_ids = metadata.get("tool_ids")
+        if isinstance(tool_ids, list):
+            selected.extend(str(value) for value in tool_ids if str(value).strip())
+        tool_servers = metadata.get("tool_servers")
+        if isinstance(tool_servers, list) and tool_servers:
+            selected.append("外部ツールサーバー")
+        elif isinstance(tool_servers, dict) and tool_servers:
+            selected.append("外部ツールサーバー")
+        terminal_id = metadata.get("terminal_id")
+        if isinstance(terminal_id, str) and terminal_id.strip():
+            selected.append("ターミナル")
+        return list(dict.fromkeys(selected))
 
     async def _refresh_openwebui_model_cache(self, request: Any) -> None:
         """Refresh OpenWebUI's manifold model cache before a user turn.

@@ -2,7 +2,7 @@
 
 For the end-user setup flow, see the bilingual [OpenWebUI Registration Guide](../docs/openwebui.md).
 
-`codex_hoshikage_pipe.py` 0.7.0 is the official OpenWebUI v0.11.0 integration path
+`codex_hoshikage_pipe.py` 0.7.1 is the official OpenWebUI v0.11 integration path
 for interactive Approval, image input/output, and provider-aware authentication errors.
 
 ## Installation
@@ -11,7 +11,7 @@ for interactive Approval, image input/output, and provider-aware authentication 
    `codex_hoshikage_pipe.py`.
 2. Set `PROXY_BASE_URL` to the Proxy URL without `/v1`, for example
    `http://192.168.0.220:4040`.
-3. Set `PROXY_API_KEY` when the Proxy requires API key authentication. This is not the Codex/ChatGPT login; 0.7.0 stores it as a secret Valve and reports the two failures separately.
+3. Set `PROXY_API_KEY` when the Proxy requires API key authentication. This is not the Codex/ChatGPT login; the Pipe stores it as a secret Valve and reports the two failures separately.
 4. Leave `HEALTHCHECK_TIMEOUT_SECONDS` at its default of `2` seconds unless your network is unusually slow.
 5. Enable the generated manifold models.
 
@@ -28,7 +28,7 @@ reloads the Pipe, and Responses-based interactive Approval still requires the Pr
 Responses stream Turn ID.
 
 The Pipe reads `GET /v1/models`, sends requests to
-`POST /v1/chat/completions`, and watches
+`POST /v1/responses`, and watches
 `GET /v1/codex/turns/{turn_id}/events/stream` for Approval requests.
 OpenWebUI prefixes Pipe model IDs with its Function ID; the Pipe removes that
 namespace before sending the Public Model ID to the Proxy.
@@ -53,3 +53,9 @@ installation from Pipe frontmatter is disabled, install `httpx` in the
 OpenWebUI environment or enable its function dependency installation setting.
 
 The Pipe continues to use the OpenAI-compatible `/v1` API. It does not use the retired `/v2/codex` API or the native `/codex` WebSocket transport.
+
+OpenWebUI v0.11 may attach its builtin function definitions to every Pipe request.
+Version 0.7.1 translates only the supported Responses fields and does not forward
+those definitions as client-defined Proxy tools. Tools explicitly selected in
+OpenWebUI are reported as unsupported; use MCP servers and Skills configured for
+Codex when chatting through this Pipe.

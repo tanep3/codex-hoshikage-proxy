@@ -79,6 +79,8 @@ Proxy専用CodexのChatGPTセッションは失効していた。新実装は`au
 
 同時に登録済みOpenWebUI Pipeを0.7.0へ更新した。FunctionのValves・所有者・有効状態を保持し、変更前行を`/home/tane/tools/docker/open-webui/data/pipe-backup-20260922T223353Z/function-row.json`へ権限600で保存した。登録済みソースのSHA-256は`0a263539995171c5be47c90c33a61b1dfc550a71ce3b75cd21ff6de61529eae6`。コンテナ内で読込み、Proxy API keyが`SecretStr`となることと、認証失効時にモデルが公開されないことを確認した。
 
+2026-09-23に登録済みOpenWebUI Pipeを0.7.1へ更新した。OpenWebUI v0.11が通常チャットへ自動付与するクライアントツール定義をProxyへ横流しして`400 unsupported_parameter`となる問題と、同じエラー本文が2回表示される問題を修正した。更新前行は`/home/tane/tools/docker/open-webui/pipe-backup-20260923T004044Z/function-row.json`へ権限600で保存した。FunctionのValves・有効状態を保持し、登録済みソースのSHA-256は`80a2e3df009789eeb3723414e5fd3a46739a4846409856643d03ceed4e2506f0`。PIPE単体13件、実Proxyへの自動ツール定義付き通信、コンテナ内DBから読み込んだ登録済みPIPEによる実Codex応答`REGISTERED_PIPE_FIX_OK`を確認した。
+
 ## 2026-09-11 制御API v1適用記録
 
 09:03 JSTに実装コミット`6875bb0859878d3ac7f3d4dcd185e1db88c05244`のreleaseビルドを適用した。
